@@ -2,9 +2,24 @@
 const links = [
   { label: 'Купить билеты', to: '/' },
   { label: 'Возврат билетов', to: '/backbycode' },
-  { label: 'Расписание автобусов', to: '/' },
+  { label: 'Расписание автобусов', to: '/raspisanie-avtobusov' },
   { label: 'Контакты', to: '/' },
 ]
+
+const { user, isLoggedIn, logout } = useAuth()
+
+// Меню кабинета в шапке.
+const accountItems = computed(() => [[
+  { label: 'Мои билеты', icon: 'i-lucide-ticket', to: '/lk' },
+  { label: 'Профиль', icon: 'i-lucide-settings', to: '/lk/profile' },
+], [
+  { label: 'Выйти', icon: 'i-lucide-log-out', onSelect: signOut },
+]])
+
+async function signOut() {
+  await logout()
+  await navigateTo('/')
+}
 </script>
 
 <template>
@@ -25,6 +40,30 @@ const links = [
             {{ link.label }}
           </NuxtLink>
         </nav>
+
+        <div class="ml-auto md:ml-0 flex items-center">
+          <UDropdownMenu v-if="isLoggedIn" :items="accountItems">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-user"
+              trailing-icon="i-lucide-chevron-down"
+              class="text-neutral-200 hover:text-white"
+            >
+              <span class="hidden sm:inline max-w-40 truncate">{{ user?.email }}</span>
+            </UButton>
+          </UDropdownMenu>
+          <UButton
+            v-else
+            to="/login"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-user"
+            class="text-neutral-200 hover:text-white"
+          >
+            Личный кабинет
+          </UButton>
+        </div>
       </UContainer>
     </header>
 

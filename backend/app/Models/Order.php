@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
@@ -24,6 +25,18 @@ class Order extends Model
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class)->orderBy('position');
+    }
+
+    /** Возвраты билетов этого заказа. */
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(Refund::class);
+    }
+
+    /** Покупатель, если заказ оформлен из личного кабинета. */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public const STATUS_PENDING = 'pending';

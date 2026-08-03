@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const api = useApi()
+const { isLoggedIn } = useAuth()
 
 interface OrderData {
   order_id: string
@@ -119,6 +120,17 @@ const pdfUrl = computed(() => order.value
           </div>
         </template>
       </UCard>
+
+      <!-- Гостю сразу предлагаем кабинет: то же письмо уйдёт на почту. -->
+      <UAlert
+        v-if="!isLoggedIn"
+        color="primary"
+        variant="subtle"
+        icon="i-lucide-user-plus"
+        title="Заведите личный кабинет"
+        :description="`Билеты этого и будущих заказов на ${order.email} будут в одном месте: печать, PDF и возврат без кода. Приглашение мы отправили на почту.`"
+        :actions="[{ label: 'Создать кабинет', color: 'primary', to: '/register' }]"
+      />
 
       <UAlert
         color="info"

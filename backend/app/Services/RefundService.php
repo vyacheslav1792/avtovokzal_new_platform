@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Возврат билета по коду для возврата (перенос legacy url/backbycode.php).
+ * Возврат билета по коду для возврата (перенос legacy url/backbycode.php)
+ * и из личного кабинета (перенос legacy url/ticketback.php) — правила
+ * возврата в обоих случаях одни и те же.
  *
  * Код на билете = back_code заказа (15 символов) + номер билета.
  * Двухшаговый флоу: preview (расчёт удержаний, подписанный токен)
@@ -20,7 +22,7 @@ use Illuminate\Validation\ValidationException;
 class RefundService
 {
     /** Секунд до отправления, после которых возврат по коду закрыт (legacy: 1200). */
-    private const REFUND_DEADLINE = 1200;
+    public const REFUND_DEADLINE = 1200;
 
     /** Секунд на подтверждение условий возврата (legacy: 600). */
     private const CONFIRM_TTL = 600;
@@ -38,6 +40,23 @@ class RefundService
     public function preview(string $code): array
     {
         [$order, $ticket] = $this->resolveTicket($code);
+
+        return $this->previewTicket($order, $ticket);
+    }
+
+    /**
+     * Тот же расчёт для билета, найденного без кода, — возврат из личного
+     * кабинета (владелец заказа уже определён по авторизации).
+     *
+     * @return array условия + подписанный токен для confirm()
+     */
+    public function previewTicket(Order $order, Ticket $ticket): array
+    {
+        if ($order->status !== Order::STATUS_COMPLETED) {
+            throw ValidationException::withMessages(['code' => 'Заказ не может быть возвращён: статус не позволяет']);
+        }
+
+        $this->assertNotRefunded($order, $ticket);
 
         $canceledTrip = $this->isTripCanceled($order);
 

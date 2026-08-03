@@ -22,6 +22,89 @@ class BusterGateway
         private readonly int $baggageWorkerCode = 991,
     ) {}
 
+    /**
+     * Регулярное расписание станции — маршруты и график отправлений
+     * (перенос legacy `ais/api/api2.php`, action=raspisanie).
+     *
+     * Условия выборки повторяют legacy 1:1: удалённые направления
+     * (naplst.isdel), коммерческие рейсы (RAICETYPCOD=3 — они нужны
+     * только для подсчёта проездных) и снятые с регулярки (reg_stop)
+     * в расписание не попадают. Против legacy добавлены только поля,
+     * которых там не выводили: перевозчик, номер и название маршрута.
+     */
+    public function regularSchedule(int $awtcod): array
+    {
+        return $this->db->select(
+            'select naplst.napname, naplst.napcod, raicelst.*, atplstall.ATPOFFICIAL as atpname
+               from raicelst
+               left join naplst on naplst.napcod = raicelst.napcod
+               left join atplstall on atplstall.atpcod = raicelst.atpcod
+              where naplst.isdel = 0
+                and raicelst.RAICETYPCOD <> 3
+                and raicelst.awtcod = ?
+                and (raicelst.reg_stop is null or raicelst.reg_stop >= current_date)
+              order by raicelst.raicename, naplst.napname, raicelst.timestart',
+            [$awtcod],
+        );
+    }
+
+    /** Карточка рейса регулярного расписания (для страницы тарифа). */
+    public function routeCard(int $awtcod, int $napcod, int $raicecod): ?array
+    {
+        $rows = $this->db->select(
+            'select raicelst.raicename, raicelst.marshnom, raicelst.marshname, raicelst.timestart,
+                    raicelst.chandate, raicelst.oldnomkat, raicelst.newnomkat, raicelst.raice_category,
+                    naplst.napname, atplstall.ATPOFFICIAL as atpname
+               from raicelst
+               left join naplst on naplst.napcod = raicelst.napcod and naplst.awtcod = raicelst.awtcod
+               left join atplstall on atplstall.atpcod = raicelst.atpcod
+              where raicelst.awtcod = ? and raicelst.napcod = ? and raicelst.raicecod = ?',
+            [$awtcod, $napcod, $raicecod],
+        );
+
+        return $rows[0] ?? null;
+    }
+
+    /**
+     * Тарифы по остановкам рейса (перенос legacy action=tarif).
+     *
+     * Дубль-запрос legacy (там он выполнялся ещё раз при пустом результате,
+     * отличаясь только регистром имени таблицы) не переносим — запросы
+     * идентичны, второй никогда ничего не добавлял.
+     */
+    public function tariff(int $napcod, int $nomkat, int $raicecod): array
+    {
+        return $this->db->select(
+            'select raicelst.chandate, raicelst.newnomkat, raicelst.oldnomkat, raicelst.timestart,
+                    tracetime.time_to_stat, tracetime.time_of_stop,
+                    traces.statname, traces.kilom,
+                    TARIFS2D.statcode, TARIFS2D.PAYHARDALL, TARIFS2D.DOBRSTR,
+                    TARIFS2D.payhardchd, TARIFS2D.payhardbag
+               from tarifs2D
+               left join traces on (traces.napcod = tarifs2D.napcode and traces.statcod = tarifs2D.statcode)
+               left join raicelst on (raicelst.napcod = TARIFS2D.napcode)
+               left join tracetime on (tracetime.napcod = traces.napcod
+                    and raicelst.tracetimecod = tracetime.traicetimecod
+                    and traces.statcod = tracetime.statcod)
+              where PAYHARDALL > 0
+                and TARIFS2D.napcode = ?
+                and tarifs2D.katcode = ?
+                and raicelst.raicecod = ?
+                and TARIFS2D.startstatcode = 0
+              order by traces.kilom',
+            [$napcod, $nomkat, $raicecod],
+        );
+    }
+
+    /** Даты нерегулярных рейсов станции (REG_FIXED): reg_fixed_days. */
+    public function fixedDays(int $awtcod): array
+    {
+        return $this->db->select(
+            'select * from reg_fixed_days where awtcod = ? order by DATESTART',
+            [$awtcod],
+        );
+    }
+
     /** Пункты, до которых продаются билеты со станции (KS_STATIONS). */
     public function destinations(int $awtcod): array
     {

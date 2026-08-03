@@ -29,6 +29,22 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->get("stations/{$awtcod}/destinations"));
     }
 
+    /** Регулярное расписание станции (legacy action=raspisanie). */
+    public function schedule(int $awtcod): array
+    {
+        return $this->call(fn () => $this->http()->get("stations/{$awtcod}/schedule"));
+    }
+
+    /** Тариф рейса по остановкам (legacy action=tarif). */
+    public function tariff(int $awtcod, int $napcod, int $raicecod, ?string $variant = null): array
+    {
+        return $this->call(fn () => $this->http()->get("stations/{$awtcod}/tariff", array_filter([
+            'napcod' => $napcod,
+            'raicecod' => $raicecod,
+            'variant' => $variant,
+        ])));
+    }
+
     public function trips(int $awtcod, string $station, string $date, bool $forSale = true): array
     {
         return $this->call(fn () => $this->http()->get('trips', [

@@ -105,6 +105,70 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
   «Популярные направления» на главной фильтруются по станциям из конфига —
   плитки недоступных станций скрываются сами. SSR ходит в backend по `http://web`
   (runtimeConfig.apiBaseServer), браузер — на :8080.
+- **Личный кабинет покупателя** (перенос legacy `url/lk.php`, `login.php`,
+  `register.php`, `forgot.php`, `newpass.php`, `change.php`, `ticketback.php`):
+  backend `auth/*` + `cabinet/*`, фронт `/lk`, `/lk/profile`, `/login`,
+  `/register`, `/forgot`, `/reset`. Авторизация — **Bearer-токен Sanctum**
+  (им же будет ходить мобильное приложение). Токен хранится в **httpOnly
+  cookie `av_session`, которую ставит сервер Nuxt** (`frontend/server/api/auth/
+  session.{get,post,delete}.ts`): cookie и localStorage, записанные из JS,
+  Safari/ITP стирает через ~неделю — покупатель разлогинивался бы. Портал
+  получает токен из `GET /api/auth/session` (SSR — с cookie запроса) и шлёт
+  в backend как Bearer. Менять cookie можно только same-origin запросом
+  (`assertSameOrigin`) — иначе чужой сайт подсунул бы свой токен.
+  **Срок — полгода бездействия с обеих сторон:** `maxAge` cookie обновляется
+  при каждом чтении сессии, а токен проверяется по `last_used_at`
+  (`Sanctum::authenticateAccessTokensUsing` в AppServiceProvider,
+  `site.token_idle_minutes`; `expiration` Sanctum не годится — он считает
+  от created_at). Мёртвые токены и старые ссылки писем чистит
+  `auth:prune-tokens` (ofelia, ежедневно в 04:30).
+  Схема сразу под расширение (VK, вход по SMS): способы входа —
+  строки `user_identities` (`password` | `vk` | `phone`), пароль в `users`
+  **nullable**. Одноразовые ссылки писем (приглашение, сброс) — `auth_tokens`
+  (в базе только sha256, TTL, отметка использования); legacy хранил пароль
+  открытым текстом в `USERS.PASSWORD_RAW` — **не повторять**.
+  Пароль: `trim` при задании И при проверке, минимум 8 символов, сложность
+  сознательно не проверяем. Заказы кабинета ищутся по `user_id` **или**
+  `orders.email` — покупки «на этот e-mail» до регистрации считаются своими.
+  У авторизованного покупателя e-mail заказа берётся из профиля (поле на форме
+  покупки заблокировано), телефон редактируется. Письма кабинета
+  (сброс пароля) шлются **синхронно**, приглашение после первой покупки —
+  джобом в очередь `emails` (воркер писем по-прежнему не запущен).
+- **Регулярное расписание** (перенос legacy `/raspisanie-avtobusov` + генератора
+  `getrasp.php?action=raspisanie` + `action=raspisanie` в `ais/api/api2.php`):
+  sales-api `GET /stations/{awtcod}/schedule` отдаёт **данные, а не HTML**
+  (legacy собирал таблицу прямо в API и складывал в файлы
+  `url/raspisanie/<slug>.html`). Логика графика перенесена 1:1
+  (`RegularScheduleBuilder`): REG_FIXED → даты из `reg_fixed_days`; ни одного
+  дня недели → рейс не в расписании; все семь → «Каждый день», а с
+  REG_INTERVAL — «Каждые N дня» + две ближайшие даты (таблица PERIOD, отсчёт
+  от 11.05.2018); иначе — перечень дней. Рейсы группируются по
+  «маршрут + график», времена собираются в список; до CHANDATE действует
+  OLDNOMKAT. Хранится в Postgres `station_schedules` (строка на станцию,
+  routes jsonb), обновляет команда `schedule:sync` (ofelia, 04:15).
+  Сайт читает `GET /api/v1/schedule[/{awtcod|slug|название}]`, страница —
+  `frontend/app/pages/raspisanie-avtobusov.vue`: без `?from=` — список станций,
+  с `?from=<название>` — маршруты станции и селектор пункта отправления,
+  меняющий адрес. Сверено с боевым api2.php построчно.
+- **Тариф рейса** (перенос legacy `/tarif` + action=tarif):
+  sales-api `GET /stations/{awtcod}/tariff?napcod=&raicecod=&variant=`,
+  backend `GET /api/v1/tariff` (кэш 10 мин), страница `/tarif` (клик по времени
+  в расписании). **ЛОВУШКА тарифных категорий:** у рейса в `raicelst` их две —
+  `OLDNOMKAT`/`NEWNOMKAT` с датой смены `CHANDATE`. Пока CHANDATE в будущем,
+  действует OLDNOMKAT (по CHANDATE-1 сутки), а NEWNOMKAT вступает в силу с
+  CHANDATE; когда CHANDATE прошла — категория одна (NEWNOMKAT). Legacy тащил
+  `nomkat` через URL и полагался на вызывающую страницу — у нас категорию
+  **всегда выбирает сервер** (`TariffCard`), клиент просит только
+  `variant=current|upcoming`; старые ссылки с `nomkat` работают (параметр
+  игнорируется). Тексты и колонки страницы сверены с legacy 1:1, включая
+  «Внимание! Тариф изменяется с …» и переключатель старый/новый.
+- **Чёрный список e-mail** (перенос legacy `$CHS` из `avtovokzal57/inc/config.php`,
+  где он правился в исходнике): таблица **`blocked_emails`**, модель
+  `BlockedEmail` с кэшом на 5 мин (сбрасывается при изменении таблицы),
+  команда `php artisan emails:block [email] [--reason=] [--remove]`.
+  Закрывает **все четыре** входа legacy: покупку (`StoreOrderRequest`,
+  проверяется ИТОГОВЫЙ адрес заказа — у авторизованного он из профиля),
+  регистрацию, восстановление пароля и приглашение в кабинет.
 - **Билеты сайта — таблица `tickets`, НЕ jsonb**: строка на пассажирский билет
   (`Order::tickets()`, порядок по `position`; багажные квитанции — jsonb в строке
   билета, их ≤5 и по номерам не ищем). Колонки `orders.tickets` больше нет —

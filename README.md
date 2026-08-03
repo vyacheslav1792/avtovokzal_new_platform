@@ -70,6 +70,12 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
   запускается). Валидация данных пассажира — по правилам станции
   (`PassengerDocument`, снята с `KS_CONTROL_DATA_PAS`), ФИО фильтруется, Ё→Е.
   Таймзона приложения — Europe/Moscow (времена рейсов BUSTER — wall-clock +3).
+  **Личный кабинет** (`auth/*`, `cabinet/*`): регистрация с паролем и телефоном,
+  вход по Bearer-токену Sanctum, сброс пароля ссылкой из письма, приглашение
+  завести кабинет после первой покупки, список заказов и возврат билета
+  (правила — общие с возвратом по коду). Чёрный список адресов (legacy `$CHS`) —
+  таблица `blocked_emails` + команда `emails:block`; закрывает покупку,
+  регистрацию, восстановление пароля и приглашение.
 - **`kkm-api/`** (:8087) — KKM API: прослойка к KkmServer для фискальных чеков.
   Своя БД Postgres `kkm`: журнал `api_requests` + чеки `receipts`. Идемпотентность
   двух уровней: `external_id` клиента (повтор не пробивает второй чек) и `IdCommand`
@@ -85,7 +91,13 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
   «Агентские билеты» (вывод сверен с legacy 1:1).
 - **`frontend/`** (:3000) — Nuxt 4 + Nuxt UI 4: поиск, рейсы, пассажиры, оплата,
   страница успеха, возврат по коду (`/backbycode`), печатные формы билетов
-  (`/print/{id}`). Ходит только в `backend` (:8080); SSR — внутри docker-сети (`http://web`).
+  (`/print/{id}`), личный кабинет (`/lk`, `/lk/profile`, `/login`, `/register`,
+  `/forgot`, `/reset`), расписание автобусов (`/raspisanie-avtobusov`).
+  Ходит только в `backend` (:8080); SSR — внутри
+  docker-сети (`http://web`). Единственная серверная ручка самого Nuxt —
+  `/api/auth/session`: хранит Bearer-токен кабинета в httpOnly cookie
+  (Safari/ITP стирает JS-cookie и localStorage через неделю) и отдаёт его
+  порталу; срок — полгода бездействия, продлевается при каждом чтении.
 - **`ais-spa/`** (:3001, dev) — SPA отчётов АИС (Vue 3 + Vite), перенос из
   устаревшего репозитория `avtovokzal_ais_spa`; ходит в ais-api (`/api/v1/reports*`).
 
@@ -136,6 +148,12 @@ docker compose exec sales_app php artisan ...             # artisan API прод
 docker compose exec kkm_app php artisan ...               # artisan KKM API
 docker compose exec kkm_app php artisan kkm:close-shift   # Z-отчёт вручную
 docker compose exec app php artisan queue:work --queue=receipts --stop-when-empty  # прогнать чеки
+docker compose exec app php artisan queue:work --queue=emails --stop-when-empty    # прогнать письма (в т.ч. приглашения в ЛК)
+docker compose exec app php artisan emails:block                       # чёрный список e-mail: показать
+docker compose exec app php artisan emails:block a@b.ru --reason=спам  # заблокировать адрес
+docker compose exec app php artisan emails:block a@b.ru --remove       # разблокировать
+docker compose exec app php artisan auth:prune-tokens                  # чистка токенов ЛК без активности
+docker compose exec app php artisan schedule:sync                      # обновить регулярное расписание станций
 docker compose exec app composer ...    # composer
 docker compose exec db psql -U avtovokzal -d avtovokzal   # psql (backend)
 docker compose exec db psql -U avtovokzal -d sales        # psql (API продаж, журнал)
@@ -179,7 +197,14 @@ opcache без `validate_timestamps`, реальные секреты, без п
   возврат платежа → чек возврата;
 - **печатные формы билетов** (`/print/{id}`) с багажными квитанциями и обезличиванием;
 - **фискализация** через KKM API на виртуальной ККТ KkmServer (чеки прихода и возврата,
-  идемпотентность, автозакрытие смены).
+  идемпотентность, автозакрытие смены);
+- **личный кабинет** (`/lk`): регистрация (в том числе по приглашению из письма),
+  вход, сброс и смена пароля, история заказов, печать/PDF, возврат билета;
+- **регулярное расписание** (`/raspisanie-avtobusov`): данные в JSON из БД
+  (`station_schedules`, обновление `schedule:sync`), сверено с legacy 1:1;
+- **тариф рейса** (`/tarif`): остановки, цены, прибытие; тарифную категорию
+  (действующая / новая с даты смены) выбирает сервер, а не адрес страницы.
 
-Не перенесено: воркер писем, возврат через личный кабинет, страницы расписания
-и контактов, спец-тексты фрахтования в печатных формах, АИС. Детали — в [PLAN.md](PLAN.md).
+Не перенесено: воркер писем (приглашение в кабинет ставится в очередь `emails`
+и уйдёт после его запуска), страницы расписания и контактов, спец-тексты
+фрахтования в печатных формах, АИС. Детали — в [PLAN.md](PLAN.md).

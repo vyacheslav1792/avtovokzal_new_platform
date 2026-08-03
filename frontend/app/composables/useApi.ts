@@ -1,5 +1,6 @@
 export function useApi() {
   const config = useRuntimeConfig()
+  const token = useAuthToken()
 
   // SSR выполняется внутри docker-сети — там свой адрес backend'а.
   const base = import.meta.server && config.apiBaseServer
@@ -9,6 +10,13 @@ export function useApi() {
   return $fetch.create({
     baseURL: `${base}/api/v1`,
     headers: { Accept: 'application/json' },
+    // Токен читаем в момент запроса: после входа/выхода он меняется,
+    // а инстанс $fetch переиспользуется.
+    onRequest({ options }) {
+      if (token.value) {
+        options.headers.set('Authorization', `Bearer ${token.value}`)
+      }
+    },
   })
 }
 

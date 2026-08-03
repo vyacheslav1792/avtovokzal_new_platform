@@ -60,8 +60,20 @@ function emptyPassenger(): PassengerForm {
 }
 
 const passengers = ref<PassengerForm[]>([emptyPassenger()])
-const email = ref('')
-const phone = ref('')
+
+// Покупателю из кабинета почта и телефон подставляются: почта не
+// редактируется (билеты и чек уходят на адрес кабинета), телефон можно
+// поправить — он попадает в заказ и в SMS перевозчика.
+const { user, isLoggedIn } = useAuth()
+const email = ref(user.value?.email ?? '')
+const phone = ref(formatPhone(user.value?.phone))
+
+watch(user, (u) => {
+  if (u) {
+    email.value = u.email
+    if (!phone.value) phone.value = formatPhone(u.phone)
+  }
+})
 const agree = ref(false)
 const submitting = ref(false)
 
@@ -394,10 +406,12 @@ function formatDate(d: string) {
         <UFormField
           label="E-Mail для билетов и чека" required
           :error="fieldError('email')"
+          :help="isLoggedIn ? 'Адрес вашего личного кабинета — билеты придут на него' : undefined"
           :data-error-field="fieldError('email') ? '' : undefined"
         >
           <UInput
             v-model="email" type="email" placeholder="you@example.com" class="w-full"
+            :disabled="isLoggedIn"
             :highlight="!!fieldError('email')"
             @input="clearError('email')"
           />

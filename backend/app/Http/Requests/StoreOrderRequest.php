@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Models\BlockedEmail;
+use App\Services\PassengerDocument;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreOrderRequest extends FormRequest
 {
@@ -80,21 +83,35 @@ class StoreOrderRequest extends FormRequest
     public function after(): array
     {
         return [
-            function (\Illuminate\Validation\Validator $validator) {
+            // Чёрный список адресов (перенос legacy passengers.php: $CHS →
+            // «Ваш e-mail в чёрном списке, покупка невозможна»).
+            function (Validator $validator) {
+                // Проверяем итоговый адрес заказа: у авторизованного он берётся
+                // из профиля (OrderService::create), а не из формы.
+                $email = $this->user('sanctum')?->email ?? $this->input('email');
+
+                if (BlockedEmail::blocked($email)) {
+                    $validator->errors()->add(
+                        'email',
+                        'Ваш e-mail в чёрном списке, покупка невозможна. Используйте другой e-mail',
+                    );
+                }
+            },
+            function (Validator $validator) {
                 foreach ($this->input('passengers', []) as $i => $p) {
                     if (! is_array($p) || empty($p['doc_number'])) {
                         continue;
                     }
 
                     $docType = (int) ($p['doc_type'] ?? 21);
-                    $citizenship = (int) ($p['citizenship'] ?? \App\Services\PassengerDocument::RUSSIA);
+                    $citizenship = (int) ($p['citizenship'] ?? PassengerDocument::RUSSIA);
 
-                    $parsed = \App\Services\PassengerDocument::parse(
+                    $parsed = PassengerDocument::parse(
                         $docType,
                         ($p['doc_series'] ?? '').$p['doc_number'],
                     );
 
-                    $error = \App\Services\PassengerDocument::validate(
+                    $error = PassengerDocument::validate(
                         $docType,
                         $citizenship,
                         $parsed['series'],

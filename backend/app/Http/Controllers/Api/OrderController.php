@@ -3,8 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreOrderRequest;
+use App\Models\Citizenship;
 use App\Models\Order;
+use App\Models\Ticket;
 use App\Services\OrderService;
+use App\Services\PdfRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -15,9 +19,16 @@ class OrderController extends Controller
     public function __construct(private readonly OrderService $orders) {}
 
     /** Создать заказ: резерв мест + регистрация оплаты. */
-    public function store(\App\Http\Requests\StoreOrderRequest $request): JsonResponse
+    public function store(StoreOrderRequest $request): JsonResponse
     {
-        $order = $this->orders->create($request->validated(), (string) $request->ip());
+        // Покупать можно и без входа. Если Bearer-токен кабинета пришёл —
+        // заказ закрепляется за пользователем, а e-mail берётся из профиля
+        // (на форме покупки он не редактируется).
+        $order = $this->orders->create(
+            $request->validated(),
+            (string) $request->ip(),
+            $request->user('sanctum'),
+        );
 
         return response()->json([
             'success' => true,
@@ -62,10 +73,10 @@ class OrderController extends Controller
         $departureAt = strtotime($order->date_start->format('Y-m-d').' '.$order->time_start);
         $masked = time() - $departureAt > self::DEPERSONALIZE_AFTER;
 
-        $citizenships = \App\Models\Citizenship::query()
+        $citizenships = Citizenship::query()
             ->pluck('name', 'code');
 
-        $tickets = $order->tickets->map(function (\App\Models\Ticket $t) use ($masked, $citizenships) {
+        $tickets = $order->tickets->map(function (Ticket $t) use ($masked, $citizenships) {
             $gender = $t['gender'] ?? 'М';
 
             return [
@@ -118,7 +129,7 @@ class OrderController extends Controller
      * рендер занимает секунды, а данные формы меняются (обезличивание,
      * возвраты).
      */
-    public function pdf(string $id, \App\Services\PdfRenderer $renderer): Response
+    public function pdf(string $id, PdfRenderer $renderer): Response
     {
         $order = Order::where('status', Order::STATUS_COMPLETED)->findOrFail($id);
 
@@ -150,7 +161,7 @@ class OrderController extends Controller
             'total_price' => (float) $order->total_price,
             'email' => $order->email,
             'back_code' => $order->back_code,
-            'tickets' => $order->tickets->map(fn (\App\Models\Ticket $t) => [
+            'tickets' => $order->tickets->map(fn (Ticket $t) => [
                 'place' => $t['place'],
                 'type' => $t['type'],
                 'serial' => $t['serial'] ?? null,

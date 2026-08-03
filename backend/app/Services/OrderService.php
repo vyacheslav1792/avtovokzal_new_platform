@@ -4,9 +4,10 @@ namespace App\Services;
 
 use App\Jobs\RegisterFiscalReceipt;
 use App\Jobs\SendPurchaseEmail;
+use App\Jobs\SendRegistrationInvite;
 use App\Models\Order;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class OrderService
@@ -21,7 +22,7 @@ class OrderService
      *
      * @return Order с payment_url для редиректа на шлюз
      */
-    public function create(array $data, string $ip): Order
+    public function create(array $data, string $ip, ?User $user = null): Order
     {
         // Цены берём НЕ из запроса, а из API продаж — защита от подмены.
         $trip = $this->findTrip($data);
@@ -100,7 +101,10 @@ class OrderService
             'id_time_places' => $reservation['id_time_places'],
             'passengers' => $passengers,
             'total_price' => $total,
-            'email' => mb_strtolower($data['email']),
+            // У авторизованного покупателя почта — из профиля: подменить её
+            // запросом нельзя, иначе билеты уйдут не туда.
+            'email' => mb_strtolower($user?->email ?? $data['email']),
+            'user_id' => $user?->id,
             'phone' => $data['phone'] ?? null,
             'ip' => $ip,
             'status' => Order::STATUS_PENDING,
@@ -197,7 +201,28 @@ class OrderService
         RegisterFiscalReceipt::dispatch($order->id)->onQueue('receipts');
         SendPurchaseEmail::dispatch($order->id)->onQueue('emails');
 
+        if ($this->isFirstPurchaseOfGuest($order)) {
+            SendRegistrationInvite::dispatch($order->email)->onQueue('emails');
+        }
+
         return $order->refresh();
+    }
+
+    /**
+     * Первая покупка гостя: заказ сделан без входа, пользователя с таким
+     * e-mail нет и других оформленных заказов на этот адрес тоже нет —
+     * значит покупателю есть смысл предложить завести кабинет.
+     */
+    private function isFirstPurchaseOfGuest(Order $order): bool
+    {
+        if ($order->user_id || User::where('email', $order->email)->exists()) {
+            return false;
+        }
+
+        return ! Order::where('email', $order->email)
+            ->where('id', '!=', $order->id)
+            ->where('status', Order::STATUS_COMPLETED)
+            ->exists();
     }
 
     private function findTrip(array $data): ?array
