@@ -52,6 +52,19 @@ db :5432, firebird :3050, legacy АИС :8090 (`ais/`), legacy сайт :8091 (`
   legacy), `/trips`, `/buy`, `/payment/result`. SSR ходит в backend по `http://web`
   (runtimeConfig.apiBaseServer), браузер — на :8080.
 
+### Валидация данных пассажира (не ослаблять!)
+- Правила серии/номера документа сняты 1:1 с вендорной процедуры
+  **`KS_CONTROL_DATA_PAS`** (исходник — `docs/buster-procedures/`) и выполняются
+  ДО оплаты: `backend/app/Services/PassengerDocument.php` + `StoreOrderRequest::after`.
+  При изменениях сверять скриптом (18 кейсов против живой процедуры — см. историю
+  коммита «Валидация документов по правилам станции»).
+- ФИО: BUSTER не проверяет и молча режет до 20/14/14 — лимиты и фильтр символов
+  (буквы/дефис/пробел/апостроф) держим на backend. **Ё всегда заменяется на Е**
+  (`OrderService::normalizeName`) — буква Ё ломает вендорный софт станции.
+- Справочник гражданств — таблица `citizenships` (коды COUNTRIES_TABLE, 185 = Россия),
+  сид `CitizenshipSeeder` из `database/data/citizenships.json`. В кэш класть только
+  массивы: Eloquent Collection в database-кэше десериализуется в incomplete class.
+
 ### Legacy через ODBC-shim
 
 Боевой код работает в контейнерах `legacy`/`legacy_site` **без правок**: класс `db_work`

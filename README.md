@@ -7,6 +7,10 @@
 
 ## Документация
 - [docs/LEGACY.md](docs/LEGACY.md) — разбор легаси (архитектура, поток покупки билета, процедуры Firebird, подводные камни).
+- [docs/buster-procedures/](docs/buster-procedures/) — исходники ключевых вендорных процедур BUSTER
+  (продажа, резерв, возврат, валидация данных пассажира `KS_CONTROL_DATA_PAS`).
+- `docs/captured-purchase-payloads.log` — эталонные запросы/ответы legacy API продаж, снятые
+  при сквозной тестовой покупке (для сверки при переносе).
 
 ## Требования
 - Docker + Docker Compose v2.
@@ -24,13 +28,28 @@ docker compose exec app php artisan migrate   # миграции в Postgres
 ## Сервисы и порты
 | Сервис    | Что                          | URL / порт            |
 |-----------|------------------------------|-----------------------|
-| web       | nginx → Laravel (`backend`)  | http://localhost:8080 |
-| frontend  | Nuxt dev-сервер (`frontend`) | http://localhost:3000 |
-| db        | PostgreSQL 17                | localhost:5432        |
-| app       | php-fpm 8.5 (Laravel)        | внутренний (9000)     |
+| web       | nginx → высокоуровневое API (`backend`) | http://localhost:8080 |
+| sales_web | nginx → **API продаж** (`sales-api`) | http://localhost:8085 |
+| frontend  | Nuxt + Nuxt UI (`frontend`)  | http://localhost:3000 |
+| db        | PostgreSQL 17 (`avtovokzal` + `sales`) | localhost:5432 |
+| app       | php-fpm 8.5 (`backend`)      | внутренний (9000)     |
+| sales_app | php-fpm 8.5 (`sales-api`)    | внутренний (9000)     |
 | firebird  | Firebird 2.5 (наши + BUSTER) | localhost:3050        |
 | legacy    | PHP 5.6 — АИС `ais/`          | http://localhost:8090 |
 | legacy_site | PHP 5.6 — сайт `avtovokzal57/` | http://localhost:8091 |
+
+### Три сервиса новой платформы
+- **`sales-api/`** (:8085) — API продаж: работа с базами автостанций (Firebird BUSTER),
+  рейсы/места/резерв/продажа/возврат. Автономен, без оплат. Своя БД Postgres `sales`:
+  журнал запросов/ответов (`api_requests`), резервы, продажи, возвраты. Агенты —
+  Bearer-токен + IP whitelist (`config/agents.php`).
+- **`backend/`** (:8080) — API avtovokzal57: заказы, серверный пересчёт цен, оплата
+  Сбербанк (SDK `voronkovich/sberbank-acquiring-client`), подтверждение и оформление,
+  постановка чека ККМ и письма в database-очередь (`receipts`/`emails` — воркер пока
+  не запускается). Валидация данных пассажира — по правилам станции
+  (`PassengerDocument`, снята с `KS_CONTROL_DATA_PAS`), ФИО фильтруется, Ё→Е.
+- **`frontend/`** (:3000) — Nuxt 4 + Nuxt UI 4: поиск, рейсы, пассажиры, оплата,
+  страница успеха. Ходит только в `backend` (:8080); SSR — внутри docker-сети (`http://web`).
 
 ### Legacy-окружение (сверка при переносе)
 Боевой код из `./htdocs` (распакованный бэкап) работает в контейнере `legacy`
@@ -74,9 +93,11 @@ Firebird-ODBC под Linux, глобально подключён `docker/legacy
 ```bash
 docker compose ps                       # статус
 docker compose logs -f app|web|frontend # логи
-docker compose exec app php artisan ... # artisan
+docker compose exec app php artisan ... # artisan backend
+docker compose exec sales_app php artisan ...             # artisan API продаж
 docker compose exec app composer ...    # composer
-docker compose exec db psql -U avtovokzal -d avtovokzal   # psql
+docker compose exec db psql -U avtovokzal -d avtovokzal   # psql (backend)
+docker compose exec db psql -U avtovokzal -d sales        # psql (API продаж, журнал)
 docker compose down                     # остановить (данные Postgres сохранятся в ./data)
 ```
 
@@ -85,13 +106,21 @@ docker compose down                     # остановить (данные Pos
 docker-compose.yml        # сервисы (dev)
 docker/php/Dockerfile     # php 8.5 + расширения (pdo_pgsql, pdo_firebird, intl, zip, bcmath, pcntl)
 docker/php/php.ini        # настройки PHP (dev)
-docker/nginx/default.conf # nginx -> php-fpm
-backend/                  # Laravel 13  (bind mount)
-frontend/                 # Nuxt         (bind mount)
+docker/nginx/default.conf # nginx -> backend (app:9000)
+docker/nginx/sales.conf   # nginx -> sales-api (sales_app:9000)
+backend/                  # Laravel 13 — высокоуровневое API avtovokzal57 (bind mount)
+sales-api/                # Laravel 13 — API продаж (bind mount)
+frontend/                 # Nuxt 4 + Nuxt UI (bind mount)
+docs/buster-procedures/   # исходники ключевых процедур BUSTER (справочно)
 data/postgres/            # данные Postgres (bind mount, не в git)
 ```
 
 ## Прод (позже)
 Отдельный `docker-compose.prod.yml` (оверрайд): собранный Nuxt вместо dev-сервера,
 opcache без `validate_timestamps`, реальные секреты, без публикации порта БД.
-Сейчас реализовано только dev-окружение — логика приложений ещё не переписывается.
+
+## Статус переноса
+Поток покупки перенесён на новый стек и проверен сквозной покупкой
+(фронт → backend → sales-api → Firebird → тестовый Сбербанк → билеты в BUSTER).
+Не перенесено: обработчики очереди (письма, чеки ККМ), возврат через личный
+кабинет, страницы расписания и контактов, АИС. Детали — в [PLAN.md](PLAN.md).
