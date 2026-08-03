@@ -66,9 +66,9 @@ class OrderService
                 'place' => $reservation['places'][$i] ?? $p['place'],
                 'type' => $type,
                 'price' => $price,
-                'last_name' => mb_strtoupper($p['last_name']),
-                'first_name' => mb_strtoupper($p['first_name']),
-                'middle_name' => mb_strtoupper($p['middle_name'] ?? ''),
+                'last_name' => $this->normalizeName($p['last_name']),
+                'first_name' => $this->normalizeName($p['first_name']),
+                'middle_name' => $this->normalizeName($p['middle_name'] ?? ''),
                 'birth_date' => $p['birth_date'],
                 'gender' => $p['gender'] ?? 'М',
                 'doc_type' => $this->docTypeCode($p),
@@ -235,6 +235,15 @@ class OrderService
         }
 
         return implode("\r\n", $lines);
+    }
+
+    /**
+     * ФИО для билета: верхний регистр + Ё→Е (известный баг вендорного
+     * софта: буква Ё ломает обработку в АРМ станции).
+     */
+    private function normalizeName(string $value): string
+    {
+        return str_replace('Ё', 'Е', mb_strtoupper(trim($value)));
     }
 
     /** «03.08.2026 15:00» (формат BUSTER) → datetime или null. */

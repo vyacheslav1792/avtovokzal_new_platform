@@ -6,6 +6,9 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreOrderRequest extends FormRequest
 {
+    /** ФИО: буквы (кириллица/латиница), дефис, пробел, апостроф. Без цифр и спецсимволов. */
+    private const NAME_REGEX = "regex:/^[А-ЯЁа-яёA-Za-z][А-ЯЁа-яёA-Za-z' -]*$/u";
+
     public function authorize(): bool
     {
         return true;
@@ -26,9 +29,11 @@ class StoreOrderRequest extends FormRequest
             'passengers' => ['required', 'array', 'min:1', 'max:10'],
             'passengers.*.place' => ['required', 'integer', 'min:1'],
             'passengers.*.tariff' => ['sometimes', 'in:adult,child'],
-            'passengers.*.last_name' => ['required', 'string', 'min:2', 'max:40'],
-            'passengers.*.first_name' => ['required', 'string', 'min:2', 'max:30'],
-            'passengers.*.middle_name' => ['nullable', 'string', 'max:30'],
+            // Лимиты длины — как в базе станции (SALE: фамилия 20, имя/отчество 14),
+            // иначе процедура молча обрежет. Символы: буквы, дефис, пробел, апостроф.
+            'passengers.*.last_name' => ['required', 'string', 'min:2', 'max:20', self::NAME_REGEX],
+            'passengers.*.first_name' => ['required', 'string', 'min:2', 'max:14', self::NAME_REGEX],
+            'passengers.*.middle_name' => ['nullable', 'string', 'max:14', self::NAME_REGEX],
             'passengers.*.birth_date' => ['required', 'date', 'before:today', 'after:1900-01-01'],
             'passengers.*.gender' => ['sometimes', 'in:М,Ж'],
             'passengers.*.doc_type' => ['sometimes', 'integer'],
@@ -50,6 +55,10 @@ class StoreOrderRequest extends FormRequest
             'agree_pd.accepted' => 'Для покупки необходимо согласие на обработку персональных данных.',
             'min' => 'Поле «:attribute» слишком короткое.',
             'max' => 'Поле «:attribute» слишком длинное.',
+            'regex' => 'Поле «:attribute» может содержать только буквы, дефис и пробел.',
+            'passengers.*.last_name.max' => 'Фамилия не помещается в билет — не более 20 символов.',
+            'passengers.*.first_name.max' => 'Имя не помещается в билет — не более 14 символов.',
+            'passengers.*.middle_name.max' => 'Отчество не помещается в билет — не более 14 символов.',
             'passengers.*.birth_date.before' => 'Дата рождения не может быть в будущем.',
             'passengers.*.birth_date.after' => 'Проверьте дату рождения — она указана неверно.',
             'passengers.*.birth_date.date' => 'Укажите корректную дату рождения.',
