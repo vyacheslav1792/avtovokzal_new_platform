@@ -254,6 +254,8 @@ services:
     environment:
       AIS_API_PROXY: "http://ais_web"
       SITE_API_PROXY: "http://web"
+      # Адрес сайта для ссылок из админки (страница контактов).
+      VITE_SITE_URL: "http://127.0.0.1:${FRONTEND_PORT:-3000}"
     depends_on:
       - ais_web
       - web

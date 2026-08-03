@@ -3,7 +3,7 @@ const links = [
   { label: 'Купить билеты', to: '/' },
   { label: 'Возврат билетов', to: '/backbycode' },
   { label: 'Расписание автобусов', to: '/raspisanie-avtobusov' },
-  { label: 'Контакты', to: '/' },
+  { label: 'Контакты', to: '/contacts' },
 ]
 
 const { user, isLoggedIn, logout } = useAuth()

@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Controllers\Api\AdminContactController;
 use App\Http\Controllers\Api\AdminRefundController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CabinetController;
 use App\Http\Controllers\Api\CatalogController;
+use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ScheduleController;
@@ -20,6 +22,9 @@ Route::prefix('v1')->group(function () {
     Route::get('schedule', [ScheduleController::class, 'index']);
     Route::get('tariff', [ScheduleController::class, 'tariff']);
     Route::get('schedule/{station}', [ScheduleController::class, 'show']);
+
+    // Контакты (страница /contacts).
+    Route::get('contacts', [ContactController::class, 'index']);
 
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
@@ -57,4 +62,8 @@ Route::prefix('v1')->group(function () {
     Route::post('admin/refunds/inspect', [AdminRefundController::class, 'inspect']);
     Route::post('admin/refunds/confirm', [AdminRefundController::class, 'confirm']);
     Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair']);
+
+    // Редактирование контактов сайта из админки АИС (там же, без авторизации).
+    Route::get('admin/contacts', [AdminContactController::class, 'index']);
+    Route::put('admin/contacts', [AdminContactController::class, 'update']);
 });

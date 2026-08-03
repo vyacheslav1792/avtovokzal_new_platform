@@ -32,7 +32,7 @@ onMounted(async () => {
   <div class="app">
     <header class="topbar">
       <button class="burger" @click="toggleNav" :title="collapsed ? 'Показать меню' : 'Скрыть меню'">☰</button>
-      <div class="topbar-title">АИС · Отчёты</div>
+      <div class="topbar-title">АИС</div>
     </header>
 
     <div class="layout" :class="{ 'nav-collapsed': collapsed }">
@@ -46,6 +46,10 @@ onMounted(async () => {
             class="nav-item"
             :to="`/${r.slug}`"
           >{{ r.title }}</router-link>
+
+          <!-- Не только отчёты: сюда переезжают админские функции сайта -->
+          <div class="nav-group-title">Администрирование</div>
+          <router-link class="nav-item" to="/contacts">Контакты сайта</router-link>
         </nav>
         <div v-if="err" class="nav-err">{{ err }}</div>
       </aside>
