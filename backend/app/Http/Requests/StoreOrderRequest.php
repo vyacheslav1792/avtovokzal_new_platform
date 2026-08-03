@@ -64,6 +64,42 @@ class StoreOrderRequest extends FormRequest
         ];
     }
 
+    /**
+     * Проверка документов по правилам станции (KS_CONTROL_DATA_PAS) —
+     * до оплаты, иначе отказ пользователь увидит уже после списания денег.
+     */
+    public function after(): array
+    {
+        return [
+            function (\Illuminate\Validation\Validator $validator) {
+                foreach ($this->input('passengers', []) as $i => $p) {
+                    if (! is_array($p) || empty($p['doc_number'])) {
+                        continue;
+                    }
+
+                    $docType = (int) ($p['doc_type'] ?? 21);
+                    $citizenship = (int) ($p['citizenship'] ?? \App\Services\PassengerDocument::RUSSIA);
+
+                    $parsed = \App\Services\PassengerDocument::parse(
+                        $docType,
+                        ($p['doc_series'] ?? '').$p['doc_number'],
+                    );
+
+                    $error = \App\Services\PassengerDocument::validate(
+                        $docType,
+                        $citizenship,
+                        $parsed['series'],
+                        $parsed['number'],
+                    );
+
+                    if ($error) {
+                        $validator->errors()->add("passengers.{$i}.doc_number", $error);
+                    }
+                }
+            },
+        ];
+    }
+
     public function attributes(): array
     {
         $attrs = [

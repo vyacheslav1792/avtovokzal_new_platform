@@ -106,6 +106,18 @@ function removePassenger(i: number) {
   serverErrors.value = {}
 }
 
+/** Подсказка формата серии/номера — по правилам базы автостанции. */
+function docHint(docType: number): string {
+  switch (docType) {
+    case 21: return '4 цифры серии и 6 цифр номера, например 4444 555555'
+    case 22: return '2 цифры серии и 7 цифр номера, например 75 1234567'
+    case 3: return 'например IV-АБ 123456'
+    case 15: return 'например АБ 1234567'
+    case 26: return 'например XV 1234567'
+    default: return 'серия и номер документа'
+  }
+}
+
 function priceFor(p: PassengerForm) {
   const base = p.tariff === 'child' ? trip.value.price_child : trip.value.price_full
   return base + p.baggage * trip.value.price_baggage
@@ -332,7 +344,7 @@ function formatDate(d: string) {
             v-model="p.citizenship" :items="citizenshipOptions" value-key="value"
             class="w-full"
             :highlight="!!fieldError(`passengers.${i}.citizenship`)"
-            @update:model-value="clearError(`passengers.${i}.citizenship`)"
+            @update:model-value="clearError(`passengers.${i}.citizenship`); clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
 
@@ -341,10 +353,13 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.doc_type`)"
           :data-error-field="fieldError(`passengers.${i}.doc_type`) ? '' : undefined"
         >
-          <USelect v-model="p.doc_type" :items="DOC_TYPES" value-key="value" class="w-full" />
+          <USelect
+            v-model="p.doc_type" :items="DOC_TYPES" value-key="value" class="w-full"
+            @update:model-value="clearError(`passengers.${i}.doc_number`)"
+          />
         </UFormField>
         <UFormField
-          label="Серия и номер документа" required hint="например 4444 555555"
+          label="Серия и номер документа" required :hint="docHint(p.doc_type)"
           class="md:col-span-2"
           :error="fieldError(`passengers.${i}.doc_number`)"
           :data-error-field="fieldError(`passengers.${i}.doc_number`) ? '' : undefined"

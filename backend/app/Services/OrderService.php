@@ -202,40 +202,18 @@ class OrderService
     }
 
     /**
-     * Код документа BUSTER + разбор серии/номера — правило legacy:
-     * паспорт РФ (21) — серия 4 цифры + номер 6 цифр, иначе код 91;
-     * документ иностранца (10) — серия 2 знака; все остальные типы
-     * продаются с кодом 91 (так делает боевой passengers.php).
+     * Код документа BUSTER + разбор серии/номера. Формат и совместимость
+     * с гражданством уже проверены в StoreOrderRequest по правилам
+     * станции (см. PassengerDocument) — реальный код документа сохраняем.
      */
     private function docTypeCode(array &$passenger): int
     {
         $code = (int) ($passenger['doc_type'] ?? 21);
-        $raw = str_replace(['№', '-', ' '], '', ($passenger['doc_series'] ?? '').$passenger['doc_number']);
-        $passenger['doc_type_orig'] = $code;
 
-        if ($code === 21) {
-            $series = mb_substr($raw, 0, 4);
-            $number = mb_substr($raw, 4, 15);
-            if (mb_strlen($series) !== 4 || mb_strlen($number) !== 6 || preg_match('/\D/', $series.$number)) {
-                $code = 91;
-            }
-        } elseif ($code === 10) {
-            $series = mb_substr($raw, 0, 2);
-            $number = mb_substr($raw, 2, 15);
-        } else {
-            $code = 91;
-            $series = mb_substr($raw, 0, 4);
-            $number = mb_substr($raw, 4, 15);
-        }
+        $parsed = PassengerDocument::parse($code, ($passenger['doc_series'] ?? '').$passenger['doc_number']);
 
-        if ($code === 91) {
-            while (mb_strlen($series.$number) < 9) {
-                $number .= '0';
-            }
-        }
-
-        $passenger['doc_series'] = $series;
-        $passenger['doc_number'] = $number;
+        $passenger['doc_series'] = $parsed['series'];
+        $passenger['doc_number'] = $parsed['number'];
 
         return $code;
     }
