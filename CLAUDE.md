@@ -224,6 +224,37 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
   были закомментированы) перенесены с `is_active=false`. Кнопка «Написать
   сообщение» (общая модалка сайта: капча, антиспам-словарь, SMTP) — НЕ
   перенесена, это отдельная задача.
+- **Текстовые страницы, меню и файлы сайта** (перенос legacy
+  `avtovokzal57/url/<slug>.php` + списков ссылок и `switch` с `<title>`
+  в `index.php`): таблицы **`pages`** (slug, title, meta_title,
+  meta_description, content, is_active) и **`menu_items`**
+  (area `header|footer`, title, url, group, position, is_active),
+  сервис `PageService` (кэш 5 мин двумя ключами `pages:public` и
+  `pages:menu`; теги кэша недоступны — драйвер database), сид
+  `PageSeeder` из `database/data/pages.json` + `database/data/pages/*.html`.
+  Перенесены 9 страниц меню и подвала: payways, reglament-docs, faq,
+  station-sogl-pd, station-polit-pd, moshenniki, uslugi, fz-223, corrupt
+  (`station-rules` в legacy закомментирован и файла нет — переносить нечего).
+  Содержимое лежит **как в legacy, вместе со своими `<style>` и div-обёртками**:
+  видимый текст и title/description сверены с боевым сайтом 1:1.
+  API: публичные `GET /api/v1/pages/{slug}`, `GET /api/v1/menu`,
+  `GET /api/v1/files/{path}`; админские `admin/pages` (CRUD),
+  `GET|PUT admin/menu` (**PUT заменяет оба списка целиком**),
+  `GET|POST|DELETE admin/uploads`. Сайт — `frontend/app/pages/[slug].vue`
+  (последний по приоритету маршрут; выключенная/несуществующая страница —
+  404 через `createError`, ошибку из обработчика `useAsyncData` бросать
+  нельзя: она осела бы в `error` и страница ушла бы с кодом 200).
+  Меню шапки/подвала фронт берёт из `GET /menu` (`useSiteMenu`), пункты
+  с одинаковым `group` собираются в выпадающий раздел («Пассажирам»).
+  Файлы страниц (PDF, плакаты) — bind mount `./data/uploads` (диск
+  `uploads`, в git не идут), прежние адреса `/docs/...` сохранены:
+  Nuxt-роут `server/routes/docs/[...path].ts` проксирует их в backend.
+  Редакторы в ais-spa: `/pages` (список + редактор) и `/menu`.
+  **Визуальный режим — contenteditable внутри iframe** (`HtmlEditor.vue`):
+  iframe обязателен, иначе `<style>` из содержимого страниц (`#pers`,
+  полосатые блоки FAQ) разъезжается по всей админке; редактор ничего не
+  нормализует, legacy-разметка переживает переключение режимов побайтно.
+  HTML-режим — CodeMirror 6 с подсветкой (`CodeEditor.vue`).
 - **Билеты сайта — таблица `tickets`, НЕ jsonb**: строка на пассажирский билет
   (`Order::tickets()`, порядок по `position`; багажные квитанции — jsonb в строке
   билета, их ≤5 и по номерам не ищем). Колонки `orders.tickets` больше нет —

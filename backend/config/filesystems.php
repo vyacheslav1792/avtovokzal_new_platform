@@ -60,6 +60,20 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Файлы страниц сайта: PDF регламентирующих документов, перечень
+         * 223-ФЗ, плакаты о мошенничестве. В legacy они лежали в
+         * avtovokzal57/docs и заливались по FTP — здесь их грузит админка
+         * (ais-spa), а сайт отдаёт по прежним адресам /docs/<файл>.
+         * Каталог — bind mount ./data/uploads (именованные тома не используем).
+         */
+        'uploads' => [
+            'driver' => 'local',
+            'root' => env('UPLOADS_ROOT', '/var/www/uploads'),
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

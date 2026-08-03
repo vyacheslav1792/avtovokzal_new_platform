@@ -4,6 +4,9 @@
 # данные Postgres (bind mount)
 /data/postgres/
 
+# файлы страниц сайта, загруженные через админку (данные, не код)
+/data/uploads/
+
 # Laravel
 /backend/vendor/
 /backend/node_modules/

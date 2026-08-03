@@ -50,6 +50,8 @@ onMounted(async () => {
           <!-- Не только отчёты: сюда переезжают админские функции сайта -->
           <div class="nav-group-title">Администрирование</div>
           <router-link class="nav-item" to="/contacts">Контакты сайта</router-link>
+          <router-link class="nav-item" to="/pages">Страницы сайта</router-link>
+          <router-link class="nav-item" to="/menu">Меню сайта</router-link>
         </nav>
         <div v-if="err" class="nav-err">{{ err }}</div>
       </aside>

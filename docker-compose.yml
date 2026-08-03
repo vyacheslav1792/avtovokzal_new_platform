@@ -81,6 +81,9 @@ services:
     working_dir: /var/www/html
     volumes:
       - ./backend:/var/www/html
+      # Файлы страниц сайта (PDF документов, плакаты): в legacy лежали
+      # в avtovokzal57/docs и заливались по FTP, теперь их грузит админка.
+      - ./data/uploads:/var/www/uploads
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/zz-app.ini:ro
     environment:
       # Подключение Laravel к Postgres (сервис db)

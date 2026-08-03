@@ -1,12 +1,17 @@
 <?php
 
 use App\Http\Controllers\Api\AdminContactController;
+use App\Http\Controllers\Api\AdminMenuController;
+use App\Http\Controllers\Api\AdminPageController;
 use App\Http\Controllers\Api\AdminRefundController;
+use App\Http\Controllers\Api\AdminUploadController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CabinetController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\ContactController;
+use App\Http\Controllers\Api\FileController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PageController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ScheduleController;
 use Illuminate\Support\Facades\Route;
@@ -25,6 +30,13 @@ Route::prefix('v1')->group(function () {
 
     // Контакты (страница /contacts).
     Route::get('contacts', [ContactController::class, 'index']);
+
+    // Обычные страницы сайта (legacy avtovokzal57/url/<slug>.php) и меню.
+    Route::get('menu', [PageController::class, 'menu']);
+    Route::get('pages/{slug}', [PageController::class, 'show']);
+
+    // Файлы страниц по прежним адресам legacy: сайт проксирует сюда /docs/*.
+    Route::get('files/{path}', [FileController::class, 'show'])->where('path', '.*');
 
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
@@ -66,4 +78,18 @@ Route::prefix('v1')->group(function () {
     // Редактирование контактов сайта из админки АИС (там же, без авторизации).
     Route::get('admin/contacts', [AdminContactController::class, 'index']);
     Route::put('admin/contacts', [AdminContactController::class, 'update']);
+
+    // Страницы, меню и файлы сайта — там же, из админки АИС.
+    Route::get('admin/pages', [AdminPageController::class, 'index']);
+    Route::post('admin/pages', [AdminPageController::class, 'store']);
+    Route::get('admin/pages/{page}', [AdminPageController::class, 'show']);
+    Route::put('admin/pages/{page}', [AdminPageController::class, 'update']);
+    Route::delete('admin/pages/{page}', [AdminPageController::class, 'destroy']);
+
+    Route::get('admin/menu', [AdminMenuController::class, 'index']);
+    Route::put('admin/menu', [AdminMenuController::class, 'update']);
+
+    Route::get('admin/uploads', [AdminUploadController::class, 'index']);
+    Route::post('admin/uploads', [AdminUploadController::class, 'store']);
+    Route::delete('admin/uploads', [AdminUploadController::class, 'destroy']);
 });
