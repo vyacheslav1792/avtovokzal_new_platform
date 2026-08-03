@@ -54,7 +54,7 @@ const variant = computed(() => route.query.variant === 'upcoming' ? 'upcoming' :
 
 const { data, error } = await useAsyncData(
   'tariff',
-  () => api<{ success: boolean, data: Tariff }>('/tariff', {
+  () => api<{ success: boolean, awtname: string | null, data: Tariff }>('/tariff', {
     query: {
       awtcod: awtcod.value,
       napcod: napcod.value,
@@ -66,6 +66,30 @@ const { data, error } = await useAsyncData(
 )
 
 const tariff = computed(() => data.value?.data ?? null)
+
+/**
+ * Клик по остановке ведёт к рейсам до неё — расписание с той же даты,
+ * что была на странице, откуда пришли (в legacy /tarif дата так же
+ * таскалась в адресе), со всеми рейсами: тариф смотрят и по тем, что
+ * онлайн не продаются.
+ */
+const stopDate = computed(() => {
+  const raw = String(route.query.date ?? '')
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : new Date().toISOString().slice(0, 10)
+})
+
+function stopLink(stop: TariffStop) {
+  return {
+    path: '/trips',
+    query: {
+      awtcod: awtcod.value,
+      from: data.value?.awtname ?? '',
+      to: stop.name,
+      date: stopDate.value,
+      all: 1,
+    },
+  }
+}
 
 function formatDate(iso?: string | null) {
   if (!iso) return ''
@@ -203,7 +227,15 @@ function download() {
           </thead>
           <tbody>
             <tr v-for="s in tariff.stops" :key="s.statcode" class="odd:bg-muted/40">
-              <td class="p-2 border border-default">{{ s.name }}</td>
+              <td class="p-2 border border-default">
+                <NuxtLink
+                  :to="stopLink(s)"
+                  class="text-primary hover:underline"
+                  :title="`Рейсы до остановки «${s.name}»`"
+                >
+                  {{ s.name }}
+                </NuxtLink>
+              </td>
               <td class="p-2 border border-default text-right">{{ s.km.toFixed(2) }}</td>
               <td class="p-2 border border-default text-right">{{ s.price_full.toFixed(2) }}</td>
               <td class="p-2 border border-default text-right">{{ s.price_child.toFixed(2) }}</td>

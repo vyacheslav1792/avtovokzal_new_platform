@@ -50,6 +50,8 @@ function search() {
 
 // Популярные направления (как на legacy-главной). Показываем только те,
 // чья станция отправления реально есть в конфиге (доступна её база продаж).
+// Ведут, как в legacy, на «ближайшие» рейсы маршрута (blij=1) — без даты
+// и со всеми рейсами, включая недоступные к покупке онлайн.
 const popularAll = [
   { title: 'Орел – Красная Заря', img: '/img/zarya.jpg', from: 5701, fromName: 'Орел АВ', to: 'Красная Заря КП' },
   { title: 'Красная Заря – Орел', img: '/img/zarya.jpg', from: 5722, fromName: 'Красная Заря КП', to: 'Орел АВ' },
@@ -128,7 +130,7 @@ const popular = computed(() =>
           <NuxtLink
             v-for="p in popular"
             :key="p.title"
-            :to="{ path: '/trips', query: { awtcod: p.from, from: p.fromName, to: p.to, date: today } }"
+            :to="{ path: '/trips', query: { awtcod: p.from, from: p.fromName, to: p.to, all: 1 } }"
             class="relative rounded-lg overflow-hidden group h-36"
           >
             <img :src="p.img" :alt="p.title" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform">

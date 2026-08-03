@@ -20,6 +20,15 @@ export function useApi() {
   })
 }
 
+/**
+ * Булев флаг в адресе страницы: `?flag`, `?flag=1`, `?flag=true` — включён,
+ * отсутствие параметра или `?flag=0` — выключен.
+ */
+export function queryFlag(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  return ['', '1', 'true'].includes(String(value))
+}
+
 export interface Trip {
   awtcod: number
   napcod: number
@@ -41,6 +50,12 @@ export interface Trip {
   internet_sale_available: boolean
   transit: boolean
   canceled: boolean
+  disrupt: boolean
+  gone: boolean
+  /** Ограничение продажи: билет нельзя купить ближе этой остановки. */
+  min_kilom: string | null
+  /** Ограничение продажи: билет нельзя купить дальше этой остановки. */
+  max_kilom: string | null
 }
 
 export interface PassengerForm {

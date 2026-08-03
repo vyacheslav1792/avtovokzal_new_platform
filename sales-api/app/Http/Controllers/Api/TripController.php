@@ -15,17 +15,24 @@ class TripController extends Controller
         private readonly StationRegistry $stations,
     ) {}
 
-    /** Рейсы на дату: GET /api/v1/trips?awtcod=&station=&date=&for_sale=1 */
+    /**
+     * Рейсы: GET /api/v1/trips?awtcod=&station=&date=&for_sale=1
+     *
+     * Без date — режим «ближайшие» (legacy blij=1): рейсы всех дат начиная
+     * с сегодняшней, не больше 200.
+     */
     public function index(Request $request): JsonResponse
     {
         $data = $request->validate([
             'awtcod' => ['required', 'integer'],
             'station' => ['required', 'string', 'max:255'],
-            'date' => ['required', 'date_format:Y-m-d'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
             'for_sale' => ['sometimes', 'boolean'],
         ]);
 
-        if (strtotime($data['date']) < time() - 48 * 3600) {
+        $date = $data['date'] ?? null;
+
+        if ($date !== null && strtotime($date) < time() - 48 * 3600) {
             return response()->json([
                 'success' => false,
                 'error' => 'Данные за этот период более недоступны',
@@ -38,7 +45,7 @@ class TripController extends Controller
         $trips = collect($gateway->routes(
             (int) $data['awtcod'],
             $data['station'],
-            $data['date'],
+            $date,
             (bool) ($data['for_sale'] ?? true),
         ))->map(fn (array $r) => [
             'awtcod' => (int) $data['awtcod'],
@@ -63,6 +70,12 @@ class TripController extends Controller
             'internet_sale_available' => (int) $r['INTERNET_SALE_AVAILABLE'] === 1,
             'transit' => (int) $r['TRANSIT'] === 1,
             'canceled' => (int) $r['CANCELED'] !== 0,
+            'disrupt' => (int) $r['DISRUPT'] !== 0,   // рейс сорван
+            'gone' => (int) $r['GONE'] !== 0,         // рейс ушёл
+            // Ограничения продажи по дальности: билет нельзя купить ближе
+            // (min_kilom) / дальше (max_kilom) названной остановки.
+            'min_kilom' => $r['MIN_KILOM'],
+            'max_kilom' => $r['MAX_KILOM'],
             'fraht' => (int) $r['FRAHT'],
         ])->values();
 

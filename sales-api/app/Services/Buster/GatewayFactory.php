@@ -15,6 +15,7 @@ class GatewayFactory
             (int) $agent['legacy_id'],
             (int) ($agent['worker_code'] ?? 990),
             (int) ($agent['baggage_worker_code'] ?? 991),
+            config('sale_bounds', []),
         );
     }
 }

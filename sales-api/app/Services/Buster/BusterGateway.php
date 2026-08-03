@@ -20,6 +20,8 @@ class BusterGateway
         private readonly int $agentCode,          // AGENT_CODE в BUSTER (legacy 9984)
         private readonly int $workerCode = 990,   // AGENT_WRK продажи мест
         private readonly int $baggageWorkerCode = 991,
+        /** Ручные ограничения продажи: [awtcod][napcod][время отправления] = statcod. */
+        private readonly array $saleBounds = [],
     ) {}
 
     /**
@@ -114,15 +116,35 @@ class BusterGateway
         );
     }
 
-    /** Рейсы на дату до станции назначения (по имени станции в TRACES). */
-    public function routes(int $awtcod, string $stationName, string $date, bool $forSale = true): array
+    /**
+     * Рейсы до станции назначения (по имени станции в TRACES).
+     *
+     * $date = null — режим «ближайшие» legacy (blij=1 на raspisanie-avtobusov):
+     * рейсы всех дат начиная с сегодняшней, не больше 200 строк.
+     */
+    public function routes(int $awtcod, string $stationName, ?string $date, bool $forSale = true): array
     {
+        $today = date('Y-m-d');
+        $nearest = $date === null;
+        $dateWhere = $nearest ? 'evryraice.datestart >= ?' : 'evryraice.datestart = ?';
+        $dateParam = $nearest ? $today : $date;
+        // legacy ставил "first 200" только в режиме «ближайшие» — на дату
+        // рейсов заведомо меньше.
+        $limit = $nearest ? 'first 200' : '';
+
         $extraWhere = '';
         if ($forSale) {
             $extraWhere = ' and available=1 and evryraice.transit=0';
-            if ($date === date('Y-m-d')) {
+            $notSoon = date('H:i:s', time() + 2000);
+            if ($date === $today) {
                 // Не показываем рейсы, до отправления которых < ~33 минут.
-                $extraWhere .= " and timestart>'".date('H:i:s', time() + 2000)."'";
+                $extraWhere .= " and timestart>'{$notSoon}'";
+            } elseif ($nearest) {
+                // Та же отсечка, но выборка идёт по нескольким датам, поэтому
+                // время отсекаем только у сегодняшних рейсов. (В legacy этой
+                // комбинации не было: «ближайшие» открывались лишь со страницы
+                // расписания, где показывались все рейсы подряд.)
+                $extraWhere .= " and (evryraice.datestart>'{$today}' or timestart>'{$notSoon}')";
             }
         }
 
@@ -166,7 +188,7 @@ SQL;
         $fieldsNoArrival = str_replace('%TIME_TO_END%', 'evryraice.timestart', $fields);
 
         $sql = "
-            select {$fieldsWithArrival},
+            select {$limit} {$fieldsWithArrival},
                 (tracetime.time_to_stat+1) time_kind
                 from evryraice
                 inner join buslst on (evryraice.buscod = buslst.buscod)
@@ -181,7 +203,7 @@ SQL;
             where
                 ((traces.statname = ?)
                 and (traces.isdel = 0) and (TARIFS2D.paysoftall>0)
-                and (evryraice.datestart = ?){$extraWhere}
+                and ({$dateWhere}){$extraWhere}
                 and (evryraice.awtcod = ?)
                 and (evryraice.napcod = traces.napcod) and (evryraice.awtcod = traces.awtcod)
                 and (not (evryraice.tracetimecod is null) and (evryraice.tracetimecod = tracetime.traicetimecod))
@@ -190,7 +212,7 @@ SQL;
                 and not((evryraice.canceled = 5))
                 and TARIFS2D.startstatcode=0)
             union
-            select {$fieldsNoArrival},
+            select {$limit} {$fieldsNoArrival},
                 (evryraice.platnom+1) time_kind
                 from evryraice
                 inner join buslst on (evryraice.buscod = buslst.buscod)
@@ -203,7 +225,7 @@ SQL;
             where
                 ((traces.statname = ?)
                 and (traces.isdel = 0) and (TARIFS2D.paysoftall>0)
-                and (evryraice.datestart = ?){$extraWhere}
+                and ({$dateWhere}){$extraWhere}
                 and (evryraice.awtcod = ?)
                 and (evryraice.napcod = traces.napcod) and (evryraice.awtcod = traces.awtcod)
                 and ((evryraice.tracetimecod is null))
@@ -214,10 +236,73 @@ SQL;
             order by 6, 7
         ";
 
-        return $this->db->select($sql, [
-            $stationName, $date, $awtcod,
-            $stationName, $date, $awtcod,
+        $rows = $this->db->select($sql, [
+            $stationName, $dateParam, $awtcod,
+            $stationName, $dateParam, $awtcod,
         ]);
+
+        return $this->applySaleBounds($awtcod, $rows);
+    }
+
+    /**
+     * Ограничения продажи по дальности (перенос legacy api2.php после выборки
+     * рейсов): SALE_BOUND_AFTER даёт остановку, БЛИЖЕ которой продавать нельзя
+     * (MIN_KILOM), SALE_BOUND_BEFORE — ДАЛЬШЕ которой нельзя (MAX_KILOM).
+     * Ограничение показывается, только если пункт назначения запроса реально
+     * попадает под него — сравниваем километраж по TRACES.
+     *
+     * Ручной перекрыватель SALE_BOUND_AFTER (в legacy — файл
+     * `avtovokzal57/vidjets/ogranichenie.txt`, читался в config.php) перенесён
+     * в `config/sale_bounds.php`.
+     */
+    private function applySaleBounds(int $awtcod, array $rows): array
+    {
+        $traces = [];
+        $trace = function (int $napcod, int $statcod) use ($awtcod, &$traces): ?array {
+            $key = $napcod.':'.$statcod;
+            if (! array_key_exists($key, $traces)) {
+                $found = $this->db->select(
+                    'select statname, kilom from traces where isdel = 0 and statcod = ? and awtcod = ? and napcod = ?',
+                    [$statcod, $awtcod, $napcod],
+                );
+                $traces[$key] = $found[0] ?? null;
+            }
+
+            return $traces[$key];
+        };
+
+        foreach ($rows as $i => $row) {
+            $napcod = (int) $row['NAPCOD'];
+            $rows[$i]['MIN_KILOM'] = null;
+            $rows[$i]['MAX_KILOM'] = null;
+
+            $after = (int) ($this->saleBounds[$awtcod][$napcod][$row['TIMESTART']] ?? $row['SALE_BOUND_AFTER'] ?? 0);
+            $before = (int) ($row['SALE_BOUND_BEFORE'] ?? 0);
+            if (! $after && ! $before) {
+                continue;
+            }
+
+            $destination = $trace($napcod, (int) $row['STATCODE']);
+            if (! $destination) {
+                continue;
+            }
+
+            if ($after) {
+                $bound = $trace($napcod, $after);
+                if ($bound && $bound['STATNAME'] !== null && (float) $destination['KILOM'] < (float) $bound['KILOM']) {
+                    $rows[$i]['MIN_KILOM'] = $bound['STATNAME'];
+                }
+            }
+
+            if ($before) {
+                $bound = $trace($napcod, $before);
+                if ($bound && $bound['STATNAME'] !== null && (float) $destination['KILOM'] > (float) $bound['KILOM']) {
+                    $rows[$i]['MAX_KILOM'] = $bound['STATNAME'];
+                }
+            }
+        }
+
+        return $rows;
     }
 
     /** Все места рейса со статусами (KS_ALL_PLACES). */

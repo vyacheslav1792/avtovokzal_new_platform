@@ -77,15 +77,23 @@ class ScheduleController extends Controller
         ]);
 
         $variant = $data['variant'] ?? 'current';
-        $key = "tariff:{$data['awtcod']}:{$data['napcod']}:{$data['raicecod']}:{$variant}";
+        // v2 — в кэш кладём ответ целиком (раньше только 'data'), поэтому
+        // ключ другой: старые записи не подходят по форме.
+        $key = "tariff:v2:{$data['awtcod']}:{$data['napcod']}:{$data['raicecod']}:{$variant}";
 
         $tariff = Cache::remember($key, now()->addMinutes(10), fn () => $this->salesApi->tariff(
             (int) $data['awtcod'],
             (int) $data['napcod'],
             (int) $data['raicecod'],
             $variant,
-        )['data']);
+        ));
 
-        return response()->json(['success' => true, 'data' => $tariff]);
+        return response()->json([
+            'success' => true,
+            // Название станции отправления нужно странице тарифа для ссылок
+            // на рейсы до остановки.
+            'awtname' => $tariff['awtname'] ?? null,
+            'data' => $tariff['data'],
+        ]);
     }
 }

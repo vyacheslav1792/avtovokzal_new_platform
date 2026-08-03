@@ -45,14 +45,15 @@ class SalesApiClient
         ])));
     }
 
-    public function trips(int $awtcod, string $station, string $date, bool $forSale = true): array
+    /** $date = null — «ближайшие» рейсы по всем датам (legacy blij=1). */
+    public function trips(int $awtcod, string $station, ?string $date, bool $forSale = true): array
     {
-        return $this->call(fn () => $this->http()->get('trips', [
+        return $this->call(fn () => $this->http()->get('trips', array_filter([
             'awtcod' => $awtcod,
             'station' => $station,
             'date' => $date,
             'for_sale' => $forSale ? 1 : 0,
-        ]));
+        ], fn ($v) => $v !== null)));
     }
 
     public function places(int $awtcod, string $date, int $napcod, int $raicecod): array
