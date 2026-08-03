@@ -9,6 +9,7 @@ Route::prefix('v1')->group(function () {
     Route::get('stations/{awtcod}/destinations', [CatalogController::class, 'destinations'])->whereNumber('awtcod');
     Route::get('trips', [CatalogController::class, 'trips']);
     Route::get('trips/places', [CatalogController::class, 'places']);
+    Route::get('citizenships', [CatalogController::class, 'citizenships']);
 
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);

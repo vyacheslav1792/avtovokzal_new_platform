@@ -43,9 +43,30 @@ export interface PassengerForm {
   middle_name: string
   birth_date: string
   gender: 'М' | 'Ж'
+  doc_type: number
   doc_number: string
+  citizenship: number
   baggage: number
 }
+
+/** Типы документов (коды BUSTER, перенос legacy docs/docs_id). */
+export const DOC_TYPES = [
+  { label: 'Паспорт гражданина РФ', value: 21 },
+  { label: 'Свидетельство о рождении', value: 3 },
+  { label: 'Паспорт иностранного гражданина', value: 10 },
+  { label: 'Вид на жительство', value: 12 },
+  { label: 'Временное удостоверение личности', value: 14 },
+  { label: 'Справка об утере паспорта', value: 91 },
+  { label: 'Паспорт моряка', value: 26 },
+  { label: 'Заграничный паспорт гражданина РФ', value: 22 },
+  { label: 'Удостоверение личности военнослужащего', value: 4 },
+  { label: 'Удостоверение лица без гражданства', value: 13 },
+  { label: 'Военный билет военнослужащего', value: 15 },
+  { label: 'Справка об освобождении', value: 5 },
+  { label: 'Паспорт гражданина СССР', value: 1 },
+  { label: 'Паспорт дипломатический', value: 9 },
+  { label: 'Паспорт служебный', value: 11 },
+]
 
 /** Выбранный рейс переживает переход между страницами. */
 export function useSelectedTrip() {

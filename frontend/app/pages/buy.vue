@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PassengerForm } from '~/composables/useApi'
+import { DOC_TYPES } from '~/composables/useApi'
 
-const router = useRouter()
 const api = useApi()
 const toast = useToast()
 const selected = useSelectedTrip()
@@ -22,7 +22,12 @@ const { data: placesResp } = await useAsyncData('places', () =>
     },
   }))
 
+const { data: citizenshipsResp } = await useAsyncData('citizenships', () =>
+  api<{ success: boolean, data: { code: number, name: string }[] }>('/citizenships'))
+
 const freePlaces = computed(() => placesResp.value?.data.free ?? [])
+const citizenshipOptions = computed(() =>
+  (citizenshipsResp.value?.data ?? []).map(c => ({ label: c.name, value: c.code })))
 
 const baggageOptions = [
   { label: 'Отсутствует', value: 0 },
@@ -47,7 +52,9 @@ function emptyPassenger(): PassengerForm {
     middle_name: '',
     birth_date: '',
     gender: 'М',
+    doc_type: 21,
     doc_number: '',
+    citizenship: 185,
     baggage: 1,
   }
 }
@@ -57,6 +64,20 @@ const email = ref('')
 const phone = ref('')
 const agree = ref(false)
 const submitting = ref(false)
+
+// Ошибки серверной валидации: путь поля → сообщение (показывается под полем).
+const serverErrors = ref<Record<string, string>>({})
+
+function fieldError(path: string): string | undefined {
+  return serverErrors.value[path]
+}
+
+function clearError(path: string) {
+  if (serverErrors.value[path]) {
+    const { [path]: _, ...rest } = serverErrors.value
+    serverErrors.value = rest
+  }
+}
 
 // Первому пассажиру сразу подставляем первое свободное место.
 watch(freePlaces, (free) => {
@@ -82,6 +103,7 @@ function addPassenger() {
 
 function removePassenger(i: number) {
   passengers.value.splice(i, 1)
+  serverErrors.value = {}
 }
 
 function priceFor(p: PassengerForm) {
@@ -91,11 +113,24 @@ function priceFor(p: PassengerForm) {
 
 const total = computed(() => passengers.value.reduce((sum, p) => sum + priceFor(p), 0))
 
+/** Скролл и фокус к первому ошибочному полю. */
+async function focusFirstError() {
+  await nextTick()
+  const first = document.querySelector('[data-error-field]')
+  if (!first) return
+  first.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const input = first.querySelector<HTMLElement>('input, select, button, textarea')
+  input?.focus({ preventScroll: true })
+}
+
 async function submit() {
+  serverErrors.value = {}
+
   if (!agree.value) {
-    toast.add({ title: 'Необходимо согласие на обработку персональных данных', color: 'warning' })
+    toast.add({ title: 'Для покупки необходимо согласие на обработку персональных данных', color: 'warning' })
     return
   }
+
   submitting.value = true
   try {
     const resp = await api<{ success: boolean, data: { payment_url: string, order_id: string } }>(
@@ -120,11 +155,41 @@ async function submit() {
     window.location.href = resp.data.payment_url
   }
   catch (e: any) {
-    toast.add({
-      title: 'Не удалось оформить заказ',
-      description: String(e?.data?.error ?? e?.data?.message ?? e?.message ?? ''),
-      color: 'error',
-    })
+    const errors: Record<string, string[]> | undefined = e?.data?.errors
+
+    // Ошибки уровня заказа (рейс, состав пассажиров) — не привязаны к полям.
+    const isFieldKey = (k: string) => k.includes('.') || ['email', 'phone', 'agree_pd'].includes(k)
+    if (errors && !Object.keys(errors).some(isFieldKey)) {
+      toast.add({
+        title: 'Не удалось оформить заказ',
+        description: Object.values(errors).flat()[0] ?? '',
+        color: 'error',
+      })
+      submitting.value = false
+      return
+    }
+
+    if (errors && Object.keys(errors).length) {
+      // Ошибки по полям: подсветка + сообщение под полем + дежурный тост.
+      const flat: Record<string, string> = {}
+      for (const [path, messages] of Object.entries(errors)) {
+        flat[path] = messages[0] ?? 'Поле заполнено некорректно'
+      }
+      serverErrors.value = flat
+      toast.add({
+        title: 'Некоторые поля формы заполнены некорректно',
+        description: 'Проверьте выделенные поля.',
+        color: 'error',
+      })
+      await focusFirstError()
+    }
+    else {
+      toast.add({
+        title: 'Не удалось оформить заказ',
+        description: String(e?.data?.error ?? e?.data?.message ?? e?.message ?? ''),
+        color: 'error',
+      })
+    }
     submitting.value = false
   }
 }
@@ -185,8 +250,16 @@ function formatDate(d: string) {
       </template>
 
       <div class="grid gap-4 md:grid-cols-3">
-        <UFormField label="Место" required>
-          <USelect v-model="p.place" :items="availablePlaces(p.place)" value-key="value" class="w-full" />
+        <UFormField
+          label="Место" required
+          :error="fieldError(`passengers.${i}.place`)"
+          :data-error-field="fieldError(`passengers.${i}.place`) ? '' : undefined"
+        >
+          <USelect
+            v-model="p.place" :items="availablePlaces(p.place)" value-key="value" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.place`)"
+            @update:model-value="clearError(`passengers.${i}.place`)"
+          />
         </UFormField>
         <UFormField label="Тариф">
           <USelect v-model="p.tariff" :items="tariffOptions" value-key="value" class="w-full" />
@@ -194,25 +267,93 @@ function formatDate(d: string) {
         <UFormField label="Багаж / ручная кладь">
           <USelect v-model="p.baggage" :items="baggageOptions" value-key="value" class="w-full" />
         </UFormField>
+      </div>
 
-        <UFormField label="Фамилия" required>
-          <UInput v-model="p.last_name" placeholder="ИВАНОВ" class="w-full" />
+      <p class="mt-3 text-sm text-muted">
+        Пассажир имеет право перевезти с собой 2х детей до 12 лет по детскому тарифу.
+        Для ребёнка без сопровождения взрослого необходимо приобрести билет по полному тарифу.
+      </p>
+
+      <div class="grid gap-4 md:grid-cols-3 mt-4">
+        <UFormField
+          label="Фамилия" required
+          :error="fieldError(`passengers.${i}.last_name`)"
+          :data-error-field="fieldError(`passengers.${i}.last_name`) ? '' : undefined"
+        >
+          <UInput
+            v-model="p.last_name" placeholder="ИВАНОВ" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.last_name`)"
+            @input="clearError(`passengers.${i}.last_name`)"
+          />
         </UFormField>
-        <UFormField label="Имя" required>
-          <UInput v-model="p.first_name" placeholder="ИВАН" class="w-full" />
+        <UFormField
+          label="Имя" required
+          :error="fieldError(`passengers.${i}.first_name`)"
+          :data-error-field="fieldError(`passengers.${i}.first_name`) ? '' : undefined"
+        >
+          <UInput
+            v-model="p.first_name" placeholder="ИВАН" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.first_name`)"
+            @input="clearError(`passengers.${i}.first_name`)"
+          />
         </UFormField>
-        <UFormField label="Отчество">
-          <UInput v-model="p.middle_name" placeholder="ИВАНОВИЧ" class="w-full" />
+        <UFormField
+          label="Отчество"
+          :error="fieldError(`passengers.${i}.middle_name`)"
+          :data-error-field="fieldError(`passengers.${i}.middle_name`) ? '' : undefined"
+        >
+          <UInput
+            v-model="p.middle_name" placeholder="ИВАНОВИЧ" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.middle_name`)"
+            @input="clearError(`passengers.${i}.middle_name`)"
+          />
         </UFormField>
 
-        <UFormField label="Дата рождения" required>
-          <UInput v-model="p.birth_date" type="date" class="w-full" />
+        <UFormField
+          label="Дата рождения" required
+          :error="fieldError(`passengers.${i}.birth_date`)"
+          :data-error-field="fieldError(`passengers.${i}.birth_date`) ? '' : undefined"
+        >
+          <UInput
+            v-model="p.birth_date" type="date" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.birth_date`)"
+            @input="clearError(`passengers.${i}.birth_date`)"
+          />
         </UFormField>
         <UFormField label="Пол">
           <USelect v-model="p.gender" :items="genderOptions" value-key="value" class="w-full" />
         </UFormField>
-        <UFormField label="Серия и номер паспорта" required hint="например 4444 555555">
-          <UInput v-model="p.doc_number" placeholder="4444 555555" class="w-full" />
+        <UFormField
+          label="Гражданство"
+          :error="fieldError(`passengers.${i}.citizenship`)"
+          :data-error-field="fieldError(`passengers.${i}.citizenship`) ? '' : undefined"
+        >
+          <USelectMenu
+            v-model="p.citizenship" :items="citizenshipOptions" value-key="value"
+            class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.citizenship`)"
+            @update:model-value="clearError(`passengers.${i}.citizenship`)"
+          />
+        </UFormField>
+
+        <UFormField
+          label="Документ"
+          :error="fieldError(`passengers.${i}.doc_type`)"
+          :data-error-field="fieldError(`passengers.${i}.doc_type`) ? '' : undefined"
+        >
+          <USelect v-model="p.doc_type" :items="DOC_TYPES" value-key="value" class="w-full" />
+        </UFormField>
+        <UFormField
+          label="Серия и номер документа" required hint="например 4444 555555"
+          class="md:col-span-2"
+          :error="fieldError(`passengers.${i}.doc_number`)"
+          :data-error-field="fieldError(`passengers.${i}.doc_number`) ? '' : undefined"
+        >
+          <UInput
+            v-model="p.doc_number" placeholder="4444 555555" class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.doc_number`)"
+            @input="clearError(`passengers.${i}.doc_number`)"
+          />
         </UFormField>
       </div>
 
@@ -235,19 +376,36 @@ function formatDate(d: string) {
 
     <UCard>
       <div class="grid gap-4 md:grid-cols-2">
-        <UFormField label="E-Mail для билетов и чека" required>
-          <UInput v-model="email" type="email" placeholder="you@example.com" class="w-full" />
+        <UFormField
+          label="E-Mail для билетов и чека" required
+          :error="fieldError('email')"
+          :data-error-field="fieldError('email') ? '' : undefined"
+        >
+          <UInput
+            v-model="email" type="email" placeholder="you@example.com" class="w-full"
+            :highlight="!!fieldError('email')"
+            @input="clearError('email')"
+          />
         </UFormField>
-        <UFormField label="Номер телефона" required>
-          <UInput v-model="phone" placeholder="+7 910 000-00-00" class="w-full" />
+        <UFormField
+          label="Номер телефона" required
+          :error="fieldError('phone')"
+          :data-error-field="fieldError('phone') ? '' : undefined"
+        >
+          <UInput
+            v-model="phone" placeholder="+7 910 000-00-00" class="w-full"
+            :highlight="!!fieldError('phone')"
+            @input="clearError('phone')"
+          />
         </UFormField>
       </div>
 
-      <UCheckbox
-        v-model="agree"
-        class="mt-4"
-        label="Я даю согласие на обработку моих персональных данных"
-      />
+      <UFormField class="mt-4" :error="fieldError('agree_pd')">
+        <UCheckbox
+          v-model="agree"
+          label="Я даю согласие на обработку моих персональных данных"
+        />
+      </UFormField>
 
       <template #footer>
         <div class="flex items-center justify-between">

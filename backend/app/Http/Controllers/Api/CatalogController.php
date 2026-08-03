@@ -17,6 +17,19 @@ class CatalogController extends Controller
         return response()->json($this->salesApi->stations());
     }
 
+    /** Справочник гражданств (коды COUNTRIES_TABLE базы продаж, 185 = Россия). */
+    public function citizenships(): JsonResponse
+    {
+        $list = cache()->remember('citizenships', 3600, fn () => \App\Models\Citizenship::query()
+            ->where('active', true)
+            ->orderBy('sort')
+            ->orderBy('name')
+            ->get(['code', 'name'])
+            ->toArray());
+
+        return response()->json(['success' => true, 'data' => $list]);
+    }
+
     public function destinations(int $awtcod): JsonResponse
     {
         return response()->json($this->salesApi->destinations($awtcod));
