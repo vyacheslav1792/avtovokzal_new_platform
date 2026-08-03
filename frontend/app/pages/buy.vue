@@ -1,27 +1,96 @@
 <script setup lang="ts">
-import type { PassengerForm } from '~/composables/useApi'
+/**
+ * Покупка билетов на выбранный рейс.
+ *
+ * Рейс задаётся адресом страницы (`/buy?awtcod=&to=&date=&napcod=&raicecod=`),
+ * а не состоянием приложения: ссылку на покупку можно отправить или
+ * опубликовать. Рейс и места **всегда** запрашиваются заново (`getCachedData`
+ * отключён, а страница отдаётся с `Cache-Control: no-store` — routeRules
+ * в `nuxt.config.ts`): цены, свободные места и статус рейса меняются
+ * каждую минуту.
+ */
+import type { PassengerForm, Trip } from '~/composables/useApi'
 import { DOC_TYPES } from '~/composables/useApi'
 
 const api = useApi()
+const route = useRoute()
 const toast = useToast()
-const selected = useSelectedTrip()
 
-if (!selected.value) {
-  await navigateTo('/')
+const awtcod = computed(() => Number(route.query.awtcod ?? 0))
+const toName = computed(() => String(route.query.to ?? ''))
+const date = computed(() => String(route.query.date ?? ''))
+const napcod = computed(() => Number(route.query.napcod ?? 0))
+const raicecod = computed(() => Number(route.query.raicecod ?? 0))
+
+// Кэш useAsyncData отключён: данные берём из payload только при гидрации
+// (там они с этого же запроса), а на любом повторном заходе — новый запрос
+// к API. Иначе возврат «назад» показывал бы вчерашние места и цены.
+const noCache = {
+  getCachedData: (key: string, nuxtApp: ReturnType<typeof useNuxtApp>) =>
+    nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined,
 }
 
-const trip = computed(() => selected.value!.trip)
+const { data: tripsResp, error: tripError } = await useAsyncData(
+  'buy-trip',
+  () => api<{ success: boolean, awtname: string, data: Trip[] }>('/trips', {
+    // all=1 — рейс должен найтись, даже если продажа на него уже закрыта:
+    // иначе вместо понятной причины была бы «рейс не найден».
+    query: { awtcod: awtcod.value, to: toName.value, date: date.value, all: 1 },
+  }),
+  { ...noCache, watch: [awtcod, toName, date] },
+)
 
-const { data: placesResp } = await useAsyncData('places', () =>
-  api<{ success: boolean, data: { free: number[], taken: number[] } }>('/trips/places', {
-    query: {
-      awtcod: selected.value!.from_awtcod,
-      date: trip.value.date_start,
-      napcod: trip.value.napcod,
-      raicecod: trip.value.raicecod,
-    },
-  }))
+const trip = computed(() =>
+  (tripsResp.value?.data ?? []).find(t => t.napcod === napcod.value && t.raicecod === raicecod.value) ?? null)
 
+const fromName = computed(() => tripsResp.value?.awtname ?? '')
+
+/** Причина, по которой рейс нельзя купить на сайте (иначе — пусто). */
+const unavailableReason = computed(() => {
+  const t = trip.value
+  if (!t) return 'Рейс не найден: возможно, ссылка устарела или расписание изменилось.'
+  // Транзитный проверяем ДО отмены: у транзитных рейсов CANCELED в BUSTER
+  // взведён и без отмены — legacy тоже смотрел его только у нетранзитных.
+  if (t.transit) return 'Рейс транзитный — билеты продаются только в кассах автовокзала.'
+  if (t.canceled) return 'Рейс отменён.'
+  if (t.disrupt) return 'Рейс сорван.'
+  if (t.gone) return 'Рейс уже отправился.'
+  if (!t.available) return 'Продажа билетов на этот рейс не открыта.'
+  if (!t.internet_sale_available) return 'Продажа билетов на этот рейс через интернет запрещена.'
+  if (t.min_kilom) return `Продажа ограничена: билет можно купить не ближе чем до «${t.min_kilom}».`
+  if (t.max_kilom) return `Продажа ограничена: билет можно купить не дальше чем до «${t.max_kilom}».`
+  if (t.free_places < 1) return 'На рейсе нет свободных мест.'
+
+  const departure = new Date(`${t.date_start}T${t.time_start}`).getTime()
+  if (departure <= Date.now() + 2000 * 1000) {
+    return 'Продажа через сайт закрыта: до отправления осталось меньше получаса. Билет можно купить в кассе автовокзала.'
+  }
+
+  return ''
+})
+
+/** Назад к рейсам этого маршрута на ту же дату. */
+const tripsLink = computed(() => ({
+  path: '/trips',
+  query: { awtcod: awtcod.value, from: fromName.value, to: toName.value, date: date.value, all: 1 },
+}))
+
+const { data: placesResp } = await useAsyncData(
+  'buy-places',
+  () => trip.value
+    ? api<{ success: boolean, data: { free: number[], taken: number[] } }>('/trips/places', {
+      query: {
+        awtcod: awtcod.value,
+        date: trip.value.date_start,
+        napcod: trip.value.napcod,
+        raicecod: trip.value.raicecod,
+      },
+    })
+    : Promise.resolve(null),
+  { ...noCache, watch: [trip] },
+)
+
+// Справочник гражданств меняется раз в годы — его кэш оставляем.
 const { data: citizenshipsResp } = await useAsyncData('citizenships', () =>
   api<{ success: boolean, data: { code: number, name: string }[] }>('/citizenships'))
 
@@ -131,8 +200,10 @@ function docHint(docType: number): string {
 }
 
 function priceFor(p: PassengerForm) {
-  const base = p.tariff === 'child' ? trip.value.price_child : trip.value.price_full
-  return base + p.baggage * trip.value.price_baggage
+  const t = trip.value
+  if (!t) return 0
+  const base = p.tariff === 'child' ? t.price_child : t.price_full
+  return base + p.baggage * t.price_baggage
 }
 
 const total = computed(() => passengers.value.reduce((sum, p) => sum + priceFor(p), 0))
@@ -162,12 +233,12 @@ async function submit() {
       {
         method: 'POST',
         body: {
-          awtcod: selected.value!.from_awtcod,
-          napcod: trip.value.napcod,
-          raicecod: trip.value.raicecod,
-          statcod: trip.value.statcode,
-          date: trip.value.date_start,
-          to_name: selected.value!.to_name,
+          awtcod: awtcod.value,
+          napcod: trip.value!.napcod,
+          raicecod: trip.value!.raicecod,
+          statcod: trip.value!.statcode,
+          date: trip.value!.date_start,
+          to_name: toName.value,
           email: email.value,
           phone: phone.value,
           agree_pd: true,
@@ -224,7 +295,21 @@ function formatDate(d: string) {
 </script>
 
 <template>
-  <UContainer v-if="selected" class="py-8 space-y-6 max-w-4xl">
+  <UContainer v-if="!trip || unavailableReason" class="py-8 space-y-4 max-w-4xl">
+    <UAlert
+      color="warning"
+      variant="subtle"
+      title="Купить билеты на этот рейс сейчас нельзя"
+      :description="tripError
+        ? 'Не удалось получить информацию о рейсе. Попробуйте повторить запрос позднее.'
+        : unavailableReason"
+    />
+    <UButton :to="tripsLink" color="neutral" variant="outline" icon="i-lucide-arrow-left">
+      Ко всем рейсам маршрута
+    </UButton>
+  </UContainer>
+
+  <UContainer v-else class="py-8 space-y-6 max-w-4xl">
     <div class="flex gap-2 text-sm">
       <UBadge color="neutral" variant="soft">1. Рейсы</UBadge>
       <UBadge color="error" variant="solid">2. Пассажиры</UBadge>
@@ -242,13 +327,13 @@ function formatDate(d: string) {
         <div>
           <div class="text-2xl font-semibold">{{ trip.time_start.slice(0, 5) }}</div>
           <div class="text-sm text-muted">{{ formatDate(trip.date_start) }}</div>
-          <div class="font-medium">{{ selected.from_name }}</div>
+          <div class="font-medium">{{ fromName }}</div>
         </div>
         <UIcon name="i-lucide-arrow-right" class="size-6 text-muted" />
         <div>
           <div class="text-2xl font-semibold">{{ trip.time_end?.slice(0, 5) }}</div>
           <div class="text-sm text-muted">{{ formatDate(trip.date_start) }}</div>
-          <div class="font-medium">{{ selected.to_name }}</div>
+          <div class="font-medium">{{ toName }}</div>
         </div>
         <div class="ml-auto text-sm text-muted">
           свободно мест: <b class="text-highlighted">{{ freePlaces.length }}</b>

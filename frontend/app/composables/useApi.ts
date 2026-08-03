@@ -90,11 +90,3 @@ export const DOC_TYPES = [
   { label: 'Паспорт дипломатический', value: 9 },
   { label: 'Паспорт служебный', value: 11 },
 ]
-
-/** Выбранный рейс переживает переход между страницами. */
-export function useSelectedTrip() {
-  return useState<{ trip: Trip, from_awtcod: number, from_name: string, to_name: string } | null>(
-    'selected-trip',
-    () => null,
-  )
-}

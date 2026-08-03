@@ -124,6 +124,15 @@ const otherVariantLink = computed(() => ({
 }))
 
 /**
+ * Печать страницы. Вызывать `print()` прямо из шаблона нельзя: в выражениях
+ * шаблона видны только свойства компонента и короткий список глобалов Vue,
+ * куда `print` не входит — кнопка молча ничего не делала.
+ */
+function printPage() {
+  window.print()
+}
+
+/**
  * «Скачать тариф» — как в legacy: та же таблица файлом, который открывается
  * в Word (там это был HTML с расширением .rtf через атрибут download).
  */
@@ -180,7 +189,7 @@ function download() {
         <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-arrow-left" @click="$router.back()">
           Назад
         </UButton>
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="print()">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="printPage">
           Версия для печати
         </UButton>
         <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-download" @click="download">
@@ -211,7 +220,7 @@ function download() {
         </template>
       </UAlert>
 
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto print-table">
         <table class="w-full text-sm border border-default">
           <thead class="bg-elevated">
             <tr>
@@ -257,6 +266,37 @@ function download() {
   footer,
   .no-print {
     display: none !important;
+  }
+
+  @page {
+    margin: 10mm;
+  }
+
+  /* На бумаге прокрутки нет — таблица должна поместиться в ширину листа. */
+  .print-table {
+    overflow: visible !important;
+  }
+
+  .print-table table {
+    table-layout: fixed;
+    width: 100%;
+    font-size: 8pt;
+  }
+
+  .print-table th,
+  .print-table td {
+    padding: 2px 3px !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* Названия остановок — ссылки; на бумаге печатаем обычным чёрным текстом. */
+  .print-table a {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+
+  h1 {
+    font-size: 14pt;
   }
 }
 </style>

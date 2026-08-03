@@ -191,6 +191,15 @@ function showTrips(nearest = false) {
 const routes = computed(() => schedule.value?.routes ?? [])
 
 /**
+ * Печать страницы (в legacy — отдельная страница for_print.php). Вызывать
+ * `print()` прямо из шаблона нельзя: в выражениях шаблона видны только
+ * свойства компонента и короткий список глобалов Vue, куда `print` не входит.
+ */
+function printPage() {
+  window.print()
+}
+
+/**
  * Ссылка на тариф рейса (legacy: клик по времени отправления вёл на /tarif).
  * Тарифную категорию не передаём — её выбирает сервер: у рейса их бывает
  * две (действующая и новая с даты смены).
@@ -286,7 +295,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
 
     <template v-else-if="schedule">
       <div class="flex justify-end mb-3 no-print">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="print()">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="printPage">
           Версия для печати
         </UButton>
       </div>
@@ -301,7 +310,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
         По заданным условиям маршрутов не нашлось.
       </div>
 
-      <div v-else class="space-y-3">
+      <div v-else class="space-y-3 print-schedule">
         <UCard v-for="r in routes" :key="r.route_name + r.schedule">
           <div class="flex flex-wrap gap-4">
             <div class="min-w-56 flex-1">
@@ -351,6 +360,39 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
   footer,
   .no-print {
     display: none !important;
+  }
+
+  @page {
+    margin: 10mm;
+  }
+
+  /* На бумаге времена отправления — обычный чёрный текст, а не зелёные
+     кнопки-ссылки; маршруты печатаем плотнее и не рвём между страницами. */
+  .print-schedule {
+    font-size: 9pt;
+  }
+
+  .print-schedule a,
+  .print-schedule .rounded-md {
+    color: #000 !important;
+    background: transparent !important;
+    padding: 0 6px 0 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Карточки на бумаге лишние: печатаем маршруты сплошным списком,
+     иначе на лист влезает вдвое меньше строк, чем могло бы. */
+  .print-schedule > * {
+    break-inside: avoid;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-bottom: 1px solid #ddd !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-schedule > * > * {
+    padding: 3px 0 !important;
   }
 }
 </style>

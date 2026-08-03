@@ -12,7 +12,6 @@ import type { Trip } from '~/composables/useApi'
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
-const selectedTrip = useSelectedTrip()
 
 const awtcod = computed(() => Number(route.query.awtcod))
 const fromName = computed(() => String(route.query.from ?? ''))
@@ -169,14 +168,22 @@ function tripStatus(trip: Trip, now: number): TripStatus {
   return status
 }
 
+/**
+ * Рейс передаётся странице покупки адресом, а не состоянием приложения:
+ * такую ссылку можно отправить или опубликовать. Дата берётся у самого
+ * рейса — в режиме «ближайшие» её в адресе списка нет.
+ */
 function buy(trip: Trip) {
-  selectedTrip.value = {
-    trip,
-    from_awtcod: awtcod.value,
-    from_name: data.value?.awtname ?? fromName.value,
-    to_name: toName.value,
-  }
-  router.push('/buy')
+  router.push({
+    path: '/buy',
+    query: {
+      awtcod: awtcod.value,
+      to: toName.value,
+      date: trip.date_start,
+      napcod: trip.napcod,
+      raicecod: trip.raicecod,
+    },
+  })
 }
 
 /**
