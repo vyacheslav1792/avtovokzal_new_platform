@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\RegisterFiscalReceipt;
 use App\Jobs\SendPurchaseEmail;
 use App\Models\Order;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -157,12 +158,40 @@ class OrderService
             throw $e;
         }
 
-        $order->update([
-            'tickets' => $sale['tickets'],
-            'back_code' => $this->generateBackCode(),
-            'status' => Order::STATUS_COMPLETED,
-            'completed_at' => now(),
-        ]);
+        DB::transaction(function () use ($order, $sale) {
+            // gender сайт хранит только в passengers (API продаж его не возвращает).
+            $genders = collect($order->passengers)->keyBy(fn (array $p) => (string) $p['place']);
+
+            foreach (array_values($sale['tickets']) as $i => $t) {
+                $order->tickets()->create([
+                    'position' => $i,
+                    'serial' => $t['serial'] ?? null,
+                    'number' => $t['number'] ?? null,
+                    'place' => (int) $t['place'],
+                    'type' => $t['type'] ?? 'П',
+                    'price' => $t['price'],
+                    'baggage' => (int) ($t['baggage'] ?? 0),
+                    'price_bag' => $t['price_bag'] ?? 0,
+                    'last_name' => $t['last_name'],
+                    'first_name' => $t['first_name'],
+                    'middle_name' => $t['middle_name'] ?? null,
+                    'birth_date' => $t['birth_date'],
+                    'gender' => $genders[(string) $t['place']]['gender'] ?? null,
+                    'doc_type' => (int) ($t['doc_type'] ?? 21),
+                    'doc_series' => $t['doc_series'] ?? null,
+                    'doc_number' => $t['doc_number'],
+                    'citizenship' => (int) ($t['citizenship'] ?? 185),
+                    'comment' => $t['comment'] ?? null,
+                    'baggage_tickets' => $t['baggage_tickets'] ?? [],
+                ]);
+            }
+
+            $order->update([
+                'back_code' => $this->generateBackCode(),
+                'status' => Order::STATUS_COMPLETED,
+                'completed_at' => now(),
+            ]);
+        });
 
         // Поток чека и письма — в очередь; обработчик пока не запускаем.
         RegisterFiscalReceipt::dispatch($order->id)->onQueue('receipts');
@@ -218,6 +247,24 @@ class OrderService
         return $code;
     }
 
+    /** Месяцы в родительном падеже — legacy `rusmonth($n, 2)` (inc/config.php). */
+    private const MONTHS = [
+        1 => 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+    ];
+
+    /**
+     * Описание платежа для шлюза — строка на каждое место, перенос
+     * `avtovokzal57/url/passengers.php:395-409`:
+     * «Билет {откуда} – {куда}, {дд} {месяц} {гггг} в {чч:мм}, м. {место}; багаж: {N} шт.»
+     * Тире — U+2013, месяц строчными в родительном падеже (rusmonth mode=2),
+     * багаж пишется всегда, даже когда мест ноль. Строки склеиваются через
+     * CRLF, вся строка режется до 128 символов в PaymentGateway::register
+     * (legacy `mb_substr($desctiption_sbrf, 0, 128)`).
+     *
+     * Слагаемое «; страховка» из legacy не переносим: новый сайт добровольную
+     * страховку не продаёт (см. AdminRefundService).
+     */
     private function paymentDescription(Order $order): string
     {
         $lines = [];
@@ -227,7 +274,9 @@ class OrderService
                 'Билет %s – %s, %s в %s, м. %s%s',
                 $order->from_name,
                 $order->to_name,
-                $order->date_start->translatedFormat('d F Y'),
+                $order->date_start->format('d').' '
+                    .self::MONTHS[(int) $order->date_start->format('n')].' '
+                    .$order->date_start->format('Y'),
                 substr((string) $order->time_start, 0, 5),
                 $p['place'],
                 $bag,

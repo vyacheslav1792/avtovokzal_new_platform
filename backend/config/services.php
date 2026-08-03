@@ -50,10 +50,20 @@ return [
         'return_url' => env('SBERBANK_RETURN_URL'),
     ],
 
-    // Кассовый сервер (фискальные чеки).
-    'kkm' => [
-        'url' => env('KKM_SERVER_URL'),
-        'key' => env('KKM_SERVER_KEY'),
+    // Gotenberg — рендер PDF билетов из печатной формы фронта (Chromium).
+    // print_base — адрес Nuxt, ПО КОТОРОМУ ХОДИТ GOTENBERG (внутренняя сеть
+    // compose), а не адрес для браузера пользователя.
+    'gotenberg' => [
+        'url' => env('GOTENBERG_URL', 'http://gotenberg:3000'),
+        'print_base' => env('PRINT_BASE_URL', 'http://frontend:3000'),
+        'timeout' => (int) env('GOTENBERG_TIMEOUT', 60),
+    ],
+
+    // KKM API — отдельный сервис-прослойка к KkmServer (фискальные чеки).
+    'kkm_api' => [
+        'url' => env('KKM_API_URL', 'http://kkm_web/api/v1'),
+        'token' => env('KKM_API_TOKEN'),
+        'timeout' => (int) env('KKM_API_TIMEOUT', 60),
     ],
 
 ];

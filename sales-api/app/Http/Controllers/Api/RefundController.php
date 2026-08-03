@@ -23,6 +23,8 @@ class RefundController extends Controller
             'awtcod' => ['required', 'integer'],
             'operation' => ['required', 'integer', 'in:1,5'],
             'preview' => ['sometimes', 'boolean'],
+            // Админский возврат (legacy admin_mode): разрешён после отправления.
+            'admin_mode' => ['sometimes', 'boolean'],
             'tickets' => ['required', 'array', 'min:1', 'max:20'],
             'tickets.*.serial' => ['required', 'string', 'max:20'],
             'tickets.*.number' => ['required', 'string', 'max:20'],
@@ -33,7 +35,13 @@ class RefundController extends Controller
 
         $gateway = $this->gateways->forStation($data['awtcod'], $agent);
 
-        $result = $gateway->refund((int) $data['awtcod'], $data['tickets'], (int) $data['operation'], $preview);
+        $result = $gateway->refund(
+            (int) $data['awtcod'],
+            $data['tickets'],
+            (int) $data['operation'],
+            $preview,
+            (bool) ($data['admin_mode'] ?? false),
+        );
 
         $refund = Refund::create([
             'agent_id' => $agent['id'],
@@ -53,6 +61,9 @@ class RefundController extends Controller
                 'total_refund' => $result['total_refund'],
                 'places' => $result['places'],
                 'prices' => $result['prices'],
+                'penalties' => $result['penalties'],
+                'trip_name' => $result['trip_name'],
+                'datetime_start' => $result['datetime_start'],
             ],
         ], 201);
     }

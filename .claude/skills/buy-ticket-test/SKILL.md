@@ -1,6 +1,6 @@
 ---
 name: buy-ticket-test
-description: Провести тестовую покупку билета на ЛОКАЛЬНОМ сайте avtovokzal57 (порт 8091) через браузер (MCP chrome-devtools) — сквозной прогон поиск→места→пассажиры→оплата тестовой картой Сбербанка + 3-D Secure. Используй, когда просят «купи билет», «проведи тестовую покупку», «проверь покупку через сайт», «прогони оплату», «протестируй buy/payconfirm».
+description: Провести тестовую покупку билета на ЛОКАЛЬНОМ сайте — новый фронт (:3000) или legacy avtovokzal57 (:8091) — через браузер (claude-in-chrome, иначе chrome-devtools): сквозной прогон поиск→места→пассажиры→оплата тестовой картой Сбербанка + 3-D Secure. Используй, когда просят «купи билет», «проведи тестовую покупку», «проверь покупку через сайт», «прогони оплату», «протестируй buy/payconfirm».
 ---
 
 # Тестовая покупка билета (avtovokzal57, локально)
@@ -8,21 +8,40 @@ description: Провести тестовую покупку билета на 
 Сквозной прогон покупки через реальный браузер. Проверяет цепочку
 сайт → API продаж → Firebird → тестовый Сбербанк → оформление билета.
 
-## Предусловия (проверить перед началом)
+## Каким браузером гонять
 
-1. **Контейнеры подняты:** `cd /home/developer/PROJECTS/avtovokzal_new_platform && docker compose ps`.
-   Если нет — `docker compose up -d`. Нужны `legacy_site` (:8091), `legacy` (:8090), `firebird`.
-2. **Chrome с отладкой на 9223:** `curl -s http://127.0.0.1:9223/json/version`.
-   Если пусто — запустить (нужен `DISPLAY=:1`), **обязательно с `--no-proxy-server`** (иначе
-   системный `http_proxy` требует авторизацию и блокирует страницу):
-   ```
-   DISPLAY=:1 setsid nohup /usr/bin/google-chrome-stable --disable-web-security \
-     --no-proxy-server --user-data-dir=/home/developer/.config/google-chrome-no-cors \
-     --remote-debugging-port=9223 --no-first-run --no-default-browser-check >/dev/null 2>&1 &
-   ```
-3. **MCP `chrome-devtools` доступен** (инструменты `mcp__chrome-devtools__*`). Конфиг — в
-   `.mcp.json` проекта. Если сервер добавлен в текущей сессии — инструменты появятся только
-   после перезапуска сессии Claude Code (предупреди пользователя).
+**Если доступен `claude-in-chrome` — прогоняй им, это вариант по умолчанию.**
+Расширение работает в обычном Chrome пользователя: не нужен ни отдельный Chrome на :9223,
+ни `--no-proxy-server`. Порядок: скилл `claude-in-chrome` → `list_connected_browsers` →
+спросить пользователя, какой браузер брать → `select_browser` → `tabs_context_mcp
+{createIfEmpty:true}` (**свою вкладку на сессию**, чужие не трогать).
+Действия объединяй в `browser_batch` — вся форма пассажира уходит одним вызовом.
+
+`chrome-devtools` — запасной вариант (и обязательный там, где ждём `alert/confirm`:
+`handle_dialog` есть только у него, а claude-in-chrome на диалоге зависает намертво).
+Ему нужны Chrome с отладкой на 9223 и MCP из `.mcp.json`:
+
+```
+curl -s http://127.0.0.1:9223/json/version    # пусто → поднять:
+DISPLAY=:1 setsid nohup /usr/bin/google-chrome-stable --disable-web-security \
+  --no-proxy-server --user-data-dir=/home/developer/.config/google-chrome-no-cors \
+  --remote-debugging-port=9223 --no-first-run --no-default-browser-check >/dev/null 2>&1 &
+```
+(Если MCP-сервер добавлен в текущей сессии — инструменты появятся только после её
+перезапуска, предупреди пользователя.)
+
+## Предусловия
+
+**Контейнеры подняты:** `cd /home/developer/PROJECTS/avtovokzal_new_platform && docker compose ps`.
+Если нет — `docker compose up -d`. Для нового стека нужны `frontend` (:3000), `web` (:8080),
+`sales_web` (:8085), `db`, `firebird`; для legacy — `legacy_site` (:8091), `legacy` (:8090),
+`firebird`.
+
+## Где покупаем
+
+Контур **уточни у пользователя**, если он не назван: покупка живёт и на новом стеке
+(`frontend` :3000 → backend → sales-api), и в legacy (:8091). По умолчанию предлагай новый —
+именно он в разработке.
 
 ## Тестовые данные
 
@@ -32,7 +51,23 @@ description: Провести тестовую покупку билета на 
 - **3-D Secure:** пароль `12345678` (veres=y, pares=a).
 - Пассажиры — любые тестовые ФИО, паспорт (серия-номер, напр. `4444 555555`), дата рождения.
 
-## Пошаговый флоу
+## Флоу на новом стеке (:3000)
+
+1. `navigate` → `http://localhost:3000/`. Плитка «Красная Заря – Орел» в «Популярных
+   направлениях» ведёт сразу на `/trips` с нужными параметрами — быстрее, чем форма поиска.
+2. **Рейс:** у закрытых на продажу — плашка «Продажа закрыта»; жми «Купить» у рейса
+   с запасом > 30 минут до отправления.
+3. **Пассажиры** (`/buy`): багаж по умолчанию уже «1 место», место подставляется само
+   (2-му пассажиру — следующее свободное). Читай `read_page filter:interactive` и заполняй
+   `form_input` по ref'ам — ФИО, дата рождения (`type=date`, значение `1990-01-01`),
+   серия-номер. Комбобоксы (Место/Тариф/Багаж/Пол/Документ/Гражданство) — это кнопки
+   Nuxt UI: клик по полю, затем клик по пункту списка.
+   Внизу: E-Mail, телефон, **чекбокс согласия ПД**. → «Перейти к оплате».
+4. Дальше — сразу форма карты Сбербанка (шаги 6–7 legacy-флоу ниже, они общие).
+5. **Результат:** редирект на `/payment/result?orderId=<mdOrder>`; страница рендерится
+   через 2–5 с — жди. Успех: «Вы успешно приобрели билет(ы)», номера билетов, код возврата.
+
+## Флоу на legacy (:8091)
 
 1. `navigate_page` → `http://127.0.0.1:8091/`. (Навигация может «таймаутить» на 10 с, но
    страница грузится — продолжай.)
@@ -48,7 +83,10 @@ description: Провести тестовую покупку билета на 
    - `click` «Перейти к оплате».
 5. **Подтверждение заказа:** `click` «Оплатить заказ» → страница `/pay` → `click`
    «Я ознакомился, перейти на сайт платёжного шлюза».
-6. **Форма карты (sbergate.com):**
+6. **Форма карты (sbergate.com):** через claude-in-chrome она ведёт себя смирно — клик по
+   полю + `computer type` заходят во все поля, включая номер карты (18 цифр), а кнопка
+   «Оплатить» кликается по координатам как обычная. Проверить ввод: `javascript_tool`
+   → `#iPAN`/`#input-month`/`#input-year`/`#iTEXT`. Ловушки ниже — про chrome-devtools:
    - Поле «Номер карты» имеет маску, но при **посимвольном** вводе расширяется до 18 цифр.
      Порядок: `click` в поле → `press_key Control+A` → `press_key Delete` →
      `type_text 639002000000000003`. Проверь `evaluate_script` что `#iPAN` = 18 цифр.
@@ -59,21 +97,42 @@ description: Провести тестовую покупку билета на 
      (найди её `evaluate_script`-ом по тексту «Оплатить» с ненулевым размером и дис’patch
      `pointerdown/mousedown/pointerup/mouseup/click`).
 7. **3-D Secure** (страница `web.rbsuat.com/acs/...`, форма в **iframe**):
-   поле пароля уже в фокусе → `type_text 12345678` → `press_key Enter`.
+   поле пароля уже в фокусе → `type_text 12345678` → `press_key Enter`. Форма может
+   сабмититься сама на 8-м символе — Enter тогда не нужен, сразу пойдёт редирект.
 8. **Результат:** редирект на `/payconfirm` (или `/pdf.php`). Оформление успешно, если в БД
    `site.ORDERS.BUY_END=1`.
 
 ## Проверка результата (БД)
 
+Новый стек — Postgres `avtovokzal` (креды в `backend/.env`). Успех: `orders.status =
+completed`, `paid_at`/`completed_at` проставлены, в `tickets` по строке на пассажира
+с `serial`/`number` от станции:
+
 ```bash
 cd /home/developer/PROJECTS/avtovokzal_new_platform
-# orderId берём из URL возврата или mdOrder. STATUS=1, BUY_END=1 = билет оформлен.
+docker compose exec -T db psql -U avtovokzal -d avtovokzal -x \
+ -c "SELECT id, status, total_price, back_code, sber_order_id, paid_at, completed_at
+     FROM orders ORDER BY created_at DESC LIMIT 1;" \
+ -c "SELECT position, serial, number, place, price, baggage, price_bag, last_name
+     FROM tickets WHERE order_id=(SELECT id FROM orders ORDER BY created_at DESC LIMIT 1)
+     ORDER BY position;"
+```
+
+Legacy — Firebird `site`. `STATUS=1, BUY_END=1` = билет оформлен:
+
+```bash
+# order_id берём из URL возврата или mdOrder
 echo "SELECT STATUS, BUY_END, CAST(BIL AS INT) BILETY, CAST(BAGAJ AS INT) BAGAJ FROM ORDERS WHERE ORDER_ID='<order_id>';" \
  | docker compose exec -T firebird /usr/local/firebird/bin/isql -user SYSDBA -password masterkey site
 ```
 
 ## Подводные камни
 
+- **claude-in-chrome, координатные клики** — между скриншотом и кликом страница может
+  доскроллиться, и кнопка уезжает на десятки пикселей (ловилось на «Добавить пассажира»).
+  Не промахивайся вслепую: скриншот в том же `browser_batch` перед кликом либо `find`/ref.
+- **claude-in-chrome, `ctrl+a`** в поле формы шлюза выделяет всю страницу, а не значение
+  поля, — не чисти им поля, кликай и печатай в пустое.
 - **Прокси** — Chrome без `--no-proxy-server` подхватывает `http_proxy` и требует авторизацию.
 - **Маска карты** — `fill` вставляет 16 цифр (обрезает); нужен посимвольный `type_text` для 18.
 - **Кнопки/поля шлюза** капризны к MCP-клику — используй `evaluate_script` с mouse-событиями и

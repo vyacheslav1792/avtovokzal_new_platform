@@ -97,6 +97,11 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Приложение живёт в Europe/Moscow, а Eloquent отдаёт даты строкой
+            // БЕЗ смещения («2026-08-03 22:30:00»). Без этой строки сессия
+            // Postgres остаётся в UTC и трактует московское время как UTC —
+            // всё, что пишется в timestamptz, уезжает на +3 часа.
+            'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
         ],
 
         'sqlsrv' => [

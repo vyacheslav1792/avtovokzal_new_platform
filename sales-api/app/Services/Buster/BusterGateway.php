@@ -376,8 +376,10 @@ SQL;
      * Возврат/аннулирование билетов (KS_ANN_TICKET_FROM_AW).
      *
      * @param  array[]  $tickets  каждый: serial, number
+     * @param  bool  $adminMode  админский возврат (legacy admin_mode):
+     *                           разрешён и после отправления рейса (IS_PRN)
      */
-    public function refund(int $awtcod, array $tickets, int $operation, bool $preview): array
+    public function refund(int $awtcod, array $tickets, int $operation, bool $preview, bool $adminMode = false): array
     {
         $nTickets = '';
         $dobTickets = '';
@@ -389,13 +391,14 @@ SQL;
             $conditions[] = '(N_TICKET='.((int) $t['number']).' and DOB_N_TICKET='.((int) $t['serial']).')';
         }
 
-        // Билет нельзя вернуть после отправления рейса (IS_PRN).
+        // Билет нельзя вернуть после отправления рейса (IS_PRN) —
+        // кроме админского режима (legacy: IS_PRN && !admin_mode).
         $sold = $this->db->select(
             'select * from SALE where ('.implode(' OR ', $conditions).") and TYPE_OPER=0 and datestart>'".date('Y-m-d', time() - 24 * 60 * 3600)."'",
         );
 
         foreach ($sold as $row) {
-            if (! empty($row['IS_PRN'])) {
+            if (! empty($row['IS_PRN']) && ! $adminMode) {
                 throw new BusterException('Невозможно вернуть билет: рейс уже отправлен', 'trip_departed');
             }
         }
@@ -424,10 +427,20 @@ SQL;
             }
         }
 
+        $marshParts = array_values(array_filter(explode('@', (string) ($row['MARSH_NAME'] ?? ''))));
+        $dateTimeStart = array_values(array_filter(explode('@', (string) ($row['DATE_TIME_START'] ?? ''))));
+
         return [
             'total_refund' => (float) ($row['SUMMA_BACK_FULL'] ?? 0),
             'places' => array_values(array_filter(explode('@', (string) ($row['N_PLACES'] ?? '')))),
             'prices' => array_values(array_filter(explode('@', (string) ($row['TICK_PRICE'] ?? '')))),
+            // Проценты удержания по каждому билету (TICK_SHTRAFPROC: «25@25@»)
+            'penalties' => array_values(array_filter(
+                explode('@', (string) ($row['TICK_SHTRAFPROC'] ?? '')),
+                fn ($v) => $v !== '',
+            )),
+            'trip_name' => implode('–', array_slice($marshParts, 0, 2)),
+            'datetime_start' => $dateTimeStart[0] ?? null,
             'raw' => $row,
         ];
     }

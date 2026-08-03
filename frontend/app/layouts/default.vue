@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const links = [
   { label: 'Купить билеты', to: '/' },
+  { label: 'Возврат билетов', to: '/backbycode' },
   { label: 'Расписание автобусов', to: '/' },
   { label: 'Контакты', to: '/' },
 ]

@@ -1,0 +1,182 @@
+:root {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --line: #d9e0ea;
+  --line-strong: #b9c4d4;
+  --text: #1f2733;
+  --muted: #6b7688;
+  --accent: #2563eb;
+  --accent-d: #1d4ed8;
+  --head: #eef2f8;
+  --row-odd: #ffffff;
+  --row-even: #f7f9fc;
+  --warn-bg: #fff6e6;
+  --warn-line: #f0c674;
+  --err-bg: #fdeaea;
+  --err-line: #e0a3a3;
+  --topbar-h: 48px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* Топбар */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  height: var(--topbar-h);
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 0 14px;
+}
+.burger {
+  border: 1px solid var(--line-strong); background: #fff; border-radius: 8px;
+  width: 34px; height: 34px; cursor: pointer; font-size: 16px; line-height: 1;
+}
+.burger:hover { background: var(--head); }
+.topbar-title { font-weight: 700; }
+
+.layout { display: flex; align-items: flex-start; }
+
+.sidebar {
+  width: 240px; flex: 0 0 240px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 14px 12px;
+  position: sticky; top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  overflow: auto;
+  transition: width .18s ease, flex-basis .18s ease, padding .18s ease;
+}
+.nav-collapsed .sidebar {
+  width: 0; flex-basis: 0; padding-left: 0; padding-right: 0;
+  overflow: hidden; border-right: none;
+}
+.nav-group-title { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 14px 8px 6px; letter-spacing: .04em; white-space: nowrap; }
+.nav-item { display: block; padding: 8px 10px; border-radius: 8px; color: var(--text); text-decoration: none; margin-bottom: 2px; white-space: nowrap; }
+.nav-item:hover { background: var(--head); }
+.nav-item.router-link-exact-active { background: var(--accent); color: #fff; }
+.nav-err { color: #b00; font-size: 12px; margin-top: 12px; }
+
+.content { flex: 1 1 auto; padding: 18px 22px; min-width: 0; }
+h1 { font-size: 20px; margin: 0 0 14px; }
+.muted { color: var(--muted); }
+.loading { margin: 14px 0; }
+
+.alert { background: var(--err-bg); border: 1px solid var(--err-line); padding: 10px 12px; border-radius: 8px; margin: 12px 0; }
+.alert.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+
+/* Карточки отчётов */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+.card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; text-decoration: none; color: var(--text); }
+.card:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(37,99,235,.08); }
+.card-title { font-weight: 600; }
+.card-group { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* Фильтры (серверные) */
+.filters { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+.filters-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: 12px; color: var(--muted); }
+.field select, .field input { padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 14px; background: #fff; min-width: 150px; }
+.filters-actions { margin-top: 12px; }
+
+.btn { border: 1px solid var(--line-strong); background: #fff; color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn:hover { background: var(--head); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent-d); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-d); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+
+/* Summary */
+.summary { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 16px; }
+.summary-item { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 200px; }
+.summary-label { font-size: 12px; color: var(--muted); }
+.summary-value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+
+/* Секции-аккордеон */
+.rsection { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+.rsection-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
+.rsection-head:hover { background: var(--head); }
+.chevron { transition: transform .15s; color: var(--muted); font-size: 12px; }
+.chevron.open { transform: rotate(90deg); }
+.rsection-title { font-weight: 600; }
+.rsection-count { margin-left: auto; background: var(--head); color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.rsection-body { border-top: 1px solid var(--line); padding: 12px 14px; }
+
+/* Клиентские фильтры таблицы */
+.dt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 10px; padding: 10px 12px; background: var(--head); border-radius: 8px; }
+.dt-filter { display: flex; align-items: center; gap: 6px; }
+.dt-filter-label { font-size: 12px; color: var(--muted); }
+.dt-filter input[type="date"] { padding: 5px 7px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 13px; background: #fff; }
+.dt-filter .dash { color: var(--muted); }
+
+/* Таблица */
+.dt-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.dt-hint { font-size: 12px; }
+.dt-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+/* Ключевое: высота ограничена окном -> внутренняя прокрутка, горизонтальный скролл виден снизу */
+.dt-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 170px);
+  max-height: calc(100dvh - 170px);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+table.dt { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; white-space: nowrap; }
+table.dt th, table.dt td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+table.dt th:first-child, table.dt td:first-child { border-left: 1px solid var(--line); }
+
+/* Шапка не исчезает при прокрутке */
+table.dt thead th {
+  background: var(--head); position: sticky; top: 0; z-index: 3;
+  cursor: pointer; user-select: none;
+  border-top: 1px solid var(--line);
+}
+table.dt thead th:hover { background: #e2e8f2; }
+.th-sort { color: var(--accent); font-weight: 700; margin-left: 4px; }
+.th-sort sup { font-size: 9px; }
+
+table.dt tbody tr:nth-child(odd) td { background: var(--row-odd); }
+table.dt tbody tr:nth-child(even) td { background: var(--row-even); }
+
+/* Подсветка статуса строки (_class из отчёта) — после zebra, чтобы победить её */
+table.dt tbody tr.row-green td { background: #e9ffe9; }
+table.dt tbody tr.row-yellow td { background: #fff7cf; }
+table.dt tbody tr.row-orange td { background: #ffe3c2; }
+table.dt tbody tr.row-red td { background: #ffd6d6; }
+table.dt tbody tr.row-blue td { background: #dcdcff; }
+table.dt tbody tr.row-gray td { background: #e8e8e8; color: #666; }
+
+table.dt tbody tr:hover td { background: #eaf1ff; }
+
+/* Итоги закреплены снизу */
+table.dt tfoot td { background: #e7edf6; font-weight: 700; position: sticky; bottom: 0; z-index: 2; border-top: 2px solid var(--line-strong); }
+
+td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
+.dt-empty td { text-align: center; color: var(--muted); padding: 16px; }
+
+/* Оверлей возврата билета поверх отчёта (ReportView) */
+.overlay-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(20, 26, 38, 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 32px 16px; overflow: auto;
+}
+.overlay-panel {
+  position: relative; width: 100%; max-width: 920px;
+  background: #f4f6fa; border-radius: 10px;
+  padding: 18px 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  max-height: calc(100vh - 64px); overflow: auto;
+}
+.overlay-close {
+  position: absolute; top: 10px; right: 12px;
+  border: none; background: none; cursor: pointer;
+  font-size: 26px; line-height: 1; color: #555;
+}
+.overlay-close:hover { color: #000; }

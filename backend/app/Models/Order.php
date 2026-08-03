@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
 {
@@ -13,12 +14,17 @@ class Order extends Model
 
     protected $casts = [
         'passengers' => 'array',
-        'tickets' => 'array',
         'date_start' => 'date:Y-m-d',
         'arrival_at' => 'datetime',
         'paid_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    /** Оформленные билеты (появляются при завершении заказа). */
+    public function tickets(): HasMany
+    {
+        return $this->hasMany(Ticket::class)->orderBy('position');
+    }
 
     public const STATUS_PENDING = 'pending';
 

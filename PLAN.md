@@ -36,30 +36,119 @@ avtovokzal_new_platform/
   .env.example
   docker/
     php/Dockerfile  php/php.ini
-    nginx/default.conf
-  backend/                      # Laravel 13 (bind mount)
+    nginx/default.conf  nginx/sales.conf  nginx/kkm.conf
+    ofelia/config.ini           # задания планировщика (ночной Z-отчёт)
+  backend/                      # Laravel 13 — API avtovokzal57 (bind mount)
+  sales-api/                    # Laravel 13 — API продаж (bind mount)
+  kkm-api/                      # Laravel 13 — KKM API (bind mount)
   frontend/                     # Nuxt (bind mount)
   data/postgres/                # данные Postgres (bind mount, не в git)
 ```
 
 ## Сервисы Compose
-- **db** — postgres:17, данные в `./data/postgres` (bind).
-- **app** — php:8.5-fpm + расширения (`pdo_pgsql`, `pdo_firebird`, intl, mbstring, …) + composer.
-- **web** — nginx, отдаёт `backend/public`, проксирует на app:9000.
+- **db** — postgres:17 (базы `avtovokzal`, `sales`, `kkm`), данные в `./data/postgres` (bind).
+- **app / sales_app / kkm_app** — php:8.5-fpm + расширения (`pdo_pgsql`, `pdo_firebird`, intl, mbstring, …) + composer.
+- **web / sales_web / kkm_web** — nginx (:8080 / :8085 / :8087).
+- **scheduler** — ofelia: задания по расписанию job-exec'ом в контейнеры (docker.sock).
 - **frontend** — node:24, Nuxt dev-сервер.
+- **firebird / legacy / legacy_site** — Firebird 2.5 и legacy-контуры для сверки.
+- Вне docker: **KkmServer** на хосте (:5893, systemd), виртуальная ККТ — эмулятор.
 
 ## Этапы (после поднятия окружения)
 1. **Окружение** — docker compose, скелеты Laravel + Nuxt, Postgres, доступ к Firebird. ✅
 2. **Доступ к Firebird** — connection-менеджер к серверам продаж из `$AWT`, сервис-обёртки. ✅ (`sales-api/app/Services/Buster/*`)
 3. **Схема Postgres** — таблицы `sales` (журнал/резервы/продажи/возвраты) и `orders`. ✅ (частично: USERS/ЛК — позже)
 4. **API продаж** — `sales-api/` (Laravel 13, порт :8085): рейсы, места, резерв, продажа, возврат + журнал. ✅
-5. **API avtovokzal57** — `backend/` (порт :8080): заказы, оплата Сбербанк (SDK), payconfirm, очередь чеков/писем. ✅ (обработчик очереди пока не запущен)
+5. **API avtovokzal57** — `backend/` (порт :8080): заказы, оплата Сбербанк (SDK), payconfirm, очередь чеков/писем. ✅ (очередь receipts обрабатывается через KKM API; воркер писем пока не запущен)
+5а. **KKM API** — `kkm-api/` (Laravel 13, порт :8087): прослойка к KkmServer (хост, :5893, виртуальная ККТ),
+   идемпотентность external_id + IdCommand/GetRezult, журнал запросов, таблица чеков. ✅
+   Фискализация проверена 2026-08-03: 6 чеков прихода + чек возврата на эмуляторе ККТ,
+   ФП записаны в orders/refunds, повторные джобы чеки не дублируют.
 6. **Сайт** — `frontend/` Nuxt + Nuxt UI (порт :3000): поиск, рейсы, пассажиры, оплата, успех. ✅ (покупка,
    включая валидацию документов по правилам станции, справочник гражданств, ФИО/Ё→Е);
-   расписание/ЛК/возврат — в работе
-7. **АИС** — отчёты (уже есть SPA v2 для agents) переводятся на Laravel API + Nuxt.
+   возврат по коду (`/backbycode`) ✅; печатные формы билетов (`/print/{id}`) ✅; расписание/ЛК — в работе
+7. **АИС** — отчёты переводятся на Laravel API + SPA. ▶ начато 2026-08-03:
+   `ais-api/` (:8086, БД `ais` + connection `site` к БД сайта + Firebird станций через
+   ЕДИНЫЙ `shared/stations.php` — только развёрнутые базы, полный набор полей legacy
+   $AWT: подключение + buh/buh_st/buh_ksr/stationkey/inlist, боевые адреса
+   закомментированы до развёртывания), ядро отчётов (reports/meta/run, контракт apiv2),
+   отчёт «Агентские билеты» перенесён и сверен с legacy построчно (0 расхождений);
+   `ais-spa/` (:3001) — перенос SPA из устаревшего `avtovokzal_ais_spa`, переключена
+   на новое API. Дальше: остальные отчёты, авторизация, отчёты по данным нового сайта.
 8. **Прод** — `docker-compose.prod.yml`, деплой на Linux-сервер.
 
 Сквозная покупка через новый стек проверена 2026-08-03 (билеты оформлены в BUSTER,
 оплата — тестовый Сбербанк, чек и письмо поставлены в очередь).
+
+Возврат по коду перенесён 2026-08-03 (перенос legacy `url/backbycode.php`):
+`POST /api/v1/refunds/preview|confirm` в backend (`RefundService` — разбор кода
+back_code+номер, проверки статуса/дедлайна 20 мин/отменённого рейса, подписанный
+Crypt-токен подтверждения на 10 мин, формула суммы 1:1 с legacy), таблица `refunds`,
+возврат платежа Сбербанк через SDK (`refundOrder`), чек возврата chek=2 и письмо —
+в очереди receipts/emails. sales-api `/refunds` отдаёт penalties (TICK_SHTRAFPROC),
+trip_name, datetime_start. Сквозной возврат проверен: билет аннулирован в BUSTER
+(TYPE_OPER=1), деньги возвращены на тестовом шлюзе, повторный возврат блокируется.
+
+Печатные формы билетов перенесены 2026-08-03 (legacy `print.php?bilet=<hash>`):
+`GET /api/v1/orders/{uuid}/print` (обезличивание персональных данных через 30 дней
+после отправления — legacy obezlich_time; названия документов — `config/documents.php`,
+гражданство из таблицы citizenships) + страница `frontend/app/pages/print/[id].vue`
+(A4-вёрстка 1:1, страница на билет + квитанция на каждое место багажа с номером
+багажного билета BUSTER, @page/@media print). Ссылка «Распечатать билеты» — со
+страницы результата оплаты; `/backbycode` принимает `?code=` (ссылка с билета).
+Спец-тексты фрахтования из legacy (Полесье, Лутовиново и т.п.) сознательно НЕ
+перенесены — захардкоженные разовые маршруты. Попутно: `app.timezone` backend
+переведён на Europe/Moscow (дедлайны strtotime по wall-clock BUSTER считались в UTC
+со сдвигом +3 ч), arrival_at старых тестовых заказов сконвертирован.
+
+Фискализация переведена на KKM API 2026-08-03 (вместо legacy-протокола chek=1/2):
+джобы backend шлют чеки с ключами идемпотентности sale:{uuid}/refund:{uuid}
+(у legacy идемпотентности не было). KkmServer установлен на хосте (systemd, :5893),
+ККТ — виртуальный эмулятор. Смена: реактивное автозакрытие при ошибке «>24 ч»
+(Z-отчёт + повтор чека, новая смена открывается первым чеком) + ночной Z-отчёт
+в 23:59 МСК через ofelia (`scheduler` в compose, job-exec `kkm:close-shift`
+в контейнер avtovokzal-kkm-app). Проверено на эмуляторе: чеки прихода/возврата,
+отсутствие дублей при повторных джобах, Z-отчёт вручную и по расписанию.
+
+Билеты сайта нормализованы 2026-08-03: вместо `orders.tickets` (jsonb, как в legacy)
+таблица `tickets` (строка на пассажирский билет; багажные квитанции — jsonb внутри
+строки), миграция разложила существующие заказы и удалила колонку. Индексы под
+объёмы 30–50 тыс. покупок/мес: tickets (order_id+serial+number unique, serial+number),
+orders (created_at, date_start, awtcod), refunds (order_id, created_at). Потребители
+переведены на relation `Order::tickets()` (confirm/refund/print/чеки); запись в
+confirm() проверена изолированным прогоном с фейковыми шлюзом и API продаж.
+
+Отчёты legacy `ais/in.php` + `ais/back.php` перенесены 2026-08-03 одним отчётом
+«Продажи сайта» (`site-sales`, ais-api → connection `site`): переключатель режима —
+«по продажам» (даты = дата заказа, как in.php) / «по поездкам» (даты = дата поездки,
+сортировка по рейсам, как back.php). Секции «Сводный по датам» (в режиме продаж
+покупки по дате заказа и возвраты по дате возврата денег; в режиме поездок оба —
+по дате поездки, КРЗ) и «Журнал покупок» (строка на билет, полный UUID заказа +
+ID Сбербанка; ссылки как в legacy: статус → печать /print/{uuid}, билет → возврат
+/backbycode?code=…, чеки → receipt.taxcom.ru; база фронта — `config/site.php`
+SITE_FRONTEND_URL). Агрегаты считает SQL по индексам, а не PHP по JSON.
+SPA: DataTable понимает подсветку строки `_class` (row-green/yellow/orange/red/
+blue/gray) и колонки type=link ({text,url}) — старые отчёты не затронуты.
+Таблица «Сводный по продажам и агентам в разрезе станций» из in.php сознательно
+НЕ перенесена (отдельный этап).
+
+Админский возврат билета перенесён 2026-08-03 (legacy `ais/back_bilet.php`):
+backend `admin/refunds/inspect|confirm|repair` (AdminRefundService) + страница
+ais-spa `/back-ticket` (ссылки «Заказ»/«Билет» из отчёта «Продажи сайта», прокси
+`/site-api` → web). Из отчёта открывается в оверлее (сформированный отчёт не
+сбрасывается), при закрытии оверлея отчёт перезапрашивается с сервера; прямой
+URL /back-ticket работает как отдельная страница. Воспроизведено: сверка оплаты со шлюзом getOrderStatusExtended
+(статусы 0–6 с расшифровками legacy), пассажиры заказа, выбор процента удержаний
+0/5/15/25 с рекомендуемым от станции, возврат без дедлайна и после отправления
+(admin_mode в sales-api = legacy IS_PRN && !admin_mode), починка зависшего
+возврата денег («Не прошёл возврат по банку» → повторный refund), ветки «нет
+фискального чека»/«уже возвращён», формула суммы 1:1 (number_format/round; выбранный
+процент влияет только на сумму клиенту — до вендорной процедуры shtraf в legacy
+не доходил). Разрешённые отличия: защитный код 123321 убран (авторизация позже),
+эпох мерчантов setSbrf нет (в новой БД один мерчант), чек при починке денег
+пробиваем (в legacy ветка чека была недостижима — баг). Сквозной прогон: возврат
+15% (аннулирование в BUSTER TYPE_OPER=1, деньги на тестовом шлюзе, чек ФП).
+Попутно в legacy (локальный контур): отключены IP-проверки агентов
+(api.php/api2.php/api_new), awt_api_url переведён с боевого 192.168.2.5 на
+локальный контейнер.
 ```

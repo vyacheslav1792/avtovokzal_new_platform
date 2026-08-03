@@ -42,6 +42,12 @@ const order = computed(() => data.value?.data)
 function formatDate(d?: string) {
   return d ? new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
 }
+
+// PDF собирает backend (перенос legacy pdf.php) — ссылка ведёт прямо на него,
+// браузер сам скачает файл по Content-Disposition.
+const pdfUrl = computed(() => order.value
+  ? `${useRuntimeConfig().public.apiBase}/api/v1/orders/${order.value.order_id}/pdf`
+  : '')
 </script>
 
 <template>
@@ -122,7 +128,25 @@ function formatDate(d?: string) {
         description="Посадка в автобус осуществляется по документу, указанному при покупке билета. Печать билета необязательна. Возврат — не позднее чем за 30 минут до отправления."
       />
 
-      <div class="text-center">
+      <div class="text-center flex justify-center gap-3">
+        <UButton
+          :to="`/print/${order.order_id}`"
+          target="_blank"
+          color="error"
+          icon="i-lucide-printer"
+        >
+          Распечатать билеты
+        </UButton>
+        <UButton
+          :href="pdfUrl"
+          external
+          download
+          variant="outline"
+          color="error"
+          icon="i-lucide-file-down"
+        >
+          Скачать билеты в PDF
+        </UButton>
         <UButton to="/" variant="outline" color="neutral" icon="i-lucide-house">
           Вернуться на главную
         </UButton>

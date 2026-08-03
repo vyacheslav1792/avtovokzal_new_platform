@@ -32,6 +32,9 @@ class PaymentGateway
      */
     public function register(string $orderNumber, int $amountKopecks, string $description, ?string $phone = null): array
     {
+        // 128 символов — предел поля description у шлюза; режем ровно как
+        // legacy (`mb_substr($desctiption_sbrf, 0, 128)` в passengers.php),
+        // иначе боевой шлюз вернёт ошибку на длинном описании.
         $extra = ['description' => mb_substr($description, 0, 128)];
 
         if ($phone) {
@@ -46,6 +49,19 @@ class PaymentGateway
         );
     }
 
+    /**
+     * Развёрнутый статус заказа в шлюзе (getOrderStatusExtended):
+     * orderStatus, amount, paymentAmountInfo.refundedAmount,
+     * actionCodeDescription — сверка оплаты перед админским возвратом
+     * (legacy back_bilet.php).
+     */
+    public function statusExtended(string $sberOrderId): array
+    {
+        // В SDK метод называется getOrderStatus, но внутри дергает
+        // getOrderStatusExtended.do — тот же вызов, что в legacy.
+        return $this->client->getOrderStatus($sberOrderId);
+    }
+
     /** Оплачен ли заказ (orderStatus == DEPOSITED). */
     public function isPaid(string $sberOrderId): bool
     {
@@ -58,5 +74,17 @@ class PaymentGateway
     public function reverse(string $sberOrderId): array
     {
         return $this->client->reverseOrder($sberOrderId);
+    }
+
+    /**
+     * Частичный возврат платежа (возврат билета).
+     *
+     * @param  int  $amountKopecks  сумма возврата в копейках
+     *
+     * @throws \Voronkovich\SberbankAcquiring\Exception\ActionException при отказе шлюза
+     */
+    public function refund(string $sberOrderId, int $amountKopecks): array
+    {
+        return $this->client->refundOrder($sberOrderId, $amountKopecks);
     }
 }

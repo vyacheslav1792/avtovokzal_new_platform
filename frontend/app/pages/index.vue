@@ -48,8 +48,9 @@ function search() {
   })
 }
 
-// Популярные направления (как на legacy-главной)
-const popular = [
+// Популярные направления (как на legacy-главной). Показываем только те,
+// чья станция отправления реально есть в конфиге (доступна её база продаж).
+const popularAll = [
   { title: 'Орел – Красная Заря', img: '/img/zarya.jpg', from: 5701, fromName: 'Орел АВ', to: 'Красная Заря КП' },
   { title: 'Красная Заря – Орел', img: '/img/zarya.jpg', from: 5722, fromName: 'Красная Заря КП', to: 'Орел АВ' },
   { title: 'Орел – Брянск', img: '/img/bryansk.jpg', from: 5701, fromName: 'Орел АВ', to: 'Брянск' },
@@ -59,6 +60,8 @@ const popular = [
   { title: 'Орел – Воронеж', img: '/img/vrn.jpg', from: 5701, fromName: 'Орел АВ', to: 'Воронеж' },
   { title: 'Орел – Тула', img: '/img/tula.jpg', from: 5701, fromName: 'Орел АВ', to: 'Тула' },
 ]
+const popular = computed(() =>
+  popularAll.filter(p => stations.value.some(s => s.value === p.from)))
 </script>
 
 <template>

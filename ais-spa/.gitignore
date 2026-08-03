@@ -1,0 +1,14 @@
+# зависимости и артефакты сборки
+node_modules/
+dist/
+.vite/
+
+# логи и мусор
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# редакторские
+.vscode/
+.idea/

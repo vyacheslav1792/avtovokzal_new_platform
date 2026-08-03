@@ -3,19 +3,19 @@
 namespace App\Jobs;
 
 use App\Models\Order;
+use App\Services\KkmApiClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 
 /**
- * Фискальный чек покупки (кассовый сервер ККМ).
+ * Фискальный чек покупки через KKM API (сервис-прослойка к KkmServer).
  *
  * Ставится в очередь `receipts` при успешном оформлении заказа.
- * ВНИМАНИЕ: обработчик очереди пока сознательно НЕ запускается —
- * задания копятся в таблице jobs до запуска воркера.
+ * Ключ идемпотентности sale:{uuid} — повторный запуск джобы (retry,
+ * дубль в очереди) не пробьёт второй чек.
  */
 class RegisterFiscalReceipt implements ShouldQueue
 {
@@ -27,12 +27,11 @@ class RegisterFiscalReceipt implements ShouldQueue
 
     public function __construct(public readonly string $orderId) {}
 
-    public function handle(): void
+    public function handle(KkmApiClient $kkm): void
     {
         $order = Order::findOrFail($this->orderId);
 
-        // Позиции чека: билет / багаж / страховка по каждому пассажиру
-        // (формат legacy payconfirm.php: namevz[i]/pricevz[i]).
+        // Позиции чека: билет / багаж по каждому пассажиру.
         $items = [];
         foreach ($order->tickets ?? [] as $ticket) {
             $tariff = $ticket['type'] === 'Д' ? 'дет.' : 'полн.';
@@ -59,26 +58,30 @@ class RegisterFiscalReceipt implements ShouldQueue
                         $order->date_start->format('d.m.Y'),
                         substr((string) $order->time_start, 0, 5),
                     ),
-                    'price' => $bagCount * (float) $ticket['price_bag'],
+                    'price' => (float) $ticket['price_bag'],
+                    'quantity' => $bagCount,
                 ];
             }
         }
 
-        $query = [
-            'chek' => 1,
-            'email' => $order->email,
-            'key' => config('services.kkm.key'),
-            'transaktion' => $order->sber_order_id,
-        ];
-        foreach ($items as $i => $item) {
-            $query["namevz[{$i}]"] = $item['name'];
-            $query["pricevz[{$i}]"] = $item['price'];
+        $receipt = $kkm->registerReceipt(
+            'sale:'.$order->id,
+            'sale',
+            $order->email,
+            $items,
+            (float) $order->total_price,
+        );
+
+        if ($receipt['status'] === 'pending') {
+            $this->release($this->backoff); // ККТ ещё пробивает — спросим позже
+
+            return;
         }
 
-        $response = Http::timeout(280)->get(config('services.kkm.url'), $query)->json();
-
-        if (! empty($response['status']) && ! empty($response['fp'])) {
-            $order->update(['fiscal_sign' => $response['fp']]);
+        if ($receipt['status'] !== 'registered') {
+            throw new \RuntimeException('Ошибка фискализации: '.($receipt['error'] ?? 'unknown'));
         }
+
+        $order->update(['fiscal_sign' => $receipt['fiscal_sign'] ?? $receipt['check_number']]);
     }
 }

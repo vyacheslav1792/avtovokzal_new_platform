@@ -64,6 +64,17 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->post('refunds', $payload));
     }
 
+    /** Строка EVRYRAICE (в т.ч. флаги CANCELED/DISRUPT — отменён/сорван). */
+    public function tripStatus(int $awtcod, string $date, int $napcod, int $raicecod): array
+    {
+        return $this->call(fn () => $this->http()->get('trips/status', [
+            'awtcod' => $awtcod,
+            'date' => $date,
+            'napcod' => $napcod,
+            'raicecod' => $raicecod,
+        ]));
+    }
+
     private function call(callable $request): array
     {
         $response = $request();
