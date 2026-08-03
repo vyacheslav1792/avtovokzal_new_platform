@@ -1,0 +1,44 @@
+# окружение
+.env
+
+# данные Postgres (bind mount)
+/data/postgres/
+
+# Laravel
+/backend/vendor/
+/backend/node_modules/
+/backend/.env
+/backend/storage/*.key
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/views/*
+/backend/storage/logs/*
+/backend/bootstrap/cache/*
+
+# Nuxt
+/frontend/node_modules/
+/frontend/.nuxt/
+/frontend/.output/
+/frontend/dist/
+
+# прочее
+*.log
+.DS_Store
+
+# базы firebird (dev, восстановленные бэкапы)
+/databases/
+/бэкапы/
+
+# legacy-код (локальная копия для сверки)
+/htdocs/
+
+# Sales API (Laravel)
+/sales-api/vendor/
+/sales-api/node_modules/
+/sales-api/.env
+/sales-api/storage/*.key
+/sales-api/storage/framework/cache/*
+/sales-api/storage/framework/sessions/*
+/sales-api/storage/framework/views/*
+/sales-api/storage/logs/*
+/sales-api/bootstrap/cache/*
