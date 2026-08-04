@@ -9,7 +9,9 @@ use Illuminate\Support\Str;
 
 /**
  * Одноразовая ссылка из письма: приглашение зарегистрироваться после
- * первой покупки и сброс пароля. В базе хранится только sha256 токена.
+ * первой покупки, сброс пароля и подтверждение e-mail, добавленного
+ * к кабинету без почты (вход через VK). В базе хранится только sha256
+ * токена.
  */
 class AuthToken extends Model
 {
@@ -25,6 +27,8 @@ class AuthToken extends Model
     public const TYPE_INVITE = 'invite';
 
     public const TYPE_PASSWORD_RESET = 'password_reset';
+
+    public const TYPE_EMAIL_CONFIRM = 'email_confirm';
 
     public function user(): BelongsTo
     {

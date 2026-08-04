@@ -118,7 +118,7 @@ async function signOut() {
               trailing-icon="i-lucide-chevron-down"
               class="text-neutral-200 hover:text-white"
             >
-              <span class="max-w-40 truncate">{{ user?.email }}</span>
+              <span class="max-w-40 truncate">{{ userLabel(user) }}</span>
             </UButton>
           </UDropdownMenu>
           <UButton
@@ -193,7 +193,7 @@ async function signOut() {
         <div class="py-2">
           <template v-if="isLoggedIn">
             <div class="px-4 py-2 text-sm text-muted truncate">
-              {{ user?.email }}
+              {{ userLabel(user) }}
             </div>
             <NuxtLink
               to="/lk"

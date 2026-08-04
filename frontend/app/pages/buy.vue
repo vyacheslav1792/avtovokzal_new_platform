@@ -133,13 +133,16 @@ const passengers = ref<PassengerForm[]>([emptyPassenger()])
 // Покупателю из кабинета почта и телефон подставляются: почта не
 // редактируется (билеты и чек уходят на адрес кабинета), телефон можно
 // поправить — он попадает в заказ и в SMS перевозчика.
+// Исключение — кабинет, заведённый через VK без почты: адреса в профиле
+// нет, поэтому поле обычное и заполняется вручную.
 const { user, isLoggedIn } = useAuth()
 const email = ref(user.value?.email ?? '')
 const phone = ref(formatPhone(user.value?.phone))
+const emailFromProfile = computed(() => isLoggedIn.value && !!user.value?.email)
 
 watch(user, (u) => {
   if (u) {
-    email.value = u.email
+    if (u.email) email.value = u.email
     if (!phone.value) phone.value = formatPhone(u.phone)
   }
 })
@@ -491,12 +494,12 @@ function formatDate(d: string) {
         <UFormField
           label="E-Mail для билетов и чека" required
           :error="fieldError('email')"
-          :help="isLoggedIn ? 'Адрес вашего личного кабинета — билеты придут на него' : undefined"
+          :help="emailFromProfile ? 'Адрес вашего личного кабинета — билеты придут на него' : undefined"
           :data-error-field="fieldError('email') ? '' : undefined"
         >
           <UInput
             v-model="email" type="email" placeholder="you@example.com" class="w-full"
-            :disabled="isLoggedIn"
+            :disabled="emailFromProfile"
             :highlight="!!fieldError('email')"
             @input="clearError('email')"
           />

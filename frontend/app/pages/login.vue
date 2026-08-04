@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { login, isLoggedIn } = useAuth()
+const { data: providers } = await useAuthProviders()
 const route = useRoute()
 
 useSeoMeta({
@@ -10,7 +11,16 @@ useSeoMeta({
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
-const errorMessage = ref('')
+
+/** Причины, по которым вход через VK не состоялся (?vk_error=…). */
+const VK_ERRORS: Record<string, string> = {
+  denied: 'Вход через VK отменён. Можно войти по e-mail и паролю.',
+  state: 'Вход через VK не завершился: страница была открыта слишком давно. Попробуйте ещё раз.',
+  failed: 'Не удалось войти через VK. Попробуйте ещё раз или войдите по e-mail и паролю.',
+  unavailable: 'Вход через VK сейчас недоступен. Войдите по e-mail и паролю.',
+}
+
+const errorMessage = ref(VK_ERRORS[String(route.query.vk_error ?? '')] ?? '')
 
 const redirect = computed(() => String(route.query.redirect ?? '/lk'))
 
@@ -61,6 +71,19 @@ async function submit() {
           Забыли пароль?
         </NuxtLink>
       </form>
+
+      <template v-if="providers?.vk" #footer>
+        <div class="flex items-center gap-3 mb-4 text-sm text-muted">
+          <span class="h-px flex-1 bg-default" />
+          или
+          <span class="h-px flex-1 bg-default" />
+        </div>
+        <VkLoginButton :redirect="redirect" />
+        <p class="text-xs text-muted mt-3">
+          Если VK не сообщит нам вашу электронную почту, кабинет всё равно будет создан —
+          адрес можно указать позже в профиле.
+        </p>
+      </template>
     </UCard>
 
     <p class="text-sm text-muted mt-6">

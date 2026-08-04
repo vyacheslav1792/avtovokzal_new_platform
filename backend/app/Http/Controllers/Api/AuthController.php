@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserIdentity;
 use App\Services\AuthService;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
@@ -158,20 +159,63 @@ class AuthController extends Controller
         ]);
     }
 
-    /** Смена пароля из кабинета. */
+    /**
+     * Смена пароля из кабинета. У кабинета, заведённого через VK, пароля
+     * ещё нет — тогда текущий не спрашиваем: покупатель задаёт первый.
+     */
     public function changePassword(Request $request): JsonResponse
     {
+        $hasPassword = (bool) $request->user()->password;
+
         $data = $request->validate([
-            'current_password' => ['required', 'string'],
+            'current_password' => [$hasPassword ? 'required' : 'nullable', 'string'],
             'password' => ['required', 'string'],
         ], [
             'current_password.required' => 'Введите текущий пароль.',
             'password.required' => 'Придумайте новый пароль.',
         ]);
 
-        $this->auth->changePassword($request->user(), $data['current_password'], $data['password']);
+        $this->auth->changePassword($request->user(), (string) ($data['current_password'] ?? ''), $data['password']);
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'data' => $this->presentUser($request->user()->refresh())]);
+    }
+
+    /**
+     * Добавить e-mail кабинету, вошедшему через VK без почты: письмо со
+     * ссылкой подтверждения. Сам адрес ставится только по ссылке.
+     */
+    public function requestEmail(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ], [
+            'email.required' => 'Укажите электронную почту.',
+            'email.email' => 'Похоже, в адресе электронной почты опечатка. Проверьте его, пожалуйста.',
+        ]);
+
+        $this->auth->requestEmailConfirmation($request->user(), $data['email'], (string) $request->ip());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Мы отправили письмо со ссылкой подтверждения на '.$data['email'].'.',
+        ]);
+    }
+
+    /**
+     * Подтверждение e-mail по ссылке из письма. Без авторизации: письмо
+     * могут открыть в другом браузере, а владение кабинетом доказывает
+     * сам токен.
+     */
+    public function confirmEmail(Request $request): JsonResponse
+    {
+        $data = $request->validate(['token' => ['required', 'string', 'max:128']]);
+
+        $user = $this->auth->confirmEmail($data['token']);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['email' => $user->email],
+        ]);
     }
 
     /** Проверка ссылки-приглашения: страница регистрации подставит e-mail. */
@@ -187,6 +231,16 @@ class AuthController extends Controller
 
     private function presentUser(User $user): array
     {
+        return static::present($user);
+    }
+
+    /**
+     * Пользователь для фронта. `email` может быть null (вход через VK без
+     * почты), `has_password` отличает такой кабинет от обычного — в профиле
+     * ему показывается «Задать пароль» вместо смены.
+     */
+    public static function present(User $user): array
+    {
         return [
             'id' => $user->id,
             'email' => $user->email,
@@ -194,6 +248,8 @@ class AuthController extends Controller
             'name' => $user->name,
             'email_verified' => (bool) $user->email_verified_at,
             'phone_verified' => (bool) $user->phone_verified_at,
+            'has_password' => (bool) $user->password,
+            'has_vk' => $user->hasIdentity(UserIdentity::PROVIDER_VK),
         ];
     }
 }

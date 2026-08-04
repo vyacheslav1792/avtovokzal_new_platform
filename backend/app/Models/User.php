@@ -13,6 +13,8 @@ use Laravel\Sanctum\HasApiTokens;
  *
  * Пароль необязателен: способы входа лежат в user_identities, и вход
  * через VK или по коду из SMS заведёт пользователя вообще без пароля.
+ * E-mail тоже необязателен — VK отдаёт его не всегда; такому покупателю
+ * почту предлагаем добавить позже, с подтверждением по ссылке.
  */
 class User extends Authenticatable
 {
@@ -41,11 +43,24 @@ class User extends Authenticatable
     /**
      * Заказы кабинета: свои (user_id) плюс купленные до регистрации
      * на этот же e-mail — их пользователь видит после регистрации
-     * («считается, что покупал он»).
+     * («считается, что покупал он»). Адрес здесь всегда подтверждённый:
+     * либо это логин, либо его подтвердил VK или ссылка из письма —
+     * иначе по чужой почте открылись бы чужие покупки.
      */
     public function orders(): Builder
     {
-        return Order::query()
-            ->where(fn ($q) => $q->where('user_id', $this->id)->orWhere('email', $this->email));
+        return Order::query()->where(function ($q) {
+            $q->where('user_id', $this->id);
+
+            if ($this->email) {
+                $q->orWhere('email', $this->email);
+            }
+        });
+    }
+
+    /** Привязан ли способ входа (password | vk | phone). */
+    public function hasIdentity(string $provider): bool
+    {
+        return $this->identities()->where('provider', $provider)->exists();
     }
 }

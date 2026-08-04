@@ -2,6 +2,7 @@
 const api = useApi()
 const route = useRoute()
 const { register, isLoggedIn } = useAuth()
+const { data: providers } = await useAuthProviders()
 
 useSeoMeta({
   title: 'Регистрация в личном кабинете',
@@ -134,6 +135,20 @@ async function submit() {
               <UButton to="/login" variant="ghost" color="neutral">Войти</UButton>
             </div>
           </form>
+
+          <template v-if="providers?.vk" #footer>
+            <div class="flex items-center gap-3 mb-4 text-sm text-muted">
+              <span class="h-px flex-1 bg-default" />
+              или
+              <span class="h-px flex-1 bg-default" />
+            </div>
+            <VkLoginButton redirect="/lk" label="Зарегистрироваться через VK" />
+            <p class="text-xs text-muted mt-3">
+              Пароль придумывать не нужно. Если VK не сообщит нам электронную почту,
+              её можно будет указать в профиле — билеты приходят на адрес,
+              указанный при покупке.
+            </p>
+          </template>
         </UCard>
       </div>
 

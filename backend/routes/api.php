@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PageController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ScheduleController;
+use App\Http\Controllers\Api\VkAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -63,13 +64,22 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/password/forgot', [AuthController::class, 'forgotPassword']);
         Route::post('auth/password/reset', [AuthController::class, 'resetPassword']);
         Route::post('auth/invite', [AuthController::class, 'invite']);
+        Route::post('auth/email/confirm', [AuthController::class, 'confirmEmail']);
+
+        // Вход через VK ID: сюда ходит сервер Nuxt, а не браузер.
+        Route::post('auth/vk/start', [VkAuthController::class, 'start']);
+        Route::post('auth/vk/callback', [VkAuthController::class, 'callback']);
     });
+
+    // Какие способы входа настроены (кнопка «Войти через VK» на страницах).
+    Route::get('auth/providers', [VkAuthController::class, 'providers']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/password/change', [AuthController::class, 'changePassword']);
+        Route::post('auth/email', [AuthController::class, 'requestEmail']);
 
         Route::get('cabinet/orders', [CabinetController::class, 'orders']);
         Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->whereUuid('id');

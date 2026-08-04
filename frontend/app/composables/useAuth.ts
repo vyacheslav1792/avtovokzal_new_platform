@@ -1,10 +1,15 @@
 export interface AuthUser {
   id: number
-  email: string
+  /** null — кабинет заведён через VK, а почту VK не отдал (её предлагаем добавить). */
+  email: string | null
   phone: string | null
   name: string | null
   email_verified: boolean
   phone_verified: boolean
+  /** Задан ли пароль: у входа через VK его может не быть вовсе. */
+  has_password: boolean
+  /** Привязан ли вход через VK. */
+  has_vk: boolean
 }
 
 export interface RegisterPayload {
@@ -153,10 +158,39 @@ export function useAuth() {
   }
 
   async function changePassword(currentPassword: string, password: string) {
-    await api('/auth/password/change', {
+    const resp = await api<{ success: boolean, data: AuthUser }>('/auth/password/change', {
       method: 'POST',
       body: { current_password: currentPassword, password },
     })
+    // У кабинета из VK пароля не было — после первого он появляется,
+    // и форма профиля должна об этом узнать (has_password).
+    user.value = resp.data
+  }
+
+  /**
+   * Добавить e-mail кабинету, вошедшему через VK без почты. Адрес сразу не
+   * ставится: backend шлёт письмо со ссылкой, по ней он и подтверждается —
+   * иначе по чужому адресу открылись бы чужие покупки.
+   */
+  async function requestEmail(email: string) {
+    const resp = await api<{ success: boolean, message: string }>('/auth/email', {
+      method: 'POST',
+      body: { email },
+    })
+
+    return resp.message
+  }
+
+  /** Подтверждение e-mail по ссылке из письма (страница /confirm-email). */
+  async function confirmEmail(confirmToken: string) {
+    const resp = await api<{ success: boolean, data: { email: string } }>('/auth/email/confirm', {
+      method: 'POST',
+      body: { token: confirmToken },
+    })
+
+    if (token.value) await fetchUser(true)
+
+    return resp.data.email
   }
 
   return {
@@ -170,7 +204,37 @@ export function useAuth() {
     resetPassword,
     updateProfile,
     changePassword,
+    requestEmail,
+    confirmEmail,
   }
+}
+
+/**
+ * Какие способы входа настроены на сервере. Кнопку «Войти через VK»
+ * показываем только при заведённом приложении VK (на локальном контуре
+ * его нет — как и у капчи, тестовых ключей VK не выдаёт).
+ */
+export function useAuthProviders() {
+  const api = useApi()
+
+  return useAsyncData('auth-providers', async () => {
+    try {
+      const resp = await api<{ success: boolean, data: { vk: boolean } }>('/auth/providers')
+      return resp.data
+    }
+    catch {
+      // Недоступность backend не должна ронять страницу входа.
+      return { vk: false }
+    }
+  }, { default: () => ({ vk: false }) })
+}
+
+/**
+ * Как назвать покупателя в шапке и кабинете. Обычно это e-mail, но у входа
+ * через VK его может не быть — тогда имя из профиля VK.
+ */
+export function userLabel(user: AuthUser | null | undefined): string {
+  return user?.email || user?.name || 'Личный кабинет'
 }
 
 /** +79101234567 → «+7 910 123-45-67» (бэкенд хранит номер в E.164). */

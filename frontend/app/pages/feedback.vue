@@ -167,7 +167,7 @@ async function again() {
               label="E-mail для ответа"
               required
               :error="fieldErrors.email"
-              :help="isLoggedIn ? 'Адрес вашего личного кабинета' : undefined"
+              :help="isLoggedIn && user?.email ? 'Адрес вашего личного кабинета' : undefined"
             >
               <UInput
                 v-model="form.email"

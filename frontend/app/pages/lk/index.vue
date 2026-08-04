@@ -61,7 +61,7 @@ function ticketTotal(t: CabinetTicket) {
     <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
       <div>
         <h1 class="text-3xl font-light">Личный кабинет</h1>
-        <p class="text-sm text-muted mt-1">{{ user?.email }}</p>
+        <p class="text-sm text-muted mt-1">{{ userLabel(user) }}</p>
       </div>
       <div class="flex items-center gap-2">
         <UButton to="/" color="error" icon="i-lucide-ticket">Купить билет</UButton>
