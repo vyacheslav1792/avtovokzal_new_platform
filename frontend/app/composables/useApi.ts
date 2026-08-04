@@ -88,6 +88,10 @@ export interface PassengerForm {
   doc_number: string
   citizenship: number
   baggage: number
+  /** Галочка «Сохранить в профиль» (только для авторизованного покупателя). */
+  save_to_profile?: boolean
+  /** Подставлен из профиля — тогда сохранять его повторно нечего. */
+  saved_id?: number | null
 }
 
 /** Типы документов (коды BUSTER, перенос legacy docs/docs_id). */

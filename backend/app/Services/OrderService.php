@@ -7,7 +7,9 @@ use App\Jobs\SendPurchaseEmail;
 use App\Jobs\SendRegistrationInvite;
 use App\Models\Order;
 use App\Models\User;
+use App\Support\PassengerName;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class OrderService
@@ -15,6 +17,7 @@ class OrderService
     public function __construct(
         private readonly SalesApiClient $salesApi,
         private readonly PaymentGateway $payments,
+        private readonly SavedPassengerService $savedPassengers,
     ) {}
 
     /**
@@ -123,7 +126,45 @@ class OrderService
             'status' => Order::STATUS_PAYMENT_REGISTERED,
         ]);
 
+        if ($user) {
+            $this->rememberPassengers($user, $data['passengers'], $passengers);
+        }
+
         return $order;
+    }
+
+    /**
+     * Пассажиры в профиль покупателя: отмеченные галочкой «Сохранить»
+     * добавляются, у остальных лишь обновляется дата последней поездки
+     * (по ней список в кабинете сортируется).
+     *
+     * Пишем данные ПОСЛЕ нормализации ($prepared) — в профиле должно
+     * лежать ровно то, что уйдёт в билет. Сбой сохранения покупку не
+     * рушит: заказ уже создан и оплачивается.
+     *
+     * @param  array  $input  пассажиры как их прислала форма (с save_to_profile)
+     * @param  array  $prepared  они же после нормализации для билета
+     */
+    private function rememberPassengers(User $user, array $input, array $prepared): void
+    {
+        try {
+            foreach (array_values($input) as $i => $passenger) {
+                $data = $prepared[$i] ?? null;
+
+                if (! $data) {
+                    continue;
+                }
+
+                filter_var($passenger['save_to_profile'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                    ? $this->savedPassengers->remember($user, $data)
+                    : $this->savedPassengers->touchUsed($user, [$data]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Не удалось сохранить пассажиров в профиль', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -313,11 +354,12 @@ class OrderService
 
     /**
      * ФИО для билета: верхний регистр + Ё→Е (известный баг вендорного
-     * софта: буква Ё ломает обработку в АРМ станции).
+     * софта: буква Ё ломает обработку в АРМ станции). Правило общее с
+     * сохранёнными пассажирами кабинета — живёт в PassengerName.
      */
     private function normalizeName(string $value): string
     {
-        return str_replace('Ё', 'Е', mb_strtoupper(trim($value)));
+        return PassengerName::normalize($value);
     }
 
     /** «03.08.2026 15:00» (формат BUSTER) → datetime или null. */

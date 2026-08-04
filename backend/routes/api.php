@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AdminSpamRuleController;
 use App\Http\Controllers\Api\AdminUploadController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CabinetController;
+use App\Http\Controllers\Api\CabinetPassengerController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\FeedbackController;
@@ -80,6 +81,12 @@ Route::prefix('v1')->group(function () {
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/password/change', [AuthController::class, 'changePassword']);
         Route::post('auth/email', [AuthController::class, 'requestEmail']);
+
+        // Сохранённые пассажиры: подставляются в форму покупки.
+        Route::get('cabinet/passengers', [CabinetPassengerController::class, 'index']);
+        Route::post('cabinet/passengers', [CabinetPassengerController::class, 'store']);
+        Route::put('cabinet/passengers/{id}', [CabinetPassengerController::class, 'update'])->whereNumber('id');
+        Route::delete('cabinet/passengers/{id}', [CabinetPassengerController::class, 'destroy'])->whereNumber('id');
 
         Route::get('cabinet/orders', [CabinetController::class, 'orders']);
         Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->whereUuid('id');

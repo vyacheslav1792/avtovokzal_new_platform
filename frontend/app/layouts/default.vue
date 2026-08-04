@@ -37,6 +37,7 @@ function iconFor(url: string): string {
 // Меню кабинета в шапке (десктоп).
 const accountItems = computed(() => [[
   { label: 'Мои билеты', icon: 'i-lucide-ticket', to: '/lk' },
+  { label: 'Пассажиры', icon: 'i-lucide-users', to: '/lk/passengers' },
   { label: 'Профиль', icon: 'i-lucide-settings', to: '/lk/profile' },
 ], [
   { label: 'Выйти', icon: 'i-lucide-log-out', onSelect: signOut },
@@ -201,6 +202,13 @@ async function signOut() {
             >
               <UIcon name="i-lucide-ticket" class="size-5 shrink-0 text-dimmed" />
               Мои билеты
+            </NuxtLink>
+            <NuxtLink
+              to="/lk/passengers"
+              class="flex items-center gap-3 px-4 py-3 text-base text-default hover:bg-elevated transition-colors"
+            >
+              <UIcon name="i-lucide-users" class="size-5 shrink-0 text-dimmed" />
+              Пассажиры
             </NuxtLink>
             <NuxtLink
               to="/lk/profile"

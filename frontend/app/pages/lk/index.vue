@@ -65,6 +65,9 @@ function ticketTotal(t: CabinetTicket) {
       </div>
       <div class="flex items-center gap-2">
         <UButton to="/" color="error" icon="i-lucide-ticket">Купить билет</UButton>
+        <UButton to="/lk/passengers" color="neutral" variant="outline" icon="i-lucide-users">
+          Пассажиры
+        </UButton>
         <UButton to="/lk/profile" color="neutral" variant="outline" icon="i-lucide-settings">
           Профиль
         </UButton>

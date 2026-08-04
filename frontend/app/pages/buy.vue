@@ -125,6 +125,10 @@ function emptyPassenger(): PassengerForm {
     doc_number: '',
     citizenship: 185,
     baggage: 1,
+    // Авторизованному предлагаем сохранить пассажира в профиль; гостю
+    // галочка не показывается, а backend её игнорирует — сохранять некуда.
+    save_to_profile: true,
+    saved_id: null,
   }
 }
 
@@ -173,6 +177,53 @@ watch(isLoggedIn, (value) => {
 function skipAuthPrompt() {
   sessionStorage.setItem(AUTH_PROMPT_SKIPPED, '1')
   authPromptOpen.value = false
+}
+
+/*
+ * Пассажиры из профиля: билеты берут на себя и на одних и тех же людей,
+ * поэтому ФИО с документом выбираются одним щелчком, а новых предлагаем
+ * сохранить (галочка у каждого пассажира, отправляется вместе с заказом).
+ */
+const { items: savedPassengers, load: loadSavedPassengers } = useSavedPassengers()
+
+await loadSavedPassengers()
+// Вход мог случиться уже на этой странице (модалка выше) — подтянем список.
+watch(isLoggedIn, value => value && loadSavedPassengers(true))
+
+const savedOptions = computed(() => savedPassengers.value.map(p => ({
+  label: `${p.full_name} · ${p.document}`,
+  value: p.id,
+})))
+
+/** Подставить сохранённого пассажира в форму. */
+function fillFromSaved(index: number, id: number) {
+  const saved = savedPassengers.value.find(p => p.id === id)
+  const passenger = passengers.value[index]
+
+  if (!saved || !passenger) return
+
+  Object.assign(passenger, {
+    last_name: saved.last_name,
+    first_name: saved.first_name,
+    middle_name: saved.middle_name ?? '',
+    birth_date: saved.birth_date,
+    gender: saved.gender,
+    doc_type: saved.doc_type,
+    doc_number: saved.document,
+    citizenship: saved.citizenship,
+    // Он уже в профиле — сохранять повторно нечего.
+    save_to_profile: false,
+    saved_id: saved.id,
+  })
+
+  for (const field of ['last_name', 'first_name', 'middle_name', 'birth_date', 'doc_number', 'citizenship']) {
+    clearError(`passengers.${index}.${field}`)
+  }
+}
+
+/** Данные правились вручную — это уже другой пассажир, не запись профиля. */
+function detachFromSaved(passenger: PassengerForm) {
+  passenger.saved_id = null
 }
 
 const agree = ref(false)
@@ -390,6 +441,23 @@ function formatDate(d: string) {
         </div>
       </template>
 
+      <!-- Пассажиры из профиля: одним выбором подставляем ФИО и документ. -->
+      <UFormField
+        v-if="isLoggedIn && savedOptions.length"
+        label="Выбрать из профиля"
+        help="Данные подставятся в поля ниже — их можно поправить"
+        class="mb-4"
+      >
+        <USelectMenu
+          :model-value="p.saved_id ?? undefined"
+          :items="savedOptions"
+          value-key="value"
+          placeholder="Новый пассажир"
+          class="w-full md:w-2/3"
+          @update:model-value="(id: number) => fillFromSaved(i, id)"
+        />
+      </UFormField>
+
       <div class="grid gap-4 md:grid-cols-3">
         <UFormField
           label="Место" required
@@ -424,7 +492,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.last_name" placeholder="ИВАНОВ" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.last_name`)"
-            @input="clearError(`passengers.${i}.last_name`)"
+            @input="clearError(`passengers.${i}.last_name`); detachFromSaved(p)"
           />
         </UFormField>
         <UFormField
@@ -435,7 +503,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.first_name" placeholder="ИВАН" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.first_name`)"
-            @input="clearError(`passengers.${i}.first_name`)"
+            @input="clearError(`passengers.${i}.first_name`); detachFromSaved(p)"
           />
         </UFormField>
         <UFormField
@@ -446,7 +514,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.middle_name" placeholder="ИВАНОВИЧ" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.middle_name`)"
-            @input="clearError(`passengers.${i}.middle_name`)"
+            @input="clearError(`passengers.${i}.middle_name`); detachFromSaved(p)"
           />
         </UFormField>
 
@@ -458,7 +526,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.birth_date" type="date" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.birth_date`)"
-            @input="clearError(`passengers.${i}.birth_date`)"
+            @input="clearError(`passengers.${i}.birth_date`); detachFromSaved(p)"
           />
         </UFormField>
         <UFormField label="Пол">
@@ -496,10 +564,20 @@ function formatDate(d: string) {
           <UInput
             v-model="p.doc_number" placeholder="4444 555555" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.doc_number`)"
-            @input="clearError(`passengers.${i}.doc_number`)"
+            @input="clearError(`passengers.${i}.doc_number`); detachFromSaved(p)"
           />
         </UFormField>
       </div>
+
+      <!-- Новый пассажир: предлагаем запомнить его в кабинете. Уже
+           сохранённого (подставленного из профиля) не переспрашиваем. -->
+      <UCheckbox
+        v-if="isLoggedIn && !p.saved_id"
+        v-model="p.save_to_profile"
+        class="mt-4"
+        label="Сохранить пассажира в профиль"
+        description="В следующий раз данные подставятся из кабинета — вводить их заново не придётся"
+      />
 
       <template #footer>
         <div class="text-right text-sm">

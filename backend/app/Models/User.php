@@ -40,6 +40,12 @@ class User extends Authenticatable
         return $this->hasMany(UserIdentity::class);
     }
 
+    /** Пассажиры, сохранённые для быстрой покупки. */
+    public function savedPassengers(): HasMany
+    {
+        return $this->hasMany(SavedPassenger::class);
+    }
+
     /**
      * Заказы кабинета: свои (user_id) плюс купленные до регистрации
      * на этот же e-mail — их пользователь видит после регистрации

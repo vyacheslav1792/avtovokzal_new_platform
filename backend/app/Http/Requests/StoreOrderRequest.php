@@ -44,6 +44,10 @@ class StoreOrderRequest extends FormRequest
             'passengers.*.doc_number' => ['required', 'string', 'min:4', 'max:25'],
             'passengers.*.citizenship' => ['sometimes', 'integer', 'exists:citizenships,code'],
             'passengers.*.baggage' => ['sometimes', 'integer', 'min:0', 'max:5'],
+            // Галочка «Сохранить в профиль» на форме покупки: пассажир
+            // попадёт в кабинет и в следующий раз подставится сам.
+            // Для гостя игнорируется — сохранять некуда.
+            'passengers.*.save_to_profile' => ['sometimes', 'boolean'],
         ];
     }
 
