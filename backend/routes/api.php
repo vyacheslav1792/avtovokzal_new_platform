@@ -1,14 +1,17 @@
 <?php
 
 use App\Http\Controllers\Api\AdminContactController;
+use App\Http\Controllers\Api\AdminFeedbackController;
 use App\Http\Controllers\Api\AdminMenuController;
 use App\Http\Controllers\Api\AdminPageController;
 use App\Http\Controllers\Api\AdminRefundController;
+use App\Http\Controllers\Api\AdminSpamRuleController;
 use App\Http\Controllers\Api\AdminUploadController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CabinetController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\ContactController;
+use App\Http\Controllers\Api\FeedbackController;
 use App\Http\Controllers\Api\FileController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PageController;
@@ -30,6 +33,11 @@ Route::prefix('v1')->group(function () {
 
     // Контакты (страница /contacts).
     Route::get('contacts', [ContactController::class, 'index']);
+
+    // Обратная связь (перенос модалки «Написать сообщение» legacy).
+    // Ограничение частоты — по IP, лимит в config/feedback.php.
+    Route::get('feedback/form', [FeedbackController::class, 'form']);
+    Route::post('feedback', [FeedbackController::class, 'store'])->middleware('throttle:feedback');
 
     // Обычные страницы сайта (legacy avtovokzal57/url/<slug>.php) и меню.
     Route::get('menu', [PageController::class, 'menu']);
@@ -88,6 +96,15 @@ Route::prefix('v1')->group(function () {
 
     Route::get('admin/menu', [AdminMenuController::class, 'index']);
     Route::put('admin/menu', [AdminMenuController::class, 'update']);
+
+    // Обращения с сайта и антиспам-словарь — там же, из админки АИС.
+    Route::get('admin/feedback', [AdminFeedbackController::class, 'index']);
+    Route::get('admin/feedback/{feedback}', [AdminFeedbackController::class, 'show'])->whereNumber('feedback');
+    Route::put('admin/feedback/{feedback}', [AdminFeedbackController::class, 'update'])->whereNumber('feedback');
+    Route::delete('admin/feedback/{feedback}', [AdminFeedbackController::class, 'destroy'])->whereNumber('feedback');
+
+    Route::get('admin/spam-rules', [AdminSpamRuleController::class, 'index']);
+    Route::put('admin/spam-rules', [AdminSpamRuleController::class, 'update']);
 
     Route::get('admin/uploads', [AdminUploadController::class, 'index']);
     Route::post('admin/uploads', [AdminUploadController::class, 'store']);

@@ -52,6 +52,8 @@ onMounted(async () => {
           <router-link class="nav-item" to="/contacts">Контакты сайта</router-link>
           <router-link class="nav-item" to="/pages">Страницы сайта</router-link>
           <router-link class="nav-item" to="/menu">Меню сайта</router-link>
+          <router-link class="nav-item" to="/feedback">Обращения с сайта</router-link>
+          <router-link class="nav-item" to="/spam-rules">Антиспам-словарь</router-link>
         </nav>
         <div v-if="err" class="nav-err">{{ err }}</div>
       </aside>

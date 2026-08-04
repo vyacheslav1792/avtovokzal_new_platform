@@ -86,3 +86,35 @@ export async function uploadFile(file, dir = 'docs') {
 export async function deleteUpload(path) {
   return req(`${API}/admin/uploads`, json('DELETE', { path }))
 }
+
+/* Обращения с сайта (форма «Напишите нам») */
+
+export async function fetchFeedback(params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+  )
+
+  return (await req(`${API}/admin/feedback?${query}`)).data
+}
+
+export async function fetchFeedbackMessage(id) {
+  return (await req(`${API}/admin/feedback/${id}`)).data
+}
+
+export async function updateFeedbackMessage(id, payload) {
+  return (await req(`${API}/admin/feedback/${id}`, json('PUT', payload))).data
+}
+
+export async function deleteFeedbackMessage(id) {
+  return req(`${API}/admin/feedback/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+/* Антиспам-словарь формы обратной связи */
+
+export async function fetchSpamRules() {
+  return (await req(`${API}/admin/spam-rules`)).data
+}
+
+export async function saveSpamRules(rules) {
+  return (await req(`${API}/admin/spam-rules`, json('PUT', { rules }))).data
+}

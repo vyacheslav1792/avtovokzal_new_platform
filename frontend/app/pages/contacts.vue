@@ -8,8 +8,8 @@
  * Здесь данные приходят из API одним списком, а таблица и карточки — это
  * две вёрстки одних и тех же данных. Правятся контакты в админке АИС.
  *
- * Кнопка «Написать сообщение» (общая модалка сайта с капчей и антиспамом)
- * переносится отдельной задачей — здесь её пока нет.
+ * Кнопка «Написать сообщение» (в legacy — модалка в подвале) ведёт на
+ * страницу /feedback: у формы обратной связи теперь свой адрес.
  */
 const api = useApi()
 
@@ -51,7 +51,12 @@ useSeoMeta({
 
 <template>
   <UContainer class="py-8 max-w-5xl">
-    <h1 class="text-3xl font-light mb-6">Контакты</h1>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <h1 class="text-3xl font-light">Контакты</h1>
+      <UButton to="/feedback" icon="i-lucide-mail" variant="outline">
+        Написать сообщение
+      </UButton>
+    </div>
 
     <!-- Реквизиты организации (верхняя таблица legacy) -->
     <table class="mb-8">

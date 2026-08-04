@@ -270,6 +270,22 @@ async function signOut() {
           </nav>
         </div>
         <div class="md:text-right text-sm space-y-2">
+          <div class="text-white font-semibold">
+            Напишите нам
+          </div>
+          <!-- В legacy это была модалка «Написать сообщение» прямо в подвале;
+               теперь у формы свой адрес — ссылкой можно поделиться. -->
+          <div>
+            <UButton
+              to="/feedback"
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-mail"
+            >
+              Написать сообщение
+            </UButton>
+          </div>
           <div>
             <a href="mailto:support@orelavtotrans.ru" class="hover:text-white">support@orelavtotrans.ru</a>
             · 8 (4862) 72-11-11

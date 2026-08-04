@@ -42,6 +42,10 @@ export default defineNuxtConfig({
       // Из URL запроса его брать нельзя: PDF рендерит gotenberg по
       // внутреннему http://frontend:3000, и такая ссылка утекает в билет.
       siteUrl: 'http://127.0.0.1:3000',
+      // Клиентский ключ Yandex SmartCaptcha (ysc1_…) для формы обратной
+      // связи — NUXT_PUBLIC_CAPTCHA_KEY. Пустой = капчи на форме нет
+      // (локальный контур: тестовых ключей у сервиса не бывает).
+      captchaKey: '',
     },
   },
 })
