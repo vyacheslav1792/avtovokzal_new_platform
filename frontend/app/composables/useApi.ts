@@ -1,3 +1,21 @@
+/**
+ * Адрес backend для запросов ИЗ БРАУЗЕРА.
+ *
+ * Обычно это `apiBase` (http://127.0.0.1:8080 локально). Но страницу можно
+ * открыть и через https-прокси — он нужен для входа через VK ID, который
+ * принимает только https в адресе возврата. Со страницы по https браузер
+ * не даст обратиться к http-API (mixed content), поэтому там ходим на тот
+ * же origin: прокси отдаёт под ним и сайт, и `/api/v1/*`
+ * (см. docker/caddy/Caddyfile).
+ */
+function browserApiBase(configured: string): string {
+  if (import.meta.server) return configured
+
+  return location.protocol === 'https:' && configured.startsWith('http:')
+    ? location.origin
+    : configured
+}
+
 export function useApi() {
   const config = useRuntimeConfig()
   const token = useAuthToken()
@@ -5,7 +23,7 @@ export function useApi() {
   // SSR выполняется внутри docker-сети — там свой адрес backend'а.
   const base = import.meta.server && config.apiBaseServer
     ? config.apiBaseServer
-    : config.public.apiBase
+    : browserApiBase(config.public.apiBase)
 
   return $fetch.create({
     baseURL: `${base}/api/v1`,

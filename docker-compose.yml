@@ -244,6 +244,26 @@ services:
     depends_on:
       - frontend
 
+  # HTTPS-вход на локальном контуре (см. docker/caddy/Caddyfile).
+  # Нужен для входа через VK ID: VK принимает только https в адресе
+  # возврата, и только стандартный порт — поэтому наружу именно 443,
+  # а сайт открывается как https://avtovokzal57.local (имя — в /etc/hosts).
+  # Отдаёт под одним origin и сайт, и /api/v1/* — иначе https-страница
+  # не смогла бы ходить в http-API (mixed content).
+  # Сертификат самоподписанный: браузер один раз предупредит.
+  proxy:
+    image: caddy:2-alpine
+    ports:
+      - "${TLS_PORT:-443}:443"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Локальный центр сертификации Caddy: без сохранения сертификат
+      # менялся бы при каждом рестарте, и браузер ругался бы заново.
+      - ./data/caddy:/data
+    depends_on:
+      - frontend
+      - web
+
   # SPA отчётов АИС (Vue 3 + Vite, dev-сервер).
   ais_spa:
     image: node:24-alpine

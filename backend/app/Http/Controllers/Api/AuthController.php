@@ -88,20 +88,26 @@ class AuthController extends Controller
         ]);
     }
 
-    /** Профиль: телефон и имя. E-mail — логин, здесь не меняется. */
+    /**
+     * Профиль: телефон и имя. E-mail — логин, здесь не меняется.
+     *
+     * Телефон необязателен: кабинет, заведённый через VK, может остаться
+     * вообще без контактов (VK отдаёт номер не всегда), и заставлять его
+     * вводить только ради сохранения имени незачем. Для покупки номер
+     * по-прежнему обязателен — его спрашивает форма заказа.
+     */
     public function updateProfile(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone' => ['required', 'string', 'max:32'],
+            'phone' => ['nullable', 'string', 'max:32'],
             'name' => ['nullable', 'string', 'max:100'],
-        ], [
-            'phone.required' => 'Укажите номер телефона.',
         ]);
 
         $user = $request->user();
-        $phone = Phone::normalize($data['phone']);
+        $input = trim((string) ($data['phone'] ?? ''));
+        $phone = $input === '' ? null : Phone::normalize($input);
 
-        if (! $phone) {
+        if ($input !== '' && ! $phone) {
             throw ValidationException::withMessages([
                 'phone' => 'Укажите корректный номер телефона, например +7 910 000-00-00',
             ]);

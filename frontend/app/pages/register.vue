@@ -11,6 +11,10 @@ useSeoMeta({
 
 const inviteToken = String(route.query.token ?? '')
 
+// Регистрация может быть начата с формы покупки — тогда возвращаем на рейс,
+// а не в кабинет.
+const redirect = computed(() => String(route.query.redirect ?? '/lk'))
+
 const email = ref(String(route.query.email ?? ''))
 const phone = ref('')
 const password = ref('')
@@ -23,7 +27,7 @@ const fieldErrors = ref<Record<string, string>>({})
 const emailLocked = ref(false)
 
 watchEffect(() => {
-  if (isLoggedIn.value) navigateTo('/lk')
+  if (isLoggedIn.value) navigateTo(redirect.value)
 })
 
 // Ссылка-приглашение из письма после первой покупки: подставляем e-mail.
@@ -58,7 +62,7 @@ async function submit() {
       agree_pd: agree.value,
       ...(inviteToken ? { invite_token: inviteToken } : {}),
     })
-    await navigateTo('/lk')
+    await navigateTo(redirect.value)
   }
   catch (e: any) {
     fieldErrors.value = apiFieldErrors(e)
@@ -132,7 +136,12 @@ async function submit() {
               <UButton type="submit" color="error" size="lg" :loading="loading">
                 Зарегистрироваться
               </UButton>
-              <UButton to="/login" variant="ghost" color="neutral">Войти</UButton>
+              <UButton
+                :to="{ path: '/login', query: { redirect } }"
+                variant="ghost" color="neutral"
+              >
+                Войти
+              </UButton>
             </div>
           </form>
 
@@ -142,7 +151,7 @@ async function submit() {
               или
               <span class="h-px flex-1 bg-default" />
             </div>
-            <VkLoginButton redirect="/lk" label="Зарегистрироваться через VK" />
+            <VkLoginButton :redirect="redirect" label="Зарегистрироваться через VK" />
             <p class="text-xs text-muted mt-3">
               Пароль придумывать не нужно. Если VK не сообщит нам электронную почту,
               её можно будет указать в профиле — билеты приходят на адрес,

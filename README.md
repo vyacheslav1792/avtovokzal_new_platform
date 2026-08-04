@@ -41,6 +41,7 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
 | ais_web   | nginx → **AIS API** (`ais-api`) | http://localhost:8086 |
 | frontend  | Nuxt + Nuxt UI (`frontend`)  | http://localhost:3000 |
 | ais_spa   | SPA отчётов АИС (Vue 3 + Vite, dev) | http://localhost:3001 |
+| proxy     | Caddy — **https-вход** к сайту и `/api/v1/*` (нужен для входа через VK ID; сертификат самоподписанный, имя — в `/etc/hosts`) | https://avtovokzal57.local |
 | db        | PostgreSQL 17 (`avtovokzal` + `sales` + `kkm` + `ais`) | localhost:5432 |
 | app       | php-fpm 8.5 (`backend`)      | внутренний (9000)     |
 | sales_app | php-fpm 8.5 (`sales-api`)    | внутренний (9000)     |

@@ -146,6 +146,35 @@ watch(user, (u) => {
     if (!phone.value) phone.value = formatPhone(u.phone)
   }
 })
+
+/*
+ * Гостю предлагаем войти или завести кабинет — с ним не придётся вводить
+ * почту заново, а билеты будут под рукой. Шаг **необязательный**: покупка
+ * без регистрации остаётся как была, и отказ мы запоминаем на вкладку
+ * (sessionStorage), чтобы окно не выскакивало на каждом рейсе.
+ */
+const { data: providers } = await useAuthProviders()
+const authPromptOpen = ref(false)
+const AUTH_PROMPT_SKIPPED = 'buy-auth-prompt-skipped'
+
+onMounted(() => {
+  // Рейс не найден или продажа закрыта — предлагать нечего.
+  if (!trip.value || unavailableReason.value) return
+  if (isLoggedIn.value || sessionStorage.getItem(AUTH_PROMPT_SKIPPED)) return
+
+  authPromptOpen.value = true
+})
+
+// Вошёл в соседней вкладке или через VK — предложение больше не нужно.
+watch(isLoggedIn, (value) => {
+  if (value) authPromptOpen.value = false
+})
+
+function skipAuthPrompt() {
+  sessionStorage.setItem(AUTH_PROMPT_SKIPPED, '1')
+  authPromptOpen.value = false
+}
+
 const agree = ref(false)
 const submitting = ref(false)
 
@@ -539,5 +568,50 @@ function formatDate(d: string) {
         </div>
       </template>
     </UCard>
+
+    <!-- Предложение войти перед покупкой. Пропустить можно всегда:
+         покупка без регистрации остаётся полноценной. -->
+    <UModal v-model:open="authPromptOpen" title="Войти в личный кабинет?">
+      <template #body>
+        <p class="mb-4">
+          С кабинетом почта и телефон подставятся сами, а все билеты — покупки,
+          печать и возврат — будут в одном месте.
+        </p>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2">
+            <UIcon name="i-lucide-history" class="size-5 text-primary shrink-0" />
+            История заказов и билеты всегда под рукой
+          </li>
+          <li class="flex gap-2">
+            <UIcon name="i-lucide-undo-2" class="size-5 text-primary shrink-0" />
+            Возврат билета без ввода кода с билета
+          </li>
+          <li class="flex gap-2">
+            <UIcon name="i-lucide-zap" class="size-5 text-primary shrink-0" />
+            Быстрая покупка: контакты подставляются автоматически
+          </li>
+        </ul>
+      </template>
+
+      <template #footer>
+        <div class="w-full space-y-3">
+          <div class="flex flex-wrap gap-2">
+            <UButton color="error" :to="{ path: '/login', query: { redirect: route.fullPath } }">
+              Войти
+            </UButton>
+            <UButton
+              color="neutral" variant="outline"
+              :to="{ path: '/register', query: { redirect: route.fullPath } }"
+            >
+              Зарегистрироваться
+            </UButton>
+            <UButton color="neutral" variant="ghost" @click="skipAuthPrompt">
+              Продолжить без регистрации
+            </UButton>
+          </div>
+          <VkLoginButton v-if="providers?.vk" :redirect="route.fullPath" />
+        </div>
+      </template>
+    </UModal>
   </UContainer>
 </template>
