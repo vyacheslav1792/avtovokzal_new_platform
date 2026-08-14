@@ -22,7 +22,11 @@ services:
   # Firebird 2.5 для разработки: восстановленные бэкапы наших баз (ais, site)
   # и одной вендорной базы продаж (Красная Заря / BUSTER). Файлы .fbk/.fdb — в ./databases.
   firebird:
-    image: jacobalberty/firebird:2.5-ss
+    # Свой Dockerfile: aliases.conf кладётся в скелет конфигов образа. Монтировать
+    # его в /firebird/etc нельзя — так каталог создаётся заранее, и entrypoint
+    # не раскладывает туда firebird.conf с SYSDBA.password (см. docker/firebird/Dockerfile).
+    build:
+      context: ./docker/firebird
     environment:
       ISC_PASSWORD: ${FB_PASSWORD:-masterkey}
       EnableLegacyClientAuth: "true"
@@ -30,8 +34,12 @@ services:
     ports:
       - "${FB_PORT:-3050}:3050"
     volumes:
+      # /firebird объявлен VOLUME в образе: без явного монтирования docker заводит
+      # анонимный том (мы такие не используем) и таскает его при пересоздании
+      # контейнера — вместе с испорченным /firebird/etc. Держим состояние сервера
+      # (etc, system/security2.fdb, log) в ./data/firebird, базы — в ./databases.
+      - ./data/firebird:/firebird
       - ./databases:/firebird/data
-      - ./docker/firebird/aliases.conf:/firebird/etc/aliases.conf
 
   # Legacy-окружение (сверка): PHP 5.6 + Apache, боевой код из ./htdocs.
   # db_work работает через odbc-shim -> нативный Firebird (локальный контейнер).

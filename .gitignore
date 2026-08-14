@@ -10,6 +10,9 @@
 # локальный центр сертификации Caddy (https-вход на dev-контуре)
 /data/caddy/
 
+# состояние сервера Firebird (конфиги из скелета образа, security2.fdb, логи)
+/data/firebird/
+
 # Laravel
 /backend/vendor/
 /backend/node_modules/
