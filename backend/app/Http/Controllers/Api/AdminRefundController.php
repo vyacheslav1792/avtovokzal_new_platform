@@ -22,7 +22,7 @@ class AdminRefundController extends Controller
     public function inspect(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'order_id' => ['required', 'uuid'],
+            'order_id' => ['required', 'string', 'max:36'],
             'serial' => ['nullable', 'string', 'max:20'],
             'number' => ['nullable', 'string', 'max:20'],
         ]);
@@ -38,7 +38,7 @@ class AdminRefundController extends Controller
     public function confirm(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'order_id' => ['required', 'uuid'],
+            'order_id' => ['required', 'string', 'max:36'],
             'serial' => ['required', 'string', 'max:20'],
             'number' => ['required', 'string', 'max:20'],
             'percent' => ['required', 'integer'],
@@ -56,7 +56,7 @@ class AdminRefundController extends Controller
     public function repair(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'order_id' => ['required', 'uuid'],
+            'order_id' => ['required', 'string', 'max:36'],
             'serial' => ['required', 'string', 'max:20'],
             'number' => ['required', 'string', 'max:20'],
         ]);

@@ -14,6 +14,7 @@ class Refund extends Model
 
     protected $casts = [
         'money_refunded_at' => 'datetime',
+        'legacy' => 'array',
     ];
 
     public const STATUS_REFUNDED = 'refunded';           // билет аннулирован на станции

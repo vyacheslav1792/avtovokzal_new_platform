@@ -11,7 +11,9 @@ return new class extends Migration
         // Возвраты билетов (перенос legacy site.BACKS): одна строка — один билет.
         Schema::create('refunds', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignUuid('order_id')->constrained('orders');
+            // orders.id — varchar(36) (см. миграцию заказов), не uuid.
+            $table->string('order_id', 36);
+            $table->foreign('order_id')->references('id')->on('orders');
 
             // Возвращаемый билет
             $table->string('serial', 20);
@@ -31,6 +33,10 @@ return new class extends Migration
 
             // Чек ККМ возврата
             $table->string('fiscal_sign', 64)->nullable();
+
+            // Хвост полей legacy site.BACKS: WHO_BACK, TYPE_BACK, построчные
+            // суммы (STRAH/BIL/BAGAJ и их *_BACK), DATE_ORDER2, DATESTART2.
+            $table->jsonb('legacy')->nullable();
 
             $table->timestampsTz();
 

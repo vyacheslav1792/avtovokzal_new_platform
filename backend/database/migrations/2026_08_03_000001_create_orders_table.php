@@ -10,7 +10,10 @@ return new class extends Migration
     {
         // Заказы сайта (перенос legacy site.ORDERS в нормальную форму).
         Schema::create('orders', function (Blueprint $table) {
-            $table->uuid('id')->primary();
+            // Ключ заказа — не uuid: импорт истории сайта переносит заказы с их
+            // собственным ORDER_ID (30 hex-символов), а покупки нового сайта
+            // получают uuid из HasUuids. В varchar(36) помещается и то, и другое.
+            $table->string('id', 36)->primary();
 
             // Рейс
             $table->unsignedInteger('awtcod');            // станция отправления
@@ -55,6 +58,13 @@ return new class extends Migration
 
             $table->timestampTz('paid_at')->nullable();
             $table->timestampTz('completed_at')->nullable();
+
+            // Хвост полей legacy site.ORDERS, которым нет места в схеме, — как
+            // есть, чтобы импорт ничего не терял: PLATNOM, NAPNAME, FRAHT,
+            // PRICES, STRAH/BAGAJ/BIL, SUMM_BACK, FP_BACK, CRONE, TIME_LIVE,
+            // COMMENT и исходный числовой STATUS. Новый код сюда не пишет.
+            $table->jsonb('legacy')->nullable();
+
             $table->timestampsTz();
         });
     }

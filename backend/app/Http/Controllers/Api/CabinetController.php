@@ -58,7 +58,7 @@ class CabinetController extends Controller
     public function refundPreview(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'order_id' => ['required', 'uuid'],
+            'order_id' => ['required', 'string', 'max:36'],
             'ticket_id' => ['required', 'uuid'],
         ]);
 

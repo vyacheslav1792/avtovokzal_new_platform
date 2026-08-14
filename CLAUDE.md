@@ -110,6 +110,29 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
   `kkm:close-shift`, запускает **ofelia** (сервис `scheduler` в compose,
   `docker/ofelia/config.ini`, job-exec в контейнер `avtovokzal-kkm-app`) —
   отдельный php-контейнер под schedule:work НЕ поднимаем.
+- **Перенос истории сайта** (команда backend `php artisan legacy:import-site`,
+  2026-08-14): старая база сайта (Firebird `site.fdb`) переезжает в Postgres —
+  `ORDERS` → `orders` + `tickets`, `BACKS` → `refunds`. Пользователей (`USERS`)
+  и список рассылки (`EMAIL`) по решению заказчика **не переносим**: кабинет
+  заводится заново, старые покупки находятся по `orders.email`.
+  **`orders.id` — varchar(36), а НЕ uuid**: legacy ORDER_ID (30 hex-символов)
+  переносится как есть, поэтому старые ссылки и ключи продолжают работать, а
+  новые заказы по-прежнему получают uuid (`HasUuids`). Того же типа `order_id`
+  у `tickets`/`refunds`; маршруты вместо `whereUuid` используют
+  `Order::ID_PATTERN`. Всё, чему нет места в новой схеме, лежит в jsonb
+  `legacy`: у заказа — PLATNOM, NAPNAME, FRAHT, PRICES, STRAH/BAGAJ/BIL,
+  SUMM_BACK, FP_BACK, CRONE, TIME_LIVE, COMMENT и исходный числовой STATUS;
+  у билета — grj (гражданство строкой, до появления кодов), doc_orig,
+  dobrstr/price_dobrstr (добровольное страхование, на новом сайте его нет);
+  у возврата — WHO_BACK, TYPE_BACK, построчные суммы. **Маппинг статусов:**
+  -4 → pending, 4 → payment_registered, 40 → paid, 1/5/6 → completed
+  (5 и 6 — оформленные и позже возвращённые: сам возврат живёт в `refunds`),
+  2/-1/-3 → failed, 3/-2 → cancelled. `PERSENT` в BACKS заполнялся не всегда —
+  процент удержания тогда считается из сумм. Повторный запуск не плодит дубли
+  (`insertOrIgnore` по legacy-идентификатору), чистый прогон — `--fresh`;
+  есть `--since`, `--limit`, `--only`, `--chunk`. Реквизиты старой базы —
+  `config/legacy_site.php` (по умолчанию контейнер firebird, база `site`),
+  только на чтение.
 - **`frontend/`** — Nuxt 4 + **Nuxt UI 4**: страницы `/` (поиск + hero bus.jpg + логотип из
   legacy), `/trips` (**объединяет legacy-поиск билетов и legacy-расписание до
   остановки**: переключатель `?all=1` показывает рейсы без интернет-продажи со

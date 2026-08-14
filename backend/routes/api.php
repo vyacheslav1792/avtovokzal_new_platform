@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PageController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\VkAuthController;
+use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -50,9 +51,12 @@ Route::prefix('v1')->group(function () {
 
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
-    Route::get('orders/{id}', [OrderController::class, 'show'])->whereUuid('id');
-    Route::get('orders/{id}/print', [OrderController::class, 'printData'])->whereUuid('id');
-    Route::get('orders/{id}/pdf', [OrderController::class, 'pdf'])->whereUuid('id');
+    // id заказа — uuid у новых покупок и 30 hex-символов у импортированных
+    // из legacy (см. миграцию legacy_order_id_and_raw_fields), поэтому шаблон
+    // маршрута шире whereUuid.
+    Route::get('orders/{id}', [OrderController::class, 'show'])->where('id', Order::ID_PATTERN);
+    Route::get('orders/{id}/print', [OrderController::class, 'printData'])->where('id', Order::ID_PATTERN);
+    Route::get('orders/{id}/pdf', [OrderController::class, 'pdf'])->where('id', Order::ID_PATTERN);
 
     Route::post('refunds/preview', [RefundController::class, 'preview']);
     Route::post('refunds/confirm', [RefundController::class, 'confirm']);
@@ -89,7 +93,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('cabinet/passengers/{id}', [CabinetPassengerController::class, 'destroy'])->whereNumber('id');
 
         Route::get('cabinet/orders', [CabinetController::class, 'orders']);
-        Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->whereUuid('id');
+        Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->where('id', Order::ID_PATTERN);
         Route::post('cabinet/refunds/preview', [CabinetController::class, 'refundPreview']);
         Route::post('cabinet/refunds/confirm', [CabinetController::class, 'refundConfirm']);
     });

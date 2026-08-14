@@ -13,8 +13,15 @@ class Order extends Model
 
     protected $guarded = [];
 
+    /**
+     * Шаблон идентификатора заказа для маршрутов: uuid у покупок нового сайта
+     * и 30 hex-символов у импортированных из legacy site.ORDERS.
+     */
+    public const ID_PATTERN = '[0-9a-fA-F][0-9a-fA-F-]{29,35}';
+
     protected $casts = [
         'passengers' => 'array',
+        'legacy' => 'array',
         'date_start' => 'date:Y-m-d',
         'arrival_at' => 'datetime',
         'paid_at' => 'datetime',

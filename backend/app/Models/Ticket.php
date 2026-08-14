@@ -19,6 +19,7 @@ class Ticket extends Model
 
     protected $casts = [
         'baggage_tickets' => 'array',
+        'legacy' => 'array',
         'place' => 'int',
         'baggage' => 'int',
         'doc_type' => 'int',

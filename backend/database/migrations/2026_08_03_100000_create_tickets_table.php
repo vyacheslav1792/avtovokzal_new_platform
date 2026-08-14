@@ -15,7 +15,9 @@ return new class extends Migration
         // билета, ни по пассажиру, а отчёты вынуждены разбирать JSON в PHP.
         Schema::create('tickets', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignUuid('order_id')->constrained('orders');
+            // orders.id — varchar(36) (см. миграцию заказов), не uuid.
+            $table->string('order_id', 36);
+            $table->foreign('order_id')->references('id')->on('orders');
             $table->unsignedSmallInteger('position');     // порядок в заказе
 
             // Номер бланка (присваивает станция при оформлении)
@@ -34,7 +36,9 @@ return new class extends Migration
             $table->string('last_name', 40);
             $table->string('first_name', 30);
             $table->string('middle_name', 30)->nullable();
-            $table->date('birth_date');
+            // Дата рождения обязательна при покупке, но у части импортированных
+            // из legacy билетов её нет — колонка nullable.
+            $table->date('birth_date')->nullable();
             $table->char('gender', 1)->nullable();
             $table->unsignedSmallInteger('doc_type')->default(21);
             $table->string('doc_series', 10)->nullable();
@@ -44,6 +48,11 @@ return new class extends Migration
 
             // Багажные квитанции (≤5 шт., по номерам не ищем)
             $table->jsonb('baggage_tickets')->nullable();
+
+            // Ключи legacy-билета, которым нет места в схеме: grj (гражданство
+            // строкой, до появления кодов), doc_orig, dobrstr/price_dobrstr
+            // (добровольное страхование — на новом сайте его нет).
+            $table->jsonb('legacy')->nullable();
 
             $table->timestampsTz();
 
