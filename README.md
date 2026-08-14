@@ -35,7 +35,7 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
 ## Сервисы и порты
 | Сервис    | Что                          | URL / порт            |
 |-----------|------------------------------|-----------------------|
-| web       | nginx → высокоуровневое API (`backend`) | http://localhost:8080 |
+| web       | nginx → высокоуровневое API (`backend`) | http://localhost:8088 |
 | sales_web | nginx → **API продаж** (`sales-api`) | http://localhost:8085 |
 | kkm_web   | nginx → **KKM API** (`kkm-api`) | http://localhost:8087 |
 | ais_web   | nginx → **AIS API** (`ais-api`) | http://localhost:8086 |
@@ -61,7 +61,7 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
   рейсы/места/резерв/продажа/возврат. Автономен, без оплат. Своя БД Postgres `sales`:
   журнал запросов/ответов (`api_requests`), резервы, продажи, возвраты. Агенты —
   Bearer-токен + IP whitelist (`config/agents.php`).
-- **`backend/`** (:8080) — API avtovokzal57: заказы, серверный пересчёт цен, оплата
+- **`backend/`** (:8088) — API avtovokzal57: заказы, серверный пересчёт цен, оплата
   Сбербанк (SDK `voronkovich/sberbank-acquiring-client`), подтверждение и оформление,
   возврат по коду (`refunds/preview|confirm`), данные печатных форм
   (`orders/{id}/print`) и билеты одним PDF (`orders/{id}/pdf` — Gotenberg рендерит
@@ -94,7 +94,7 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
   страница успеха, возврат по коду (`/backbycode`), печатные формы билетов
   (`/print/{id}`), личный кабинет (`/lk`, `/lk/profile`, `/login`, `/register`,
   `/forgot`, `/reset`), расписание автобусов (`/raspisanie-avtobusov`).
-  Ходит только в `backend` (:8080); SSR — внутри
+  Ходит только в `backend` (:8088); SSR — внутри
   docker-сети (`http://web`). Единственная серверная ручка самого Nuxt —
   `/api/auth/session`: хранит Bearer-токен кабинета в httpOnly cookie
   (Safari/ITP стирает JS-cookie и localStorage через неделю) и отдаёт его

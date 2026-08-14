@@ -44,7 +44,7 @@ return [
         ],
 
         // Личный кабинет: SPA на Nuxt ходит в API с Bearer-токеном Sanctum
-        // (сессионных cookie между :3000 и :8080 нет).
+        // (сессионных cookie между :3000 и :8088 нет).
         'sanctum' => [
             'driver' => 'sanctum',
             'provider' => 'users',

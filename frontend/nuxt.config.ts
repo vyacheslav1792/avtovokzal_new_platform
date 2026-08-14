@@ -38,7 +38,7 @@ export default defineNuxtConfig({
     apiBaseServer: 'http://web',
     public: {
       // Адрес высокоуровневого API avtovokzal57 (backend), НЕ API продаж.
-      apiBase: 'http://127.0.0.1:8080',
+      apiBase: 'http://127.0.0.1:8088',
       // Публичный адрес САЙТА для ссылок внутрь печатных форм и писем.
       // Из URL запроса его брать нельзя: PDF рендерит gotenberg по
       // внутреннему http://frontend:3000, и такая ссылка утекает в билет.

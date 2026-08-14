@@ -48,7 +48,7 @@ avtovokzal_new_platform/
 ## Сервисы Compose
 - **db** — postgres:17 (базы `avtovokzal`, `sales`, `kkm`), данные в `./data/postgres` (bind).
 - **app / sales_app / kkm_app** — php:8.5-fpm + расширения (`pdo_pgsql`, `pdo_firebird`, intl, mbstring, …) + composer.
-- **web / sales_web / kkm_web** — nginx (:8080 / :8085 / :8087).
+- **web / sales_web / kkm_web** — nginx (:8088 / :8085 / :8087).
 - **scheduler** — ofelia: задания по расписанию job-exec'ом в контейнеры (docker.sock).
 - **frontend** — node:24, Nuxt dev-сервер.
 - **firebird / legacy / legacy_site** — Firebird 2.5 и legacy-контуры для сверки.
@@ -60,7 +60,7 @@ avtovokzal_new_platform/
 3. **Схема Postgres** — таблицы `sales` (журнал/резервы/продажи/возвраты), `orders`,
    `users`/`user_identities`/`auth_tokens` (ЛК). ✅
 4. **API продаж** — `sales-api/` (Laravel 13, порт :8085): рейсы, места, резерв, продажа, возврат + журнал. ✅
-5. **API avtovokzal57** — `backend/` (порт :8080): заказы, оплата Сбербанк (SDK), payconfirm, очередь чеков/писем. ✅ (очередь receipts обрабатывается через KKM API; воркер писем пока не запущен)
+5. **API avtovokzal57** — `backend/` (порт :8088): заказы, оплата Сбербанк (SDK), payconfirm, очередь чеков/писем. ✅ (очередь receipts обрабатывается через KKM API; воркер писем пока не запущен)
 5а. **KKM API** — `kkm-api/` (Laravel 13, порт :8087): прослойка к KkmServer (хост, :5893, виртуальная ККТ),
    идемпотентность external_id + IdCommand/GetRezult, журнал запросов, таблица чеков. ✅
    Фискализация проверена 2026-08-03: 6 чеков прихода + чек возврата на эмуляторе ККТ,

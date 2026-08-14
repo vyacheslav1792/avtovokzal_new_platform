@@ -42,7 +42,9 @@ docker compose logs -f <svc>  # логи
 docker compose down           # остановить (данные Postgres в ./data сохранятся)
 ```
 
-Порты: web :8080 (backend, высокоуровневое API avtovokzal57), sales_web :8085
+Порты: web :8088 (backend, высокоуровневое API avtovokzal57; **был :8080** —
+переехали 2026-08-14, на хосте его постоянно держит vite соседнего проекта,
+и контейнер `web` не поднимался), sales_web :8085
 (**API продаж**, `sales-api/`, отдельная БД Postgres `sales`), kkm_web :8087 (**KKM API**,
 `kkm-api/`, БД Postgres `kkm`), ais_web :8086 (**AIS API**, `ais-api/`, БД Postgres `ais`;
 :8082 на хосте занят посторонним Apache), frontend :3000 (Nuxt + Nuxt UI), ais_spa :3001
@@ -143,7 +145,7 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
   `http://frontend:3000` и такой адрес попадает на бумагу.
   «Популярные направления» на главной фильтруются по станциям из конфига —
   плитки недоступных станций скрываются сами. SSR ходит в backend по `http://web`
-  (runtimeConfig.apiBaseServer), браузер — на :8080.
+  (runtimeConfig.apiBaseServer), браузер — на :8088.
 - **Личный кабинет покупателя** (перенос legacy `url/lk.php`, `login.php`,
   `register.php`, `forgot.php`, `newpass.php`, `change.php`, `ticketback.php`):
   backend `auth/*` + `cabinet/*`, фронт `/lk`, `/lk/profile`, `/login`,

@@ -33,7 +33,7 @@ DISPLAY=:1 setsid nohup /usr/bin/google-chrome-stable --disable-web-security \
 ## Предусловия
 
 **Контейнеры подняты:** `cd /home/developer/PROJECTS/avtovokzal_new_platform && docker compose ps`.
-Если нет — `docker compose up -d`. Для нового стека нужны `frontend` (:3000), `web` (:8080),
+Если нет — `docker compose up -d`. Для нового стека нужны `frontend` (:3000), `web` (:8088),
 `sales_web` (:8085), `db`, `firebird`; для legacy — `legacy_site` (:8091), `legacy` (:8090),
 `firebird`.
 
