@@ -6,6 +6,7 @@
 План миграции — см. [PLAN.md](PLAN.md).
 
 ## Документация
+- [docs/DEPLOY.md](docs/DEPLOY.md) — деплой и прод-окружение: домены, TLS, прод-сборка, панель деплоя, доступ к АИС.
 - [docs/LEGACY.md](docs/LEGACY.md) — разбор легаси (архитектура, поток покупки билета, процедуры Firebird, подводные камни).
 - [docs/buster-procedures/](docs/buster-procedures/) — исходники ключевых вендорных процедур BUSTER
   (продажа, резерв, возврат, валидация данных пассажира `KS_CONTROL_DATA_PAS`).
@@ -166,6 +167,7 @@ docker compose down                     # остановить (данные Pos
 ## Структура
 ```
 docker-compose.yml        # сервисы (dev)
+docker-compose.prod.yml   # прод-оверрайд: собранные фронты, без caddy/legacy (см. docs/DEPLOY.md)
 docker/php/Dockerfile     # php 8.5 + расширения (pdo_pgsql, pdo_firebird, intl, zip, bcmath, pcntl)
 docker/php/php.ini        # настройки PHP (dev)
 docker/nginx/default.conf # nginx -> backend (app:9000)
@@ -187,9 +189,17 @@ docs/buster-procedures/   # исходники ключевых процедур
 data/postgres/            # данные Postgres (bind mount, не в git)
 ```
 
-## Прод (позже)
-Отдельный `docker-compose.prod.yml` (оверрайд): собранный Nuxt вместо dev-сервера,
-opcache без `validate_timestamps`, реальные секреты, без публикации порта БД.
+## Прод
+Развёрнут на отдельном сервере по доменам `*.orelavtotrans.ru`. Подробный
+рунбук — [docs/DEPLOY.md](docs/DEPLOY.md). Кратко:
+
+`docker-compose.prod.yml` — оверрайд поверх dev: фронты запускаются **собранными**
+(Nuxt — боевой SSR `node .output/server/index.mjs`, АИС-SPA — статикой через
+`vite preview`), Caddy и legacy не поднимаются, сервисам задан `restart`. На
+сервере включается через `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml`
+в `.env`, поэтому обычный `docker compose` использует прод-набор. Снаружи стоит
+системный nginx (TLS Let's Encrypt, маршрутизация по доменам); АИС закрыт для
+доступа извне (только LAN).
 
 ## Статус переноса
 Перенесено на новый стек и проверено сквозными прогонами (2026-08-03):
