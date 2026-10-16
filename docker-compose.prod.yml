@@ -1,0 +1,43 @@
+# Прод-оверрайд поверх docker-compose.yml.
+#
+# Применяется вместе с базовым файлом:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml ...
+# На сервере это зашито через COMPOSE_FILE в .env, поэтому там достаточно
+# обычного `docker compose`.
+#
+# Отличия от dev: фронты запускаются СОБРАННЫМИ (а не dev-серверами),
+# Caddy и legacy не поднимаются (снаружи стоит системный nginx), всем
+# сервисам задан restart. Именованные тома не вводим — только bind-mount'ы.
+services:
+  proxy:       { profiles: ["disabled"] }
+  legacy:      { profiles: ["disabled"] }
+  legacy_site: { profiles: ["disabled"] }
+
+  # Nuxt: боевой SSR-сервер из сборки (.output). Саму сборку делает деплой-скрипт
+  # (npm install && npm run build) — здесь только запуск готового сервера.
+  frontend:
+    command: ["node", ".output/server/index.mjs"]
+    environment:
+      NITRO_HOST: "0.0.0.0"
+      NITRO_PORT: "3000"
+      NUXT_PUBLIC_SITE_URL: "https://site.orelavtotrans.ru"
+    restart: unless-stopped
+
+  # Vite SPA: отдаём собранную статику через preview. /api и /site-api
+  # проксирует системный nginx (в dev это делал server.proxy Vite).
+  ais_spa:
+    command: ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "3001"]
+    restart: unless-stopped
+
+  db:        { restart: unless-stopped }
+  firebird:  { restart: unless-stopped }
+  app:       { restart: unless-stopped }
+  web:       { restart: unless-stopped }
+  sales_app: { restart: unless-stopped }
+  sales_web: { restart: unless-stopped }
+  ais_app:   { restart: unless-stopped }
+  ais_web:   { restart: unless-stopped }
+  kkm_app:   { restart: unless-stopped }
+  kkm_web:   { restart: unless-stopped }
+  scheduler: { restart: unless-stopped }
+  gotenberg: { restart: unless-stopped }

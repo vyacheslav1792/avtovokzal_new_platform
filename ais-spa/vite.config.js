@@ -7,6 +7,10 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   base: '/',
   plugins: [vue()],
+  preview: {
+    // vite preview отдаёт собранную статику в проде; за nginx приходит Host домена.
+    allowedHosts: ['localhost', '.orelavtotrans.ru'],
+  },
   server: {
     // За обратным прокси (nginx) приходит Host домена — Vite его иначе блокирует.
     allowedHosts: ['localhost', '.orelavtotrans.ru'],
