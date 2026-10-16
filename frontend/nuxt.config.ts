@@ -23,7 +23,7 @@ export default defineNuxtConfig({
       // с Host: frontend — Vite такие хосты блокирует (403 «This host is not
       // allowed»), из-за чего PDF не собирался. Остальные — имена https-прокси
       // (вход через VK ID): он проксирует сюда с исходным Host страницы.
-      allowedHosts: ['frontend', 'localhost', 'avtovokzal57.local'],
+      allowedHosts: ['frontend', 'localhost', 'avtovokzal57.local', '.orelavtotrans.ru'],
     },
   },
   routeRules: {

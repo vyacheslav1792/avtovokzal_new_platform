@@ -8,6 +8,8 @@ export default defineConfig({
   base: '/',
   plugins: [vue()],
   server: {
+    // За обратным прокси (nginx) приходит Host домена — Vite его иначе блокирует.
+    allowedHosts: ['localhost', '.orelavtotrans.ru'],
     proxy: {
       '/api': {
         target: process.env.AIS_API_PROXY || 'http://localhost:8086',
