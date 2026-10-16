@@ -120,9 +120,59 @@ Postgres (`data/postgres`, PGDATA uid 999) и Firebird (`databases/*.fdb`)
 - При желании — убрать `api.fontshare.com` из провайдеров `@nuxt/fonts`, чтобы
   сборка не ждала таймаут.
 
+## KkmServer (фискализация, ККМ)
+
+Фискальные чеки `kkm-api` пробивает через **KkmServer** (kkmserver.ru) — HTTP-мост
+к ККТ. Он стоит **на хосте `.75`, не в docker** (устройство ККТ подключается к
+хосту физически), слушает `5893`; `kkm-api` ходит в него по
+`http://host.docker.internal:5893` (`KKM_SERVER_URL`).
+
+**Установка:** пакет `KkmServer.deb` с kkmserver.ru → `/opt/kkmserver`.
+
+**Неочевидное — почему не работает «из коробки» на сервере.** Linux-сборка
+KkmServer это десктопное приложение Avalonia/Skia:
+
+- штатный режим службы (`kkmserver -d`) на headless-сервере **падает** —
+  Skia не может инициализировать графику (`SkiaSharp.SKImageInfo ... threw an
+  exception`);
+- консольный режим `-s` **требует TTY** (ждёт `x` для выхода);
+- при **сохранении настроек** KkmServer перезапускает сам себя, и без дисплея
+  этот перезапуск тоже падает.
+
+**Решение — запускать под виртуальным дисплеем + псевдотерминалом.** Поставлены
+`xvfb` + графические библиотеки (`libgl1`, `libfontconfig1`, X-библиотеки,
+шрифты). systemd-юнит `/etc/systemd/system/kkmserver.service`:
+
+```
+ExecStart=/usr/bin/xvfb-run -a /usr/bin/script -qefc '/opt/kkmserver/kkmserver -s' /dev/null
+Restart=always
+```
+
+(`xvfb-run` даёт дисплей, `script` — псевдотерминал). Служба `enabled`
+(автозапуск после ребута), слушает `*:5893`.
+
+**Авторизация и устройство.** В KkmServer заведён аккаунт `User` с паролем;
+в `kkm-api/.env` заданы `KKM_SERVER_USER=User`, `KKM_SERVER_PASSWORD=...`,
+`KKM_NUM_DEVICE=1`. Устройство 1 — сейчас **виртуальная ККТ** (эмулятор, демо-ФН).
+Нюанс: на команды `/Execute` KkmServer авторизацию строго не навязывает
+(принимает и неверный пароль) — для LAN-контура это приемлемо; при желании
+включается в его настройках.
+
+**Боевая фискализация — VikiPrint.** Планируется физический регистратор
+**VikiPrint** по USB: на хосте появится как `/dev/ttyACM0` (драйвер `cdc_acm` в
+ядре есть), KkmServer (от root) с ним работает напрямую. Нужны: подключить
+принтер к `.75`, настроить устройство в KkmServer (веб-страница
+`http://192.168.0.75:5893` из LAN), зарегистрировать ФН/ОФД, лицензия.
+`EmulationCheck` при этом выключается.
+
+**Безопасность.** `5893` слушается на всех интерфейсах (LAN), наружу **не
+пробрасывать**. Файлы: `/opt/kkmserver`, служба
+`/etc/systemd/system/kkmserver.service`.
+
 ## Где лежит серверная инфраструктура (вне этого репозитория)
 
 - vhost'ы nginx: `/etc/nginx/sites-available/`, сниппеты `/etc/nginx/snippets/`;
 - панель деплоя: `/data/deployer`, конфиги `/etc/gotov-deploy/`;
 - деплой-скрипт: `/usr/local/bin/updateAvtovokzalFromGit.sh`;
-- сертификаты: `/etc/letsencrypt/`.
+- сертификаты: `/etc/letsencrypt/`;
+- KkmServer: `/opt/kkmserver`, служба `/etc/systemd/system/kkmserver.service`.
