@@ -298,7 +298,6 @@ async function signOut() {
             <a href="mailto:support@orelavtotrans.ru" class="hover:text-white">support@orelavtotrans.ru</a>
             · 8 (4862) 72-11-11
           </div>
-          <img src="/img/we-accept.png" alt="Мы принимаем к оплате Visa, Master Card" class="inline-block h-6">
           <div>© {{ new Date().getFullYear() }}</div>
         </div>
       </UContainer>
