@@ -115,4 +115,27 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | Тема — свой blade-файл `resources/views/mail/theme-avtovokzal.blade.php`
+    | (копия темы Laravel с фирменным красным #c8102e). Markdown ищет тему
+    | сначала как view `mail.<имя>`, поэтому публиковать компоненты писем
+    | не нужно.
+    |
+    */
+
+    'markdown' => [
+        'theme' => env('MAIL_MARKDOWN_THEME', 'theme-avtovokzal'),
+
+        // Свои компоненты писем ищутся ЗДЕСЬ раньше vendor-овских: в
+        // resources/views/vendor/mail лежит message.blade.php с русской
+        // шапкой и подвалом (в vendor-версии стоит config('app.name')).
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

@@ -20,8 +20,10 @@ services:
     environment:
       NITRO_HOST: "0.0.0.0"
       NITRO_PORT: "3000"
-      NUXT_PUBLIC_API_BASE: "https://site.orelavtotrans.ru"
-      NUXT_PUBLIC_SITE_URL: "https://site.orelavtotrans.ru"
+      # Адрес сайта и адрес API совпадают: /api/v1/* на том же домене
+      # отдаёт системный nginx. Сам адрес — в SITE_URL корневого .env.
+      NUXT_PUBLIC_API_BASE: "${SITE_URL:?SITE_URL не задан в .env}"
+      NUXT_PUBLIC_SITE_URL: "${SITE_URL:?SITE_URL не задан в .env}"
     restart: unless-stopped
 
   # Vite SPA: отдаём собранную статику через preview. /api и /site-api

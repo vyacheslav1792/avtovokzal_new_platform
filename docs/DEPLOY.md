@@ -1,8 +1,16 @@
 # Деплой и прод-окружение (orelavtotrans)
 
 Как проект развёрнут в проде и как его обновлять. Прод стоит на отдельном
-сервере в локальной сети (`192.168.0.75`), наружу доступен по доменам через
-проброс портов 80/443 на роутере. Публичный IP — `109.61.151.34`.
+сервере в локальной сети, наружу доступен по доменам через проброс портов
+80/443 на роутере. Адреса сервера:
+
+- `91.202.165.5` — публичный (по нему же сервер выходит в интернет);
+- `192.168.2.55` — основной LAN-адрес (DHCP), шлюз `192.168.2.100`;
+- `192.168.2.58` — дополнительный статический адрес SMTP (см. «Почта»);
+- `192.168.2.200` — дополнительный статический адрес обменника.
+
+Прежние адреса сервера (`192.168.0.75` в LAN, публичный `109.61.151.34`)
+встречаются в старых записях — это **тот же сервер** до смены сети.
 
 ## Домены и маршрутизация
 
@@ -15,6 +23,7 @@
 | `site.orelavtotrans.ru` | Сайт | `/` → frontend (3000), `/api/v1/` → web (8088) |
 | `ais.orelavtotrans.ru` | Админка/отчёты АИС | `/` → ais_spa (3001), `/api/` → ais_web (8086), `/site-api/` → web (8088); **только из LAN** |
 | `deploy.orelavtotrans.ru` | Панель деплоя | `/` → контроллер (8099), `/agent` → php-fpm (исполнитель) |
+| `автовокзал57.рф` (`xn--57-…`) | **Боевой legacy-сайт** | целиком на отдельный сервер `192.168.2.5` — здесь только TLS и реверс-прокси |
 
 Конфиги vhost'ов — `/etc/nginx/sites-available/*.orelavtotrans.ru.conf`
 (в репозитории проекта не хранятся — это серверная инфраструктура).
@@ -94,13 +103,15 @@ docker compose up -d
 
 `ais.orelavtotrans.ru` закрыт на уровне nginx: `allow 192.168.0.0/16; deny all;`.
 
+Маска `/16` покрывает и текущую сеть `192.168.2.x`, и прежнюю `192.168.0.x`.
+
 Из-за hairpin-NAT запрос к публичному домену из локальной сети приходит на
-сервер с подменённым адресом источника (WAN `109.61.151.34`), а не с реального
-`192.168.0.x` — и отбивается. Чтобы открыть АИС из LAN, нужно ходить **напрямую
+сервер с подменённым адресом источника (WAN `91.202.165.5`), а не с реального
+`192.168.2.x` — и отбивается. Чтобы открыть АИС из LAN, нужно ходить **напрямую
 на LAN-адрес** сервера, минуя публичный DNS:
 
-- разово на машине — строка в hosts: `192.168.0.75  ais.orelavtotrans.ru`;
-- на всю сеть — локальный DNS (роутер или dnsmasq): `ais.orelavtotrans.ru → 192.168.0.75`.
+- разово на машине — строка в hosts: `192.168.2.55  ais.orelavtotrans.ru`;
+- на всю сеть — локальный DNS (роутер или dnsmasq): `ais.orelavtotrans.ru → 192.168.2.55`.
 
 TLS-сертификат при этом совпадает (имя то же), предупреждений нет.
 
@@ -112,18 +123,162 @@ Postgres (`data/postgres`, PGDATA uid 999) и Firebird (`databases/*.fdb`)
 (`orders`/`tickets`/`refunds`) уже в Postgres — отдельный прогон
 `legacy:import-site` для прод-данных не требуется.
 
+## Адрес сайта — одна переменная
+
+Публичный адрес прода задаётся **один раз** — `SITE_URL` в корневом `.env`
+рабочей копии:
+
+```
+SITE_URL=https://site.orelavtotrans.ru
+```
+
+Compose раздаёт его сервисам: `FRONTEND_URL` (backend — ссылки писем, адрес
+возврата платёжного шлюза, `redirect_uri` VK), `SITE_FRONTEND_URL` (ais-api —
+ссылки печати в отчётах), `NUXT_PUBLIC_SITE_URL` и `NUXT_PUBLIC_API_BASE`
+(Nuxt), `VITE_SITE_URL` (ais-spa).
+
+Два следствия:
+
+- **переменная окружения контейнера перекрывает `backend/.env`** (Dotenv не
+  перезаписывает уже заданные переменные) — поэтому `FRONTEND_URL` правится в
+  `SITE_URL`, а не в `backend/.env`;
+- **после правки нужен `docker compose up -d`**, а не `restart`: окружение
+  задаётся при создании контейнера.
+
+`PRINT_BASE_URL` (`http://frontend:3000`) к этому не относится — это
+внутренний адрес, по которому Gotenberg открывает печатную форму.
+
+## Платёжный шлюз (эквайринг)
+
+Реквизиты живут только в `backend/.env` (`config/services.php` → `sberbank`),
+в git их нет:
+
+```
+SBERBANK_API_URI=https://3dsec-payments.yookassa.ru      # ТОЛЬКО схема+хост
+SBERBANK_USERNAME=<shopId>
+SBERBANK_PASSWORD=<секрет>
+SBERBANK_RETURN_URL=https://site.orelavtotrans.ru/payment/result
+```
+
+**Ловушка `SBERBANK_API_URI` — без пути.** SDK
+`voronkovich/sberbank-acquiring-client` сам добавляет префикс
+(`API_PREFIX_DEFAULT = '/payment/rest/'`, `Client::execute()`:
+`$uri = $apiUri . $action`). Адрес с `/payment/rest/` на конце превращается в
+`…/payment/rest//payment/rest/register.do`, шлюз отвечает **404**, и заказ не
+создаётся: в `storage/logs/laravel.log` — `Bad HTTP code: 404` из
+`PaymentGateway->register`. Боевые адреса: `https://payments.yookassa.ru`
+(ЮKassa), `https://securepayments.sberbank.ru` (Сбербанк); тестовые —
+`https://3dsec-payments.yookassa.ru` и `https://3dsec.sberbank.ru`.
+
+**`SBERBANK_RETURN_URL` обязан быть публичным адресом сайта.** На него шлюз
+возвращает браузер покупателя после 3-DS, и уже страница `/payment/result`
+дёргает подтверждение оплаты. С `http://127.0.0.1:3000/...` разработчик у себя
+«возврат» увидит (у него на :3000 свой фронт), а покупатель — нет: оплата
+останется неподтверждённой.
+
+Сертификаты обоих шлюзов выпущены российским УЦ, поэтому HTTP-клиенту отдаётся
+свой бандл — `backend/resources/certificates/russian_trusted_root_ca.pem`
+(`services.sberbank.ca_bundle`), только для этого клиента. Проверить доступность
+шлюза с сервера: `curl --cacert <бандл> -d 'userName=x&password=y' <api_uri>/payment/rest/register.do`
+— `errorCode 5 Access denied` означает, что путь и TLS в порядке, дело в кредах.
+
+После правки `.env` — `docker compose exec app php artisan config:clear`
+(кеш конфига на проде не собран, но очистка не лишняя; php-fpm читает `.env`
+на каждый запрос, перезапуск контейнера не нужен).
+
+## Почта (SMTP)
+
+Письма backend отдаёт **Exim в соседнем контейнере** `smtp-exim` (проект
+`/data/smtp`, `network_mode: host`, слушает `192.168.2.58:25`, SMTP AUTH нет —
+релей разрешён с любого адреса, наружу порт не проброшен). `backend/.env`:
+
+```
+MAIL_MAILER=smtp
+MAIL_URL="smtp://192.168.2.58:25?verify_peer=0"
+MAIL_FROM_ADDRESS="site@orelavtotrans.ru"
+MAIL_FROM_NAME="автовокзал57.рф"
+```
+
+Адрес, имя отправителя и сам SMTP-хост взяты из legacy
+(`avtovokzal57/inc/smtp.php`: активная секция — `192.168.2.58:25`,
+`From: "автовокзал57.рф" <site@orelavtotrans.ru>`), чтобы покупатель видел
+прежнего отправителя. Закомментированные там же SendPulse-ветки (`smtp-pulse.com`,
+логин `v.turin@`) — прошлые варианты, не переносим.
+
+- адрес именно `192.168.2.58` — на `127.0.0.1` Exim не слушает, а контейнеру
+  `app` хост виден по LAN-адресу (его собственный docker-bridge `172.18.0.1`
+  тоже не подойдёт);
+- **`verify_peer=0` обязателен**: Exim предлагает STARTTLS с самоподписанным
+  сертификатом, и Symfony Mailer по умолчанию рвёт рукопожатие на проверке
+  (`gnutls_handshake: Decryption has failed` в `/data/smtp/log/mainlog`).
+  Шифрование при этом остаётся (в журнале `P=esmtps X=TLS1.3 … CV=no`);
+- параметры передаются через `MAIL_URL`, а не отдельными `MAIL_HOST`/`MAIL_PORT`,
+  потому что опции TLS Laravel пробрасывает в DSN только из строки подключения
+  (`ConfigurationUrlParser` → `EsmtpTransportFactory`); так настройка живёт в
+  `.env` и не требует правки `config/mail.php`.
+
+Проверка доставки — `tail -f /data/smtp/log/mainlog`, очередь —
+`cd /data/smtp && docker compose exec smtp exim4 -bp`.
+
+Домен `orelavtotrans.ru` для самого Exim **не локальный**: письма на
+`@orelavtotrans.ru` он отправляет наружу, на MX Яндекса — то есть в рабочие
+ящики. Тестовые письма шлите на свой адрес, а не на `support@`/`site@`.
+
+Письма кабинета (сброс пароля) уходят синхронно и уже работают. Письмо о
+покупке, приглашение в кабинет и уведомление об обращении складываются в
+database-очередь `emails`, а её **воркер на проде не запущен** — см. «Что
+доделать».
+
+### Настройки Exim, которые пришлось поправить (14.11.2026)
+
+Правятся **только** в `/data/smtp/config/exim4.conf.localmacros`
+(бэкап рядом, `*.bak_20261114`), после чего `docker compose restart smtp`:
+
+```
+disable_ipv6 = true
+MAIN_IGNORE_BOUNCE_ERRORS_AFTER = 1h
+MAIN_TIMEOUT_FROZEN_AFTER = 2d
+```
+
+- **`disable_ipv6`** — у сервера нет IPv6-маршрута, а Exim пробует AAAA-адреса
+  MX первыми и ждёт таймаут `Network is unreachable` на каждом хосте; в
+  retry-базе от этого копились записи `T:`;
+- **bounce'ы не держим неделю.** Отчёты о недоставке уходят на
+  `site@orelavtotrans.ru`, а Яндекс отбивает их как спам
+  (`554 5.7.1 Message rejected under suspicion of SPAM`) — такие письма
+  замораживались и копились (было 88 штук). Теперь неудачный bounce
+  удаляется через час, любое зависшее письмо — через двое суток.
+
+**ЛОВУШКА:** эти два тайм-аута задаются ТОЛЬКО через макросы
+`MAIN_IGNORE_BOUNCE_ERRORS_AFTER` / `MAIN_TIMEOUT_FROZEN_AFTER` (шаблон
+подставляет их в строках 274/279 `exim4.conf.template`). Если написать в
+localmacros сами опции (`ignore_bounce_errors_after = 1h`), конфиг получится
+с двумя одинаковыми строками, Exim откажется стартовать
+(`option set for the second time`) и контейнер уйдёт в restart-петлю — почта
+перестанет приниматься до откатa.
+
+Остаток очереди — письма на переполненные gmail-ящики
+(`452-4.2.2 The recipient's inbox is out of storage space`) и адреса,
+которых Gmail временно лимитирует (`450-4.2.1`). С нашей стороны тут делать
+нечего: Exim повторяет попытки и затем отбивает письмо отправителю.
+Принудительный прогон очереди, игнорируя retry-времена, —
+`docker compose exec smtp exim4 -qff`; удалить письмо — `exim4 -Mrm <id>`.
+
 ## Что доделать
 
-- **Backend в прод-режим по env** (`backend/.env`): `APP_ENV=production`,
-  `APP_DEBUG=false`, `APP_URL=https://site.orelavtotrans.ru`; затем
-  `docker compose exec app php artisan config:clear`. Сейчас ещё `local`/`debug`.
+- **Воркер очереди `emails`** на проде не запущен: письма о покупке,
+  приглашения в кабинет и уведомления об обращениях копятся в таблице `jobs`
+  (накопленные за тестовые прогоны 13.11.2026 удалены). Включать — тем же
+  способом, что ночной Z-отчёт:
+  job-exec в ofelia (`docker/ofelia/config.ini`) с
+  `php artisan queue:work --queue=emails --stop-when-empty`.
 - При желании — убрать `api.fontshare.com` из провайдеров `@nuxt/fonts`, чтобы
   сборка не ждала таймаут.
 
 ## KkmServer (фискализация, ККМ)
 
 Фискальные чеки `kkm-api` пробивает через **KkmServer** (kkmserver.ru) — HTTP-мост
-к ККТ. Он стоит **на хосте `.75`, не в docker** (устройство ККТ подключается к
+к ККТ. Он стоит **на хосте прода (`192.168.2.55`), не в docker** (устройство ККТ подключается к
 хосту физически), слушает `5893`; `kkm-api` ходит в него по
 `http://host.docker.internal:5893` (`KKM_SERVER_URL`).
 
@@ -161,8 +316,8 @@ Restart=always
 **Боевая фискализация — VikiPrint.** Планируется физический регистратор
 **VikiPrint** по USB: на хосте появится как `/dev/ttyACM0` (драйвер `cdc_acm` в
 ядре есть), KkmServer (от root) с ним работает напрямую. Нужны: подключить
-принтер к `.75`, настроить устройство в KkmServer (веб-страница
-`http://192.168.0.75:5893` из LAN), зарегистрировать ФН/ОФД, лицензия.
+принтер к серверу, настроить устройство в KkmServer (веб-страница
+`http://192.168.2.55:5893` из LAN), зарегистрировать ФН/ОФД, лицензия.
 `EmulationCheck` при этом выключается.
 
 **Безопасность.** `5893` слушается на всех интерфейсах (LAN), наружу **не

@@ -42,6 +42,20 @@ docker compose logs -f <svc>  # логи
 docker compose down           # остановить (данные Postgres в ./data сохранятся)
 ```
 
+**Публичный адрес сайта — одна переменная `SITE_URL` в корневом `.env`.**
+Compose раздаёт её сервисам (`docker-compose.yml`): `FRONTEND_URL` у `app`,
+`SITE_FRONTEND_URL` у `ais_app`, `NUXT_PUBLIC_SITE_URL` у `frontend`,
+`VITE_SITE_URL` у `ais_spa`; в проде то же значение идёт и в
+`NUXT_PUBLIC_API_BASE` (API живёт на том же домене). Из `FRONTEND_URL`
+выводятся адрес возврата платёжного шлюза (`services.sberbank.return_url`) и
+`redirect_uri` VK — отдельные `SBERBANK_RETURN_URL` / `VK_REDIRECT_URI`
+нужны только когда возврат должен идти на другой адрес. **Ловушка:**
+переменная окружения контейнера перекрывает одноимённую строку в
+`backend/.env` (Dotenv не перезаписывает уже заданные переменные) — правка
+`FRONTEND_URL` в `backend/.env` на поднятом стеке ничего не изменит, менять
+нужно `SITE_URL`. После правки — `docker compose up -d` (не `restart`:
+окружение задаётся при создании контейнера).
+
 Порты: web :8088 (backend, высокоуровневое API avtovokzal57; **был :8080** —
 переехали 2026-08-14, на хосте его постоянно держит vite соседнего проекта,
 и контейнер `web` не поднимался), sales_web :8085
@@ -84,9 +98,33 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
   подтверждение оплаты + оформление, возврат по коду (`refunds/preview|confirm`, таблица
   `refunds`, подписанный Crypt-токен подтверждения), данные печати (`orders/{id}/print`,
   обезличивание 30 дней), билеты одним PDF (`orders/{id}/pdf`).
+  **ЛОВУШКА `SBERBANK_API_URI`: только схема и хост, без пути.** SDK сам
+  приклеивает префикс (`Client::API_PREFIX_DEFAULT = '/payment/rest/'`,
+  `Client::execute()`: `$uri = $apiUri . $action`), поэтому адрес с
+  `/payment/rest/` на конце даёт `…/payment/rest//payment/rest/register.do`
+  и шлюз отвечает **404** — заказ не создаётся, в логе `Bad HTTP code: 404`
+  из `PaymentGateway->register`. Правильно: `https://3dsec-payments.yookassa.ru`
+  (тест), `https://payments.yookassa.ru` (бой); у Сбера — `https://3dsec.sberbank.ru`
+  и `https://securepayments.sberbank.ru`. Ловилось на проде 2026-11-14.
   Чек ККМ и письмо ставятся в database-очередь (`receipts`/`emails`):
   receipts обрабатывается через KKM API (воркер запускаем вручную:
   `queue:work --queue=receipts --stop-when-empty`), **воркер писем сознательно не запущен**.
+  **Письма** — markdown-mailable (`app/Mail/*`, шаблоны
+  `resources/views/mail/*.blade.php`): покупка (`PurchaseMail`, перенос
+  legacy `emails/buy_success.php` + список билетов, код возврата и **PDF
+  билетов вложением** — его рендерит тот же gotenberg по `/print/{id}`, и
+  при его недоступности письмо уходит без вложения), возврат (`RefundMail`,
+  перенос текста `backbycode.php` + разбивка суммы и отдельная формулировка
+  для `bank_failed`), сброс пароля, подтверждение e-mail, приглашение в
+  кабинет, уведомление об обращении. Общая подпись — один partial
+  (`mail/partials/signature`), контакты в нём из `config/site.php`
+  (`company`/`brand`/`support_email`/`support_phone`, значения legacy
+  `inc/config.php`). Шапка и подвал переопределены в
+  `resources/views/vendor/mail/{html,text}/message.blade.php` (в
+  vendor-версии там `config('app.name')` и английское «All rights
+  reserved»), фирменные цвета — тема `mail/theme-avtovokzal.blade.php`
+  (`config/mail.php` → `markdown.theme`; Markdown ищет тему как view
+  `mail.<имя>`, поэтому публиковать все компоненты не нужно).
   **`app.timezone` = Europe/Moscow** — времена рейсов BUSTER wall-clock; на UTC дедлайны
   «за 30 минут» уезжают на +3 ч, не менять. **Вместе с ним обязателен
   `'timezone' => Europe/Moscow` у соединения pgsql** (`config/database.php`): Eloquent

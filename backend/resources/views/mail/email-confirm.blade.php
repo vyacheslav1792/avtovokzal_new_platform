@@ -13,5 +13,5 @@
 
 Если вы этого не делали, письмо можно проигнорировать — адрес к кабинету привязан не будет.
 
-{{ config('app.name') }}
+@include('mail.partials.signature')
 @endcomponent

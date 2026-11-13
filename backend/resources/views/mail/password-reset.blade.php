@@ -13,5 +13,5 @@
 
 Если вы не запрашивали смену пароля, письмо можно проигнорировать — пароль останется прежним.
 
-{{ config('app.name') }}
+@include('mail.partials.signature')
 @endcomponent

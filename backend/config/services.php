@@ -44,10 +44,19 @@ return [
 
     // Сбербанк-эквайринг (SDK voronkovich/sberbank-acquiring-client).
     'sberbank' => [
+        // ТОЛЬКО схема и хост: SDK сам добавляет префикс '/payment/rest/'
+        // (Client::execute), и адрес с путём даёт 404 — см. docs/DEPLOY.md.
         'api_uri' => env('SBERBANK_API_URI', 'https://3dsec.sberbank.ru'),
         'username' => env('SBERBANK_USERNAME'),
         'password' => env('SBERBANK_PASSWORD'),
-        'return_url' => env('SBERBANK_RETURN_URL'),
+        // Куда шлюз вернёт браузер после 3-DS. По умолчанию выводится из
+        // адреса сайта (FRONTEND_URL ← SITE_URL корневого .env), чтобы адрес
+        // не приходилось держать в двух переменных; SBERBANK_RETURN_URL
+        // остаётся на случай, когда возврат нужен на другой адрес.
+        'return_url' => env(
+            'SBERBANK_RETURN_URL',
+            rtrim((string) env('FRONTEND_URL', 'http://127.0.0.1:3000'), '/').'/payment/result',
+        ),
         // Цепочка HTTPS Сбера; применяется только к его HTTP-клиенту.
         'ca_bundle' => env('SBERBANK_CA_BUNDLE', resource_path('certificates/russian_trusted_root_ca.pem')),
     ],

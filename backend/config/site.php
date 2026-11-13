@@ -35,6 +35,23 @@ return [
 
     'token_idle_minutes' => (int) env('TOKEN_IDLE_MINUTES', 60 * 24 * 183),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Подпись и контакты в письмах
+    |--------------------------------------------------------------------------
+    |
+    | Перенос legacy `inc/config.php`: support_email, support_phone и
+    | site_url_text подставлялись в шаблон `emails/buy_success.php`. Имя
+    | отправителя (`MAIL_FROM_NAME`) берётся оттуда же — «автовокзал57.рф».
+    | В подписи указываем юрлицо, как legacy: АО «Орёлавтотранс».
+    |
+    */
+
+    'company' => env('SITE_COMPANY', 'АО «Орёлавтотранс»'),
+    'brand' => env('SITE_BRAND', 'автовокзал57.рф'),
+    'support_email' => env('SUPPORT_EMAIL', 'support@orelavtotrans.ru'),
+    'support_phone' => env('SUPPORT_PHONE', '8 (4862) 72-11-11'),
+
     // Чёрный список адресов (legacy $CHS) живёт в таблице `blocked_emails`,
     // управляется командой `emails:block` / `emails:unblock` — см. App\Models\BlockedEmail.
 

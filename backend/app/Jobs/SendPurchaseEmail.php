@@ -2,7 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Mail\PurchaseMail;
 use App\Models\Order;
+use App\Services\PdfRenderer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -14,8 +16,9 @@ use Illuminate\Support\Facades\Mail;
 /**
  * Письмо покупателю с билетами после успешного оформления.
  *
- * Ставится в очередь `emails`. Обработчик очереди пока сознательно
- * НЕ запускается — шаблон письма и SMTP подключим на следующем этапе.
+ * Ставится в очередь `emails`. Билеты прикладываются одним PDF — его рендерит
+ * Gotenberg по той же печатной форме `/print/{id}`, что отдаёт сайт; legacy
+ * присылал только ссылку на `print.php?bilet=…`.
  */
 class SendPurchaseEmail implements ShouldQueue
 {
@@ -27,20 +30,30 @@ class SendPurchaseEmail implements ShouldQueue
 
     public function __construct(public readonly string $orderId) {}
 
-    public function handle(): void
+    public function handle(PdfRenderer $renderer): void
     {
-        $order = Order::findOrFail($this->orderId);
+        $order = Order::with('tickets')->findOrFail($this->orderId);
 
-        // TODO(этап писем): вёрстка html-шаблона (legacy emails/buy_success.php),
-        // ссылка на печать билетов и код возврата.
-        Mail::raw(
-            "Вы успешно приобрели билеты на рейс {$order->from_name} — {$order->to_name} "
-            ."{$order->date_start->format('d.m.Y')} {$order->time_start}. "
-            ."Код для возврата: {$order->back_code}.",
-            fn ($message) => $message->to($order->email)
-                ->subject('Успешная покупка билетов на сайте Орловского автовокзала.'),
-        );
+        // Вложение необязательно: ссылка на билеты в письме есть всегда, и
+        // недоступный Gotenberg не повод оставить покупателя без письма.
+        $pdf = null;
 
-        Log::info('Отправлено письмо о покупке', ['order_id' => $order->id]);
+        try {
+            $pdf = $renderer->fromUrl(
+                rtrim((string) config('services.gotenberg.print_base'), '/').'/print/'.$order->id,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Письмо о покупке уходит без PDF билетов', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Mail::to($order->email)->send(new PurchaseMail($order, $pdf));
+
+        Log::info('Отправлено письмо о покупке', [
+            'order_id' => $order->id,
+            'pdf' => $pdf !== null,
+        ]);
     }
 }
