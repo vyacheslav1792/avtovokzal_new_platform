@@ -70,10 +70,23 @@ Node на хосте не установлен — сборка идёт **во 
 docker compose run --rm --no-deps frontend sh -lc "npm install && npm run build"
 docker compose run --rm --no-deps ais_spa  sh -lc "npm install && npm run build"
 docker compose up -d
+docker compose restart frontend ais_spa
 ```
 
 `.output`/`dist` живут в bind-mount, поэтому после перезагрузки контейнеры
 стартуют сразу готовой сборкой, без пересборки.
+
+**ЛОВУШКА: без последней строки сборка не выкатывается.** `docker compose up -d`
+пересоздаёт контейнер, только если изменился его конфиг, — а при обычном деплое
+у `frontend` и `ais_spa` он тот же. Запущенные процессы
+(`node .output/server/index.mjs` и `vite preview`) продолжают держать **прошлую**
+сборку: деплой доходит до «Готово» без единой ошибки, а сайт отдаёт старый бандл.
+Ловилось 14.11.2026 на чисто фронтовом деплое — в выдаче остался зелёный
+`--color-green-500` вместо новой фирменной палитры. Поэтому `restart` фронтов
+дописан и в деплой-скрипт (бэкап `updateAvtovokzalFromGit.sh.bak_20261114`).
+Проверять результат деплоя стоит по самой выдаче
+(`curl https://site.orelavtotrans.ru/_nuxt/entry.*.css`), а не по строке «Готово»
+в логе.
 
 Нюанс сети: `@nuxt/fonts` на сборке тянет шрифты; `api.fontshare.com` с сервера
 недоступен (нефатальный таймаут ~24с), остальные шрифты качаются с
@@ -93,7 +106,8 @@ docker compose up -d
 
 Шаги одного прогона: `git reset --hard` → `git pull` → `chown` на 1000 →
 сборка фронтов (Nuxt build + Vite build) → `docker compose up -d` →
-`composer install` → `php artisan migrate --force`.
+`docker compose restart frontend ais_spa` (иначе свежая сборка не подхватится —
+см. ловушку выше) → `composer install` → `php artisan migrate --force`.
 
 Доступ к приватному репозиторию GitHub — по **deploy-ключу** сервера
 (`/root/.ssh/avtovokzal_deploy`, host-alias `github-avtovokzal`; `origin`
