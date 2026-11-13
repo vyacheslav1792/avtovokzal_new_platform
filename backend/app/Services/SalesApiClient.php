@@ -71,6 +71,12 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->post('reservations', $payload));
     }
 
+    /** Снять бронь мест: покупатель отказался от оплаты. */
+    public function cancelReservation(string $reservationId): array
+    {
+        return $this->call(fn () => $this->http()->delete("reservations/{$reservationId}"));
+    }
+
     public function sell(array $payload): array
     {
         return $this->call(fn () => $this->http()->post('sales', $payload));

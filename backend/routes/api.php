@@ -60,6 +60,9 @@ Route::prefix('v1')->group(function () {
     // из legacy (см. миграцию legacy_order_id_and_raw_fields), поэтому шаблон
     // маршрута шире whereUuid.
     Route::get('orders/{id}', [OrderController::class, 'show'])->where('id', Order::ID_PATTERN);
+    // Отказ от неоплаченного заказа: снимает бронь мест и отменяет платёж.
+    Route::post('orders/{id}/cancel', [OrderController::class, 'cancel'])
+        ->where('id', Order::ID_PATTERN)->middleware('throttle:20,1');
     Route::get('orders/{id}/print', [OrderController::class, 'printData'])->where('id', Order::ID_PATTERN);
     Route::get('orders/{id}/pdf', [OrderController::class, 'pdf'])->where('id', Order::ID_PATTERN);
 

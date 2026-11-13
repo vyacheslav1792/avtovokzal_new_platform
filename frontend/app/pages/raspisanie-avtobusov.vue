@@ -78,11 +78,8 @@ const MONTHS = [
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ]
 
-function shiftDate(days: number) {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
+// Пояс автовокзала, а не UTC — см. useSiteDate.
+const shiftDate = siteDateShifted
 
 /** Дата legacy-ссылки в Y-m-d; пусто — «ближайшие рейсы». */
 function legacyDate(raw: string): string {
@@ -168,7 +165,7 @@ onMounted(() => (mounted.value = true))
 const destinationsLoading = computed(() =>
   mounted.value && destinationsResp.status.value === 'pending')
 
-const today = new Date().toISOString().slice(0, 10)
+const today = siteDate()
 const to = ref<string | null>(null)
 const tripDate = ref(today)
 
@@ -234,7 +231,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
     <UCard v-if="from" class="mb-6 no-print">
       <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_auto] items-end">
         <UFormField label="Пункт отправления">
-          <StationSelect
+          <ResponsiveSelect
             :model-value="from"
             :items="stationOptions"
             placeholder="Выберите автовокзал или кассовый пункт"
@@ -246,7 +243,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
 
         <!-- legacy: выбор пункта прибытия вёл к расписанию до этой остановки -->
         <UFormField label="Пункт прибытия">
-          <StationSelect
+          <ResponsiveSelect
             v-model="to"
             :items="destinations"
             :loading="destinationsLoading"

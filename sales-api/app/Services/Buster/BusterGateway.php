@@ -385,6 +385,47 @@ SQL;
     }
 
     /**
+     * Снять бронь с мест (KS_ABO_BRONTIME_PLACES).
+     *
+     * Процедура убирает пометку TimeMark с перечисленных мест рейса — та же,
+     * которой `KS_BRONTIME_PLACE` откатывает частично удавшуюся бронь. Снять
+     * бронь может **только тот агент, кто её ставил** (для этого в процедуру
+     * идут AGENT_CODE и AGENT_WRK_CODE), поэтому чужие места ею не освободить.
+     *
+     * @param  int[]  $places  номера мест
+     * @return int  сколько мест удалось освободить
+     */
+    public function releaseReservation(
+        int $awtcod,
+        int $napcod,
+        int $raicecod,
+        string $date,
+        array $places,
+    ): int {
+        if ($places === []) {
+            return 0;
+        }
+
+        $packedPlaces = implode('@', $places).'@';
+
+        $this->db->begin();
+
+        try {
+            $rows = $this->db->select(
+                'SELECT COL_ABO_BRON FROM KS_ABO_BRONTIME_PLACES(?,?,?,?,?,?,?)',
+                [$date, $awtcod, $napcod, $raicecod, $this->agentCode, $this->workerCode, $packedPlaces],
+            );
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+
+        return (int) ($rows[0]['COL_ABO_BRON'] ?? 0);
+    }
+
+    /**
      * Продажа зарезервированных мест (KS_SALE_PLACES) + багаж
      * (SH0_SALE_BAG_ON_RAICE) + добровольная страховка (UPDATE SALE.STRWANT).
      *

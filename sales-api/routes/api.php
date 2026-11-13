@@ -26,6 +26,9 @@ Route::prefix('v1')
         Route::get('trips/status', [TripController::class, 'status'])->name('trips.status');
 
         Route::post('reservations', [ReservationController::class, 'store'])->name('reservations.store');
+        // Отказ от покупки: снять бронь, не дожидаясь её истечения.
+        Route::delete('reservations/{id}', [ReservationController::class, 'destroy'])
+            ->whereUuid('id')->name('reservations.destroy');
         Route::post('sales', [SaleController::class, 'store'])->name('sales.store');
         Route::post('refunds', [RefundController::class, 'store'])->name('refunds.store');
     });

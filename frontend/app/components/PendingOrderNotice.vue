@@ -16,10 +16,12 @@
  * без сведений о рейсе и без запаса времени.
  */
 const route = useRoute()
+const api = useApi()
+const toast = useToast()
 const { items, load } = usePendingOrders()
 const { isLoggedIn } = useAuth()
 
-/** Скрытые вручную заказы — на эту вкладку (оплаченные не скрываются). */
+/** Отменённые отсюда заказы — чтобы полоса пропала сразу, без перезапроса. */
 const dismissed = ref<string[]>([])
 
 const pending = computed(() =>
@@ -81,9 +83,36 @@ function finish(sberOrderId: string) {
   navigateTo({ path: '/payment/result', query: { orderId: sberOrderId } })
 }
 
-function hide(id: string) {
-  dismissed.value = [...dismissed.value, id]
-  forgetPendingOrder(id)
+/**
+ * Отказ от неоплаченного заказа. Полосу недостаточно просто спрятать: места
+ * останутся занятыми до конца брони, хотя покупатель уже передумал, — поэтому
+ * кнопка снимает бронь на сервере и отменяет платёж.
+ */
+const cancelling = ref(false)
+
+async function cancel(id: string) {
+  cancelling.value = true
+  try {
+    await api(`/orders/${id}/cancel`, { method: 'POST' })
+    toast.add({
+      title: 'Заказ отменён',
+      description: 'Бронь мест снята — их снова можно купить.',
+      color: 'success',
+    })
+  }
+  catch (e: any) {
+    // Не вышло — бронь всё равно истечёт сама, покупателя этим не грузим.
+    toast.add({
+      title: 'Не удалось отменить заказ',
+      description: apiErrorMessage(e, 'Бронь снимется сама по истечении времени'),
+      color: 'error',
+    })
+  }
+  finally {
+    cancelling.value = false
+    dismissed.value = [...dismissed.value, id]
+    forgetPendingOrder(id)
+  }
 }
 </script>
 
@@ -153,8 +182,11 @@ function hide(id: string) {
           >
             Продолжить оплату
           </UButton>
-          <UButton color="neutral" variant="ghost" @click="hide(unpaid!.order_id)">
-            Скрыть
+          <UButton
+            color="neutral" variant="ghost" :loading="cancelling"
+            @click="cancel(unpaid!.order_id)"
+          >
+            Отменить
           </UButton>
         </div>
       </UContainer>

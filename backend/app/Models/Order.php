@@ -55,4 +55,7 @@ class Order extends Model
     public const STATUS_COMPLETED = 'completed';
 
     public const STATUS_FAILED = 'failed';
+
+    /** Покупатель отказался от оплаты: бронь снята, платёж отменён. */
+    public const STATUS_CANCELLED = 'cancelled';
 }

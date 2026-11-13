@@ -70,4 +70,44 @@ class ReservationController extends Controller
             ],
         ], 201);
     }
+
+    /**
+     * Снять бронь: DELETE /api/v1/reservations/{id}
+     *
+     * Нужна, когда покупатель отказался от оплаты: иначе места висят
+     * занятыми до конца брони (~24 минуты) и их не может купить никто.
+     * Снимает только свою бронь — и по агенту запроса, и внутри BUSTER
+     * (процедура сверяет AGENT_CODE). Повторный вызов безопасен: уже
+     * снятая бронь отвечает успехом, ничего не делая.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $agent = $request->attributes->get('agent');
+
+        $reservation = Reservation::where('id', $id)
+            ->where('agent_id', $agent['id'])
+            ->firstOrFail();
+
+        if ($reservation->status !== 'active') {
+            return response()->json([
+                'success' => true,
+                'data' => ['reservation_id' => $reservation->id, 'released' => 0, 'status' => $reservation->status],
+            ]);
+        }
+
+        $released = $this->gateways->forStation($reservation->awtcod, $agent)->releaseReservation(
+            (int) $reservation->awtcod,
+            (int) $reservation->napcod,
+            (int) $reservation->raicecod,
+            $reservation->date_start->format('Y-m-d'),
+            array_map('intval', $reservation->places ?? []),
+        );
+
+        $reservation->update(['status' => 'cancelled']);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['reservation_id' => $reservation->id, 'released' => $released, 'status' => 'cancelled'],
+        ]);
+    }
 }

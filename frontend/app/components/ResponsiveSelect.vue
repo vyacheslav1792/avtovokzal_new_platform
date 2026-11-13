@@ -1,13 +1,16 @@
 <script setup lang="ts">
 /**
- * Выбор станции («Откуда» / «Куда») с полноэкранным списком на мобильном.
+ * Выпадающий список, который на телефоне раскрывается на весь экран.
  *
- * Выпадающий список USelectMenu на телефоне открывается небольшим окошком:
- * поле поиска видно не всегда, а пунктов назначения у станции бывает больше
- * двух сотен — приходится листать весь список. Поэтому на узких экранах
- * список раскрывается на весь экран: сверху закреплены стрелка «назад» и
- * поле поиска, прокручивается только сам список. На десктопе остаётся
- * обычный USelectMenu.
+ * Обычное окошко USelectMenu на узком экране мало: поле поиска видно не
+ * всегда, а пунктов бывает больше двух сотен (остановки станции) — их
+ * приходится листать целиком. Здесь на узких экранах список занимает весь
+ * экран: сверху закреплены стрелка «назад» и поиск, прокручивается только
+ * сам список. На десктопе — обычный USelectMenu.
+ *
+ * Названия НЕ обрезаются многоточием ни в поле, ни в списке: «Удостоверение
+ * личности военнослужащего» и «Красная Заря КП (автостанция)» покупатель
+ * должен прочитать целиком.
  *
  * Обе версии рендерятся всегда и переключаются классами (`md:hidden` /
  * `hidden md:flex`), а не проверкой ширины в JS: при SSR ширина неизвестна,
@@ -43,8 +46,8 @@ const selectedLabel = computed(() =>
 
 /**
  * Фильтр и порядок — как у Nuxt UI на десктопе: совпадения с начала названия
- * поднимаются наверх, внутри групп сохраняется порядок сервера (он уже
- * отсортирован по-человечески — см. StationNameSorter в sales-api).
+ * поднимаются наверх, внутри групп сохраняется порядок сервера (у станций он
+ * уже отсортирован по-человечески — см. StationNameSorter в sales-api).
  */
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -109,6 +112,7 @@ watch(() => route.fullPath, closePanel)
       :disabled="disabled"
       :highlight="highlight"
       :size="size"
+      :ui="{ value: 'whitespace-normal text-left', itemLabel: 'whitespace-normal' }"
       class="hidden md:flex w-full"
     />
 
@@ -117,7 +121,7 @@ watch(() => route.fullPath, closePanel)
       type="button"
       :disabled="disabled"
       :class="[
-        'md:hidden w-full flex items-center justify-between gap-2 rounded-md bg-default',
+        'md:hidden w-full flex items-start justify-between gap-2 rounded-md bg-default',
         'ring ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-75',
         highlight ? 'ring-error' : 'ring-accented',
         // Отступы и шрифт — те же, что у UInput соответствующего размера,
@@ -126,12 +130,13 @@ watch(() => route.fullPath, closePanel)
       ]"
       @click="openPanel"
     >
-      <span :class="selectedLabel ? 'text-default truncate' : 'text-dimmed truncate'">
+      <!-- Длинное название переносим, а не прячем за многоточием. -->
+      <span :class="selectedLabel ? 'text-default text-left' : 'text-dimmed text-left'">
         {{ selectedLabel || placeholder }}
       </span>
       <UIcon
         :name="loading ? 'i-lucide-loader-circle' : 'i-lucide-chevron-down'"
-        :class="['size-5 shrink-0 text-dimmed', loading && 'animate-spin']"
+        :class="['size-5 shrink-0 text-dimmed mt-0.5', loading && 'animate-spin']"
       />
     </button>
 

@@ -77,6 +77,23 @@ class OrderController extends Controller
         ]);
     }
 
+    /**
+     * Отказ от неоплаченного заказа: снять бронь мест и отменить платёж.
+     *
+     * Без этого места остаются занятыми до конца брони, хотя покупатель уже
+     * передумал. Доступ — по идентификатору заказа, как и у остальных
+     * операций покупателя (его знает только тот, кто заказ оформлял).
+     */
+    public function cancel(string $id): JsonResponse
+    {
+        $order = $this->orders->cancel(Order::findOrFail($id));
+
+        return response()->json(['success' => true, 'data' => [
+            'order_id' => $order->id,
+            'status' => $order->status,
+        ]]);
+    }
+
     public function show(string $id): JsonResponse
     {
         return response()->json(['success' => true, 'data' => $this->present(Order::findOrFail($id))]);

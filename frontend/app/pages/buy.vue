@@ -75,7 +75,7 @@ const tripsLink = computed(() => ({
   query: { awtcod: awtcod.value, from: fromName.value, to: toName.value, date: date.value, all: 1 },
 }))
 
-const { data: placesResp } = await useAsyncData(
+const { data: placesResp, refresh: refreshPlaces } = await useAsyncData(
   'buy-places',
   () => trip.value
     ? api<{ success: boolean, data: { free: number[], taken: number[] } }>('/trips/places', {
@@ -135,16 +135,15 @@ function childLimitFor(current: PassengerForm): number {
   return adults * rules.max_children_per_adult - children
 }
 
-/** Детский тариф скрываем, когда взять его уже нельзя. */
-function tariffOptions(passenger: PassengerForm) {
-  const options = [{ label: 'Полный', value: 'adult' }]
-
-  if (passenger.tariff === 'child' || childLimitFor(passenger) > 0) {
-    options.push({ label: 'Детский (до 12 лет)', value: 'child' })
-  }
-
-  return options
-}
+/**
+ * Детский тариф из списка НЕ убираем: исчезнувший пункт покупатель не
+ * заметит и не поймёт, почему детского билета нет. Пункт на месте, но
+ * выбрать его без полного билета не даём — с объяснением.
+ */
+const TARIFF_OPTIONS = [
+  { label: 'Полный', value: 'adult' },
+  { label: 'Детский (до 12 лет)', value: 'child' },
+]
 
 function setTariff(passenger: PassengerForm, value: string) {
   if (value === 'child' && childLimitFor(passenger) <= 0) {
@@ -297,8 +296,9 @@ const submitting = ref(false)
  * открыто (или закрыто, но заказ жив), платить можно по этой же ссылке:
  * второй раз оформлять заказ не нужно, иначе будут две брони на одни места.
  */
-const payment = ref<{ url: string, payUntil: string } | null>(null)
+const payment = ref<{ orderId: string, url: string, payUntil: string } | null>(null)
 const paymentOpen = ref(false)
+const cancelling = ref(false)
 
 /** Сколько ещё держатся места — обратный отсчёт в окне и в подсказке. */
 const now = ref(Date.now())
@@ -314,8 +314,45 @@ const holdLeft = computed(() => {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 })
 
+/**
+ * Заказ оформлен — форму закрываем на редактирование: места уже
+ * зарезервированы под этот состав пассажиров, и правки в полях на заказ
+ * никак не повлияют. Чтобы изменить данные, заказ надо отменить.
+ */
+const locked = computed(() => !!payment.value && !!holdLeft.value)
+
 function goToGateway() {
   if (payment.value) window.location.href = payment.value.url
+}
+
+/** Отказ от заказа: снимаем бронь мест и отменяем платёж. */
+async function cancelOrder() {
+  if (!payment.value) return
+
+  cancelling.value = true
+  try {
+    await api(`/orders/${payment.value.orderId}/cancel`, { method: 'POST' })
+    forgetPendingOrder(payment.value.orderId)
+    payment.value = null
+    paymentOpen.value = false
+    toast.add({
+      title: 'Заказ отменён',
+      description: 'Бронь мест снята — их снова можно купить.',
+      color: 'success',
+    })
+    // Свободные места изменились: список мест пересоберём с сервера.
+    await refreshPlaces()
+  }
+  catch (e: any) {
+    toast.add({
+      title: 'Не удалось отменить заказ',
+      description: apiErrorMessage(e, 'Попробуйте ещё раз или просто дождитесь окончания брони'),
+      color: 'error',
+    })
+  }
+  finally {
+    cancelling.value = false
+  }
 }
 
 // Ошибки серверной валидации: путь поля → сообщение (показывается под полем).
@@ -473,7 +510,11 @@ async function submit() {
     // на сайт после оплаты обязательно. Страница лишняя — предупреждение
     // показываем окном прямо здесь.
     rememberPendingOrder(resp.data.order_id)
-    payment.value = { url: resp.data.payment_url, payUntil: resp.data.pay_until }
+    payment.value = {
+      orderId: resp.data.order_id,
+      url: resp.data.payment_url,
+      payUntil: resp.data.pay_until,
+    }
     paymentOpen.value = true
     submitting.value = false
     return
@@ -554,8 +595,11 @@ function formatDate(d: string) {
       variant="subtle"
       icon="i-lucide-clock"
       title="Заказ создан и ждёт оплаты"
-      :description="`Места держим ещё ${holdLeft}. Билеты будут оформлены после оплаты.`"
-      :actions="[{ label: 'Перейти к оплате', color: 'error', onClick: () => (paymentOpen = true) }]"
+      :description="`Места держим ещё ${holdLeft}. Форма закрыта на правку — чтобы изменить данные, отмените заказ.`"
+      :actions="[
+        { label: 'Перейти к оплате', color: 'error', onClick: () => (paymentOpen = true) },
+        { label: 'Отменить заказ', color: 'neutral', variant: 'outline', loading: cancelling, onClick: cancelOrder },
+      ]"
     />
 
     <UCard>
@@ -581,6 +625,14 @@ function formatDate(d: string) {
         </div>
       </div>
     </UCard>
+
+    <!--
+      Пока заказ ждёт оплаты, форма только на чтение: места уже
+      зарезервированы под этот состав, и правки в полях на заказ не повлияют.
+      `fieldset[disabled]` выключает всё вложенное разом — и поля, и кнопки
+      «Удалить»/«Добавить пассажира».
+    -->
+    <fieldset :disabled="locked" class="contents">
 
     <UCard v-for="(p, i) in passengers" :key="i">
       <template #header>
@@ -630,7 +682,7 @@ function formatDate(d: string) {
         </UFormField>
         <UFormField label="Тариф">
           <USelect
-            :model-value="p.tariff" :items="tariffOptions(p)" value-key="value" class="w-full"
+            :model-value="p.tariff" :items="TARIFF_OPTIONS" value-key="value" class="w-full"
             @update:model-value="(value: string) => setTariff(p, value)"
           />
         </UFormField>
@@ -713,12 +765,15 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.doc_type`)"
           :data-error-field="fieldError(`passengers.${i}.doc_type`) ? '' : undefined"
         >
-          <!-- Название документа не обрезаем многоточием: «Удостоверение
-               личности военнослужащего» в одну строку не помещается, и
-               покупатель должен видеть, что именно выбрал. -->
-          <USelect
-            v-model="p.doc_type" :items="DOC_TYPES" value-key="value" class="w-full"
-            :ui="{ base: 'items-start', value: 'whitespace-normal text-left pointer-events-none' }"
+          <!-- Тот же компонент, что «Откуда»/«Куда»: на телефоне список
+               документов раскрывается на весь экран, а длинные названия
+               («Удостоверение личности военнослужащего») переносятся, а не
+               прячутся за многоточием — и в поле, и в самом списке. -->
+          <ResponsiveSelect
+            v-model="p.doc_type"
+            :items="DOC_TYPES"
+            title="Документ пассажира"
+            search-placeholder="Название документа"
             @update:model-value="clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
@@ -779,7 +834,10 @@ function formatDate(d: string) {
       Добавить пассажира
     </UButton>
 
+    </fieldset>
+
     <UCard>
+      <fieldset :disabled="locked" class="contents">
       <div class="grid gap-4 md:grid-cols-2">
         <UFormField
           label="E-Mail для билетов и чека" required
@@ -813,6 +871,7 @@ function formatDate(d: string) {
           label="Я даю согласие на обработку моих персональных данных"
         />
       </UFormField>
+      </fieldset>
 
       <template #footer>
         <!-- На телефоне ряд не помещался: подпись сжималась в колонку из
@@ -887,6 +946,13 @@ function formatDate(d: string) {
       </template>
 
       <template #footer>
+        <UButton
+          color="neutral" variant="outline" icon="i-lucide-x"
+          :loading="cancelling"
+          @click="cancelOrder"
+        >
+          Отменить заказ
+        </UButton>
         <UButton color="neutral" variant="ghost" @click="paymentOpen = false">
           Не сейчас
         </UButton>

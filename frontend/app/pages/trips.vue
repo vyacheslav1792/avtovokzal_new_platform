@@ -40,11 +40,10 @@ const trips = computed(() => {
   return showAll.value ? list : list.filter(t => !t.canceled && t.free_places > 0)
 })
 
-function shiftDate(days: number) {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
+// Дата считается в поясе автовокзала (siteDateShifted), а не в UTC: после
+// полуночи по Москве UTC-дата ещё вчерашняя, и ссылка «Сегодня» уводила
+// на прошедший день.
+const shiftDate = siteDateShifted
 
 /** Ссылки «Сегодня / Завтра / Послезавтра / Ближайшие» как в legacy. */
 const dateLinks = computed(() => [

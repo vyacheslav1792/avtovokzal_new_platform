@@ -49,9 +49,11 @@ function ruToIso(ru: string): string {
     return ''
   }
 
+  // Саму дату собираем из UTC-полей того же UTC-дня — здесь смещения нет.
   const iso = date.toISOString().slice(0, 10)
   const min = props.min ?? '1900-01-01'
-  const max = props.max ?? new Date(Date.now() - 86400_000).toISOString().slice(0, 10)
+  // Верхняя граница — вчера по времени автовокзала, а не по UTC.
+  const max = props.max ?? siteDateShifted(-1)
 
   return iso >= min && iso <= max ? iso : ''
 }

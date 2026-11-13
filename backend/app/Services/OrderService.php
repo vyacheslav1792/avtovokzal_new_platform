@@ -311,6 +311,69 @@ class OrderService
         return $departure->lt($reservationUntil) ? $departure : $reservationUntil;
     }
 
+    /**
+     * Отказ покупателя от неоплаченного заказа.
+     *
+     * Главное здесь — **снять бронь**: без этого места висят занятыми до
+     * конца брони (~24 минуты) и их не купит никто, хотя покупатель уже
+     * передумал. Заодно отменяем регистрацию платежа в шлюзе, чтобы его
+     * ссылка перестала работать.
+     *
+     * Оплаченный заказ отменить нельзя: деньги уже у нас, такой заказ надо
+     * либо дооформить (`confirm`), либо возвращать через `refunds`.
+     */
+    public function cancel(Order $order): Order
+    {
+        if (in_array($order->status, [Order::STATUS_CANCELLED, Order::STATUS_FAILED], true)) {
+            return $order; // идемпотентность: повторный клик по «Отменить»
+        }
+
+        if (! in_array($order->status, [Order::STATUS_PENDING, Order::STATUS_PAYMENT_REGISTERED], true)) {
+            throw new SalesApiException('Оплаченный заказ отменить нельзя — его нужно оформить или вернуть', 'order_paid');
+        }
+
+        // Статус из шлюза важнее нашего: деньги могли списаться минуту назад,
+        // а возврата со шлюза мы ещё не видели.
+        if ($order->sber_order_id && $this->payments->isPaid($order->sber_order_id)) {
+            $order->update(['status' => Order::STATUS_PAID, 'paid_at' => now()]);
+
+            throw new SalesApiException('Заказ уже оплачен — его нужно оформить, а не отменять', 'order_paid');
+        }
+
+        if ($order->reservation_id) {
+            try {
+                $this->salesApi->cancelReservation((string) $order->reservation_id);
+            } catch (\Throwable $e) {
+                // Бронь всё равно истечёт сама — отказ покупателя из-за этого
+                // ронять не станем, но знать об этом надо.
+                Log::warning('Не удалось снять бронь мест', [
+                    'order_id' => $order->id,
+                    'reservation_id' => $order->reservation_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($order->sber_order_id) {
+            try {
+                $this->payments->reverse($order->sber_order_id);
+            } catch (\Throwable $e) {
+                // Неоплаченный заказ шлюз закроет сам по таймауту.
+                Log::info('Шлюз не принял отмену заказа', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $order->update([
+            'status' => Order::STATUS_CANCELLED,
+            'status_reason' => 'Покупатель отказался от оплаты',
+        ]);
+
+        return $order->refresh();
+    }
+
     public function confirm(string $sberOrderId): Order
     {
         $order = Order::where('sber_order_id', $sberOrderId)->firstOrFail();

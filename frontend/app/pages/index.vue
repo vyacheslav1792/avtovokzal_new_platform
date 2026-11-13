@@ -11,7 +11,8 @@ const stations = computed(() =>
 
 const from = ref<number | null>(null)
 const to = ref<string | null>(null)
-const today = new Date().toISOString().slice(0, 10)
+// Дата в поясе автовокзала, а не UTC: иначе ночью форма предлагает вчера.
+const today = siteDate()
 const date = ref(today)
 
 const destinations = ref<{ label: string, value: string }[]>([])
@@ -137,7 +138,7 @@ const tileOverlay = {
         <UCard class="max-w-4xl mx-auto shadow-xl">
           <div class="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] items-end">
             <UFormField label="Откуда">
-              <StationSelect
+              <ResponsiveSelect
                 v-model="from"
                 :items="stations"
                 placeholder="Станция отправления"
@@ -147,7 +148,7 @@ const tileOverlay = {
               />
             </UFormField>
             <UFormField label="Куда">
-              <StationSelect
+              <ResponsiveSelect
                 v-model="to"
                 :items="destinations"
                 :loading="destinationsLoading"
