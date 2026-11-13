@@ -629,8 +629,14 @@ function formatDate(d: string) {
     <!--
       Пока заказ ждёт оплаты, форма только на чтение: места уже
       зарезервированы под этот состав, и правки в полях на заказ не повлияют.
-      `fieldset[disabled]` выключает всё вложенное разом — и поля, и кнопки
-      «Удалить»/«Добавить пассажира».
+      `fieldset[disabled]` выключает нативные поля и кнопки разом.
+
+      **ЛОВУШКА:** одного fieldset мало. Селекты и галочки Nuxt UI (Reka)
+      открываются по `pointerdown`, а браузер глушит у выключенных элементов
+      только активацию (click) — события указателя до них доходят. Поэтому
+      «Место», «Тариф», «Багаж», «Пол», «Гражданство», «Документ» и галочки
+      получают `:disabled` ЯВНО, иначе список выбора открывается, хотя поле
+      выглядит выключенным.
     -->
     <fieldset :disabled="locked" class="contents">
 
@@ -664,6 +670,7 @@ function formatDate(d: string) {
           value-key="value"
           placeholder="Новый пассажир"
           class="w-full md:w-2/3"
+          :disabled="locked"
           @update:model-value="(id: number) => fillFromSaved(i, id)"
         />
       </UFormField>
@@ -674,20 +681,28 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.place`)"
           :data-error-field="fieldError(`passengers.${i}.place`) ? '' : undefined"
         >
-          <USelect
-            v-model="p.place" :items="availablePlaces(p.place)" value-key="value" class="w-full"
+          <!-- На телефоне список мест раскрывается на весь экран, как и
+               список документов: в автобусе их до полусотни, и выбирать их
+               в маленьком окошке неудобно. Поиск не нужен — это номера. -->
+          <ResponsiveSelect
+            v-model="p.place"
+            :items="availablePlaces(p.place)"
+            title="Место в автобусе"
+            :searchable="false"
             :highlight="!!fieldError(`passengers.${i}.place`)"
+            :disabled="locked"
             @update:model-value="clearError(`passengers.${i}.place`)"
           />
         </UFormField>
         <UFormField label="Тариф">
           <USelect
             :model-value="p.tariff" :items="TARIFF_OPTIONS" value-key="value" class="w-full"
+            :disabled="locked"
             @update:model-value="(value: string) => setTariff(p, value)"
           />
         </UFormField>
         <UFormField label="Багаж / ручная кладь">
-          <USelect v-model="p.baggage" :items="baggageOptions" value-key="value" class="w-full" />
+          <USelect v-model="p.baggage" :items="baggageOptions" value-key="value" class="w-full" :disabled="locked" />
         </UFormField>
       </div>
 
@@ -745,7 +760,7 @@ function formatDate(d: string) {
           />
         </UFormField>
         <UFormField label="Пол">
-          <USelect v-model="p.gender" :items="genderOptions" value-key="value" class="w-full" />
+          <USelect v-model="p.gender" :items="genderOptions" value-key="value" class="w-full" :disabled="locked" />
         </UFormField>
         <UFormField
           label="Гражданство"
@@ -756,6 +771,7 @@ function formatDate(d: string) {
             v-model="p.citizenship" :items="citizenshipOptions" value-key="value"
             class="w-full"
             :highlight="!!fieldError(`passengers.${i}.citizenship`)"
+            :disabled="locked"
             @update:model-value="clearError(`passengers.${i}.citizenship`); clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
@@ -774,6 +790,7 @@ function formatDate(d: string) {
             :items="DOC_TYPES"
             title="Документ пассажира"
             search-placeholder="Название документа"
+            :disabled="locked"
             @update:model-value="clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
@@ -802,6 +819,7 @@ function formatDate(d: string) {
         v-if="isLoggedIn && !p.saved_id"
         v-model="p.save_to_profile"
         class="mt-4"
+        :disabled="locked"
         label="Сохранить пассажира в профиль"
         description="В следующий раз данные подставятся из кабинета — вводить их заново не придётся"
       />
@@ -868,6 +886,7 @@ function formatDate(d: string) {
       <UFormField class="mt-4" :error="fieldError('agree_pd')">
         <UCheckbox
           v-model="agree"
+          :disabled="locked"
           label="Я даю согласие на обработку моих персональных данных"
         />
       </UFormField>

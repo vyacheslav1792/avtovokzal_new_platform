@@ -97,6 +97,13 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            /*
+             * Пояс сессии фиксируем ЯВНО и тем же, что у приложения (UTC).
+             * Сам сервер Postgres теперь живёт в Europe/Moscow, а Eloquent
+             * пишет даты строкой БЕЗ смещения — положись мы на умолчание
+             * сервера, все timestamptz этого сервиса уехали бы на +3 часа.
+             */
+            'timezone' => env('APP_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [

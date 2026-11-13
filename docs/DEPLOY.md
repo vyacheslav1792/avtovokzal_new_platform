@@ -129,6 +129,28 @@ docker compose restart frontend ais_spa
 
 TLS-сертификат при этом совпадает (имя то же), предупреждений нет.
 
+## Часовые пояса
+
+| Где | Пояс |
+|---|---|
+| Хост сервера | **Europe/Moscow** (переведён с Asia/Omsk 14.11.2026) |
+| Контейнеры (`app`, `sales_app`, `kkm_app`, `ais_app`, `scheduler`, `db`) | Europe/Moscow (`TZ` в compose) |
+| Сервер PostgreSQL | Europe/Moscow (`command: postgres -c timezone=…`) |
+| Сессия БД у backend и ais-api | Europe/Moscow |
+| Сессия БД у sales-api и kkm-api | UTC (у них `app.timezone` = UTC) |
+| Базы станций (Firebird, напр. «Кромы АС» 192.168.2.5) | +3, московские wall-clock |
+
+Пояс хоста важен не только для журналов: **KkmServer стоит на хосте, а не в
+docker**, и время в фискальных чеках берёт у системы — на Asia/Omsk чеки
+уходили бы с +6. После смены пояса службу нужно перезапустить
+(`systemctl restart kkmserver`).
+
+**ЛОВУШКА пояса БД.** Eloquent пишет даты строкой БЕЗ смещения, поэтому
+значение трактуется по поясу СЕССИИ. Каждое приложение задаёт его явно в
+своём `config/database.php`; если какой-то сервис положится на умолчание
+сервера, при следующей смене пояса сервера все его timestamptz уедут на 3
+часа. Проверка — `show timezone` из контейнера сервиса.
+
 ## Данные
 
 Postgres (`data/postgres`, PGDATA uid 999) и Firebird (`databases/*.fdb`)

@@ -24,6 +24,8 @@ const props = withDefaults(defineProps<{
   /** Заголовок полноэкранного списка (по умолчанию — placeholder). */
   title?: string
   searchPlaceholder?: string
+  /** Поиск по списку. Для коротких списков (номера мест) не нужен. */
+  searchable?: boolean
   loading?: boolean
   disabled?: boolean
   highlight?: boolean
@@ -31,6 +33,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   placeholder: 'Выберите',
   searchPlaceholder: 'Начните вводить название',
+  searchable: true,
   // Как и у остальных полей сайта (см. app.config.ts).
   size: 'xl',
 })
@@ -85,7 +88,7 @@ function pick(value: string | number) {
 watch(open, async (value) => {
   if (!import.meta.client) return
   document.body.style.overflow = value ? 'hidden' : ''
-  if (value) {
+  if (value && props.searchable) {
     await nextTick()
     searchInput.value?.inputRef?.focus()
   }
@@ -112,6 +115,7 @@ watch(() => route.fullPath, closePanel)
       :disabled="disabled"
       :highlight="highlight"
       :size="size"
+      :search-input="searchable"
       :ui="{ value: 'whitespace-normal text-left', itemLabel: 'whitespace-normal' }"
       class="hidden md:flex w-full"
     />
@@ -161,6 +165,7 @@ watch(() => route.fullPath, closePanel)
             <span class="font-medium truncate">{{ title || placeholder }}</span>
           </div>
           <UInput
+            v-if="searchable"
             ref="searchInput"
             v-model="query"
             :placeholder="searchPlaceholder"

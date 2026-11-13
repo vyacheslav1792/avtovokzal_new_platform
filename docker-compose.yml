@@ -5,7 +5,20 @@
 services:
   db:
     image: postgres:17
+    # Сервер живёт в московском времени, как и станции: `now()`, журнал и
+    # вывод timestamptz в psql — в +3, а не в UTC. Каждое приложение при этом
+    # ЯВНО фиксирует пояс сессии в своём config/database.php (backend и
+    # ais-api — Europe/Moscow, sales-api и kkm-api — UTC), поэтому смена
+    # умолчания сервера ничего не сдвигает: Eloquent пишет даты строкой без
+    # смещения, и пояс сессии здесь решает всё.
+    command:
+      - postgres
+      - -c
+      - timezone=Europe/Moscow
+      - -c
+      - log_timezone=Europe/Moscow
     environment:
+      TZ: Europe/Moscow
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
