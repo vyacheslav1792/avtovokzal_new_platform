@@ -71,6 +71,7 @@ docker compose run --rm --no-deps frontend sh -lc "npm install && npm run build"
 docker compose run --rm --no-deps ais_spa  sh -lc "npm install && npm run build"
 docker compose up -d
 docker compose restart frontend ais_spa
+docker compose restart scheduler   # если менялся docker/ofelia/config.ini
 ```
 
 `.output`/`dist` живут в bind-mount, поэтому после перезагрузки контейнеры
@@ -87,6 +88,13 @@ docker compose restart frontend ais_spa
 Проверять результат деплоя стоит по самой выдаче
 (`curl https://site.orelavtotrans.ru/_nuxt/entry.*.css`), а не по строке «Готово»
 в логе.
+
+**Та же ловушка у планировщика.** ofelia читает `docker/ofelia/config.ini`
+ТОЛЬКО при старте, а файл приезжает bind-mount'ом — новые и изменённые
+задания без рестарта в расписание не попадают. `docker compose restart
+scheduler` тоже дописан в деплой-скрипт (бэкап
+`updateAvtovokzalFromGit.sh.bak_20261114_scheduler`). Проверка —
+`docker compose logs scheduler | grep "New job registered"`.
 
 Нюанс сети: `@nuxt/fonts` на сборке тянет шрифты; `api.fontshare.com` с сервера
 недоступен (нефатальный таймаут ~24с), остальные шрифты качаются с
@@ -106,8 +114,9 @@ docker compose restart frontend ais_spa
 
 Шаги одного прогона: `git reset --hard` → `git pull` → `chown` на 1000 →
 сборка фронтов (Nuxt build + Vite build) → `docker compose up -d` →
-`docker compose restart frontend ais_spa` (иначе свежая сборка не подхватится —
-см. ловушку выше) → `composer install` → `php artisan migrate --force`.
+`docker compose restart frontend ais_spa` (иначе свежая сборка не подхватится)
+→ `docker compose restart scheduler` (иначе не перечитаются задания ofelia;
+обе ловушки — см. выше) → `composer install` → `php artisan migrate --force`.
 
 Доступ к приватному репозиторию GitHub — по **deploy-ключу** сервера
 (`/root/.ssh/avtovokzal_deploy`, host-alias `github-avtovokzal`; `origin`
