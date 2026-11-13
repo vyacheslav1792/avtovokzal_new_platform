@@ -20,6 +20,7 @@ services:
     environment:
       NITRO_HOST: "0.0.0.0"
       NITRO_PORT: "3000"
+      NUXT_PUBLIC_API_BASE: "https://site.orelavtotrans.ru"
       NUXT_PUBLIC_SITE_URL: "https://site.orelavtotrans.ru"
     restart: unless-stopped
 
@@ -31,7 +32,11 @@ services:
 
   db:        { restart: unless-stopped }
   firebird:  { restart: unless-stopped }
-  app:       { restart: unless-stopped }
+  app:
+    restart: unless-stopped
+    # DNS локальной сети нужен backend для обращения к платёжному шлюзу.
+    dns:
+      - "${APP_DNS_PRIMARY:-192.168.2.100}"
   web:       { restart: unless-stopped }
   sales_app: { restart: unless-stopped }
   sales_web: { restart: unless-stopped }

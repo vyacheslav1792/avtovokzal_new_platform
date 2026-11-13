@@ -48,6 +48,8 @@ return [
         'username' => env('SBERBANK_USERNAME'),
         'password' => env('SBERBANK_PASSWORD'),
         'return_url' => env('SBERBANK_RETURN_URL'),
+        // Цепочка HTTPS Сбера; применяется только к его HTTP-клиенту.
+        'ca_bundle' => env('SBERBANK_CA_BUNDLE', resource_path('certificates/russian_trusted_root_ca.pem')),
     ],
 
     // Gotenberg — рендер PDF билетов из печатной формы фронта (Chromium).

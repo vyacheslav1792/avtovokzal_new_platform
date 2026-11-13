@@ -16,8 +16,9 @@
  *   stationkey  — ключ станции (аутентификация станционных обменов)
  *   inlist      — порядок в списках/отчётах
  *
- * В рабочем списке ТОЛЬКО реально развёрнутые базы: локально это Красная
- * Заря (контейнер firebird / alias buster). Разворачиваешь следующую базу —
+ * В рабочем списке ТОЛЬКО реально развёрнутые базы: Красная Заря
+ * (контейнер firebird / alias buster) и тестовая копия Кром (alias kromy).
+ * Разворачиваешь следующую базу —
  * раскомментируй её блок и проверь db_host/db_port (боевые значения ниже
  * сохранены из legacy: 127.0.0.1:432xx — zebedee-туннели боевого сервера,
  * прямые IP 192.168.4.x — станции в VPN).
@@ -46,6 +47,15 @@ return [
             'stationkey' => 'krasnzar_45jkljdf45', 'inlist' => 16,
         ],
 
+        // Тестовая копия базы Кром на сервере локальной сети.
+        '5707' => [
+            'name' => 'Кромы АС',
+            'db_host' => '192.168.2.5', 'db_port' => 3050, 'db_name' => 'kromy',
+            'db_user' => 'SYSDBA', 'db_password' => '1',
+            'buh' => 'KRO', 'buh_st' => 'Остановочный пункт  Кромы', 'buh_ksr' => 'Кассир Кромы',
+            'stationkey' => 'krom_hfghgfh54erjewhrg', 'inlist' => 4,
+        ],
+
         // ---- Ещё не развёрнутые станции (боевые реквизиты из legacy $AWT) ----
         // '5701' => ['name' => 'Орел АВ', 'db_host' => '192.168.4.50', 'db_port' => 3050, 'db_name' => 'buster', 'db_user' => 'SYSDBA', 'db_password' => '1',
         //     'buh' => 'ORL', 'buh_st' => 'АВ Орел', 'buh_ksr' => 'кассир Орел', 'stationkey' => 'orel_3434354erjewhrg', 'inlist' => 1],
@@ -53,8 +63,6 @@ return [
         //     'buh' => 'LIV', 'buh_st' => 'АС Ливны', 'buh_ksr' => 'Кассир Ливны', 'stationkey' => 'livn_hfghgfh54erjewhrg', 'inlist' => 2],
         // '5706' => ['name' => 'Мценск АС', 'db_host' => $prodTunnelHost, 'db_port' => 43206, 'db_name' => 'buster', 'db_user' => 'SYSDBA', 'db_password' => '1',
         //     'buh' => 'MTS', 'buh_st' => 'Остановочный пункт  Мценск', 'buh_ksr' => 'Кассир Мценск', 'stationkey' => 'mcensk_224hfjfghgdfgdfg', 'inlist' => 3],
-        // '5707' => ['name' => 'Кромы АС', 'db_host' => $prodTunnelHost, 'db_port' => 43207, 'db_name' => 'buster', 'db_user' => 'SYSDBA', 'db_password' => '1',
-        //     'buh' => 'KRO', 'buh_st' => 'Остановочный пункт  Кромы', 'buh_ksr' => 'Кассир Кромы', 'stationkey' => 'krom_hfghgfh54erjewhrg', 'inlist' => 4],
         // '5712' => ['name' => 'Болхов КП', 'db_host' => $prodTunnelHost, 'db_port' => 43212, 'db_name' => 'buster', 'db_user' => 'SYSDBA', 'db_password' => '1',
         //     'buh' => 'BOL', 'buh_st' => 'КП Болхов', 'buh_ksr' => 'Кассир Болхов', 'stationkey' => 'bolhov_dfhrgffgfg', 'inlist' => 5],
         // '5715' => ['name' => 'Дмитровск КП', 'db_host' => $prodTunnelHost, 'db_port' => 43215, 'db_name' => 'buster', 'db_user' => 'SYSDBA', 'db_password' => '1',

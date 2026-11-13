@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Voronkovich\SberbankAcquiring\Client;
+use Voronkovich\SberbankAcquiring\HttpClient\CurlClient;
 use Voronkovich\SberbankAcquiring\OrderStatus;
 
 /**
@@ -21,6 +22,9 @@ class PaymentGateway
             'apiUri' => config('services.sberbank.api_uri'),
             'language' => 'ru',
             'currency' => 643,
+            'httpClient' => new CurlClient([
+                CURLOPT_CAINFO => config('services.sberbank.ca_bundle'),
+            ]),
         ]);
     }
 
