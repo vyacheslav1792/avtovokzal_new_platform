@@ -228,10 +228,10 @@ async function signOut() {
           </template>
           <template v-else>
             <div class="px-4 py-3 grid gap-2">
-              <UButton to="/login" block icon="i-lucide-log-in" size="lg">
+              <UButton to="/login" block icon="i-lucide-log-in">
                 Личный кабинет
               </UButton>
-              <UButton to="/register" block color="neutral" variant="subtle" size="lg">
+              <UButton to="/register" block color="neutral" variant="subtle">
                 Регистрация
               </UButton>
             </div>

@@ -141,13 +141,13 @@ function reset() {
         >
           <UInput
             v-model="code"
-            size="lg"
+           
             class="w-full max-w-md font-mono"
             placeholder="Например: 400000252572631309900065"
             autocomplete="off"
           />
         </UFormField>
-        <UButton type="submit" color="error" size="lg" :loading="loading">
+        <UButton type="submit" color="error" :loading="loading">
           Вернуть билет
         </UButton>
       </form>
@@ -171,10 +171,10 @@ function reset() {
         />
         <p>Для подтверждения операции кликните выполнить возврат.</p>
         <div class="flex gap-3 pt-2">
-          <UButton color="error" size="lg" :loading="loading" @click="confirmRefund">
+          <UButton color="error" :loading="loading" @click="confirmRefund">
             Выполнить возврат
           </UButton>
-          <UButton color="neutral" variant="outline" size="lg" :disabled="loading" @click="reset">
+          <UButton color="neutral" variant="outline" :disabled="loading" @click="reset">
             Не возвращать
           </UButton>
         </div>
@@ -198,7 +198,7 @@ function reset() {
           variant="subtle"
           :title="result.bank_error"
         />
-        <UButton color="error" size="lg" @click="reset">
+        <UButton color="error" @click="reset">
           Вернуть ещё один билет
         </UButton>
       </div>

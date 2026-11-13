@@ -28,7 +28,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   placeholder: 'Выберите',
   searchPlaceholder: 'Начните вводить название',
-  size: 'md',
+  // Как и у остальных полей сайта (см. app.config.ts).
+  size: 'xl',
 })
 
 const model = defineModel<string | number | null>()
@@ -119,7 +120,9 @@ watch(() => route.fullPath, closePanel)
         'md:hidden w-full flex items-center justify-between gap-2 rounded-md bg-default',
         'ring ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-75',
         highlight ? 'ring-error' : 'ring-accented',
-        size === 'md' ? 'px-2.5 py-1.5 text-sm' : 'px-3 py-2.5 text-base',
+        // Отступы и шрифт — те же, что у UInput соответствующего размера,
+        // иначе поле-кнопка на телефоне выбивалось бы из ряда.
+        size === 'md' ? 'px-2.5 py-1.5 text-sm' : 'px-3 py-2 text-base',
       ]"
       @click="openPanel"
     >
@@ -146,7 +149,7 @@ watch(() => route.fullPath, closePanel)
               icon="i-lucide-arrow-left"
               color="neutral"
               variant="ghost"
-              size="lg"
+             
               aria-label="Назад"
               @click="closePanel"
             />
@@ -157,7 +160,7 @@ watch(() => route.fullPath, closePanel)
             v-model="query"
             :placeholder="searchPlaceholder"
             icon="i-lucide-search"
-            size="lg"
+           
             class="w-full"
             autocomplete="off"
             :ui="{ trailing: 'pe-1' }"

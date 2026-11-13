@@ -54,17 +54,17 @@ async function submit() {
     <UCard>
       <form class="space-y-4" @submit.prevent="submit">
         <UFormField label="E-Mail" required>
-          <UInput v-model="email" type="email" autocomplete="email" size="lg" class="w-full" />
+          <UInput v-model="email" type="email" autocomplete="email" class="w-full" />
         </UFormField>
         <UFormField label="Пароль" required>
           <UInput
             v-model="password" type="password" autocomplete="current-password"
-            size="lg" class="w-full"
+            class="w-full"
           />
         </UFormField>
 
         <div class="flex items-center gap-3 pt-2">
-          <UButton type="submit" color="error" size="lg" :loading="loading">Войти</UButton>
+          <UButton type="submit" color="error" :loading="loading">Войти</UButton>
           <UButton to="/register" variant="ghost" color="neutral">Зарегистрироваться</UButton>
         </div>
         <NuxtLink to="/forgot" class="inline-block text-sm text-primary underline underline-offset-2">

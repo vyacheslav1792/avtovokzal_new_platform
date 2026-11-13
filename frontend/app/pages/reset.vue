@@ -56,17 +56,17 @@ async function submit() {
         <UFormField label="Придумайте пароль" required help="Не менее 8 символов">
           <UInput
             v-model="password" type="password" autocomplete="new-password"
-            size="lg" class="w-full" autofocus
+            class="w-full" autofocus
           />
         </UFormField>
         <UFormField label="Повторите этот пароль здесь" required>
           <UInput
             v-model="passwordRepeat" type="password" autocomplete="new-password"
-            size="lg" class="w-full"
+            class="w-full"
           />
         </UFormField>
 
-        <UButton type="submit" color="error" size="lg" :loading="loading">Задать пароль</UButton>
+        <UButton type="submit" color="error" :loading="loading">Задать пароль</UButton>
       </form>
     </UCard>
 

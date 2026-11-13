@@ -130,7 +130,7 @@ async function signOut() {
           v-if="user?.email"
           label="Электронная почта" help="E-mail — логин кабинета, на него приходят билеты"
         >
-          <UInput :model-value="user.email" size="lg" class="w-full" disabled />
+          <UInput :model-value="user.email" class="w-full" disabled />
         </UFormField>
 
         <UFormField
@@ -138,13 +138,13 @@ async function signOut() {
           help="Необязательно. Подставляется при покупке; изменить его можно и в самой форме покупки"
         >
           <PhoneInput
-            v-model="phone" size="lg" class="w-full"
+            v-model="phone" class="w-full"
             :highlight="!!profileErrors.phone"
           />
         </UFormField>
 
         <UFormField label="Как к вам обращаться" :error="profileErrors.name">
-          <UInput v-model="name" size="lg" class="w-full" placeholder="Необязательно" />
+          <UInput v-model="name" class="w-full" placeholder="Необязательно" />
         </UFormField>
 
         <UButton type="submit" color="error" :loading="savingProfile">Сохранить</UButton>
@@ -178,7 +178,7 @@ async function signOut() {
           help="Мы отправим на него письмо со ссылкой — адрес привяжется к кабинету после перехода по ней"
         >
           <UInput
-            v-model="newEmail" type="email" autocomplete="email" size="lg" class="w-full"
+            v-model="newEmail" type="email" autocomplete="email" class="w-full"
             placeholder="you@example.com" :highlight="!!emailErrors.email"
           />
         </UFormField>
@@ -216,7 +216,7 @@ async function signOut() {
         >
           <UInput
             v-model="currentPassword" type="password" autocomplete="current-password"
-            size="lg" class="w-full" :highlight="!!passwordErrors.current_password"
+            class="w-full" :highlight="!!passwordErrors.current_password"
           />
         </UFormField>
         <UFormField
@@ -225,13 +225,13 @@ async function signOut() {
         >
           <UInput
             v-model="password" type="password" autocomplete="new-password"
-            size="lg" class="w-full" :highlight="!!passwordErrors.password"
+            class="w-full" :highlight="!!passwordErrors.password"
           />
         </UFormField>
         <UFormField :label="user?.has_password ? 'Повторите новый пароль' : 'Повторите пароль'" required>
           <UInput
             v-model="passwordRepeat" type="password" autocomplete="new-password"
-            size="lg" class="w-full"
+            class="w-full"
           />
         </UFormField>
 

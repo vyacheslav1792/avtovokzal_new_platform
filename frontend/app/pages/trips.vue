@@ -229,14 +229,13 @@ useSeoMeta({
 
 <template>
   <UContainer class="py-8 space-y-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <UButton icon="i-lucide-arrow-left" variant="ghost" color="neutral" to="/">Назад</UButton>
-      <h1 class="text-xl md:text-2xl font-light">
-        Рейсы {{ fromName }} → {{ toName }}
-        <span v-if="date">на {{ formatDate(date) }}</span>
-        <span v-else>— ближайшие</span>
-      </h1>
-    </div>
+    <BackButton />
+
+    <h1 class="text-xl md:text-2xl font-light">
+      Рейсы {{ fromName }} → {{ toName }}
+      <span v-if="date">на {{ formatDate(date) }}</span>
+      <span v-else>— ближайшие</span>
+    </h1>
 
     <!-- Шаги покупки -->
     <div class="flex gap-2 text-sm text-muted">
@@ -346,7 +345,7 @@ useSeoMeta({
 
           <div class="flex items-center gap-4 shrink-0">
             <div v-if="tripState.kind === 'buy'" class="text-right">
-              <UButton color="error" size="lg" @click="buy(trip)">Купить</UButton>
+              <UButton color="error" @click="buy(trip)">Купить</UButton>
               <div class="text-xs text-muted mt-1">{{ tripState.note }}</div>
             </div>
 

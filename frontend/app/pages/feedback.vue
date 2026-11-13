@@ -147,7 +147,7 @@ async function again() {
               :items="meta?.topics ?? []"
               value-key="value"
               placeholder="Выберите тему"
-              size="lg"
+             
               class="w-full"
             />
           </UFormField>
@@ -158,7 +158,7 @@ async function again() {
                 v-model="form.name"
                 placeholder="Например, Андрей"
                 autocomplete="name"
-                size="lg"
+               
                 class="w-full"
               />
             </UFormField>
@@ -174,7 +174,7 @@ async function again() {
                 type="email"
                 placeholder="Например, ivanov@mail.ru"
                 autocomplete="email"
-                size="lg"
+               
                 class="w-full"
               />
             </UFormField>
@@ -187,7 +187,7 @@ async function again() {
           >
             <PhoneInput
               v-model="form.phone"
-              size="lg"
+             
               class="w-full sm:max-w-xs"
             />
           </UFormField>
@@ -198,7 +198,7 @@ async function again() {
               :rows="7"
               :maxlength="meta?.max_body_length"
               placeholder="Опишите вопрос. Если он о конкретной поездке, укажите дату, рейс и номер заказа — так ответ придёт быстрее."
-              size="lg"
+             
               class="w-full"
             />
             <template #hint>
@@ -246,7 +246,7 @@ async function again() {
           </div>
 
           <div class="flex flex-wrap items-center gap-3 pt-1">
-            <UButton type="submit" size="lg" :loading="loading" icon="i-lucide-send">
+            <UButton type="submit" :loading="loading" icon="i-lucide-send">
               Отправить сообщение
             </UButton>
             <UButton to="/contacts" variant="ghost" color="neutral">

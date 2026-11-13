@@ -166,6 +166,8 @@ function download() {
 
 <template>
   <UContainer class="py-8 max-w-5xl">
+    <BackButton />
+
     <UAlert
       v-if="error || !tariff"
       color="error"
@@ -186,9 +188,6 @@ function download() {
       </div>
 
       <div class="flex flex-wrap gap-2 mb-4 no-print">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-arrow-left" @click="$router.back()">
-          Назад
-        </UButton>
         <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="printPage">
           Версия для печати
         </UButton>
@@ -220,7 +219,66 @@ function download() {
         </template>
       </UAlert>
 
-      <div class="overflow-x-auto print-table">
+      <!--
+        Мобильная вёрстка — как в legacy (`url/tarif.php`): на телефоне
+        таблица пряталась (`visible-md visible-lg`), а вместо неё шли
+        карточки по остановкам (`visible-xs visible-sm`) с теми же полями
+        и подписями. Восемь колонок в 390px не помещаются, и горизонтальная
+        прокрутка таблицы читается плохо.
+        На печать карточки не идут (`no-print`): печатается таблица — её
+        `display` в @media print возвращается принудительно, иначе с
+        телефона распечатался бы пустой лист.
+      -->
+      <div class="md:hidden space-y-3 no-print">
+        <div
+          v-for="s in tariff.stops"
+          :key="s.statcode"
+          class="border border-default rounded-lg overflow-hidden"
+        >
+          <div class="bg-elevated px-3 py-2 text-center font-medium">
+            Остановка
+            <NuxtLink
+              :to="stopLink(s)"
+              class="text-primary hover:underline"
+              :title="`Рейсы до остановки «${s.name}»`"
+            >
+              {{ s.name }}
+            </NuxtLink>
+          </div>
+          <dl class="divide-y divide-default text-sm">
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Расстояние</dt>
+              <dd class="font-medium">{{ s.km.toFixed(2) }} км</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Тариф полный</dt>
+              <dd class="font-medium">{{ s.price_full.toFixed(2) }} ₽</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Тариф детский</dt>
+              <dd class="font-medium">{{ s.price_child.toFixed(2) }} ₽</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Багаж/ручная кладь</dt>
+              <dd class="font-medium">{{ s.price_baggage.toFixed(2) }} ₽</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Добровол. страховка</dt>
+              <dd class="font-medium">{{ s.insurance.toFixed(2) }} ₽</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Прибытие</dt>
+              <dd class="font-medium">{{ s.arrival }}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
+              <dt class="text-muted">Время в пути</dt>
+              <dd class="font-medium">{{ s.time_way }}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hidden md:block overflow-x-auto print-table">
         <table class="w-full text-sm border border-default">
           <thead class="bg-elevated">
             <tr>
@@ -272,8 +330,11 @@ function download() {
     margin: 10mm;
   }
 
-  /* На бумаге прокрутки нет — таблица должна поместиться в ширину листа. */
+  /* На бумаге прокрутки нет — таблица должна поместиться в ширину листа.
+     `display` возвращаем принудительно: на узком экране таблица скрыта
+     (`hidden md:block`), и печать с телефона дала бы пустой лист. */
   .print-table {
+    display: block !important;
     overflow: visible !important;
   }
 

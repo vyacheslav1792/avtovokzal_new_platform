@@ -96,7 +96,7 @@ async function submit() {
           <form class="space-y-4" @submit.prevent="submit">
             <UFormField label="Электронная почта" required :error="fieldErrors.email">
               <UInput
-                v-model="email" type="email" autocomplete="email" size="lg" class="w-full"
+                v-model="email" type="email" autocomplete="email" class="w-full"
                 :disabled="emailLocked" :highlight="!!fieldErrors.email"
               />
             </UFormField>
@@ -106,7 +106,7 @@ async function submit() {
               help="Понадобится перевозчику, если рейс изменится. Подставляется при покупке."
             >
               <PhoneInput
-                v-model="phone" size="lg" class="w-full"
+                v-model="phone" class="w-full"
                 :highlight="!!fieldErrors.phone"
               />
             </UFormField>
@@ -114,14 +114,14 @@ async function submit() {
             <UFormField label="Пароль" required :error="fieldErrors.password" help="Не менее 8 символов">
               <UInput
                 v-model="password" type="password" autocomplete="new-password"
-                size="lg" class="w-full" :highlight="!!fieldErrors.password"
+                class="w-full" :highlight="!!fieldErrors.password"
               />
             </UFormField>
 
             <UFormField label="Повторите пароль" required>
               <UInput
                 v-model="passwordRepeat" type="password" autocomplete="new-password"
-                size="lg" class="w-full"
+                class="w-full"
               />
             </UFormField>
 
@@ -133,7 +133,7 @@ async function submit() {
             </UFormField>
 
             <div class="flex items-center gap-3 pt-2">
-              <UButton type="submit" color="error" size="lg" :loading="loading">
+              <UButton type="submit" color="error" :loading="loading">
                 Зарегистрироваться
               </UButton>
               <UButton

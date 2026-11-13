@@ -218,6 +218,10 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
 
 <template>
   <UContainer class="py-8 max-w-5xl">
+    <!-- При прямом заходе на расписание станции возвращаться некуда —
+         уводим к списку станций, а не на главную. -->
+    <BackButton v-if="from" fallback="/raspisanie-avtobusov" />
+
     <h1 class="text-3xl font-light mb-2">
       Расписание автобусов<span v-if="schedule"> · {{ schedule.name }}</span>
     </h1>

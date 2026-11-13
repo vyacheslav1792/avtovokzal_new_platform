@@ -17,6 +17,17 @@ const date = ref(today)
 const destinations = ref<{ label: string, value: string }[]>([])
 const destinationsLoading = ref(false)
 
+/*
+ * Форма поиска переживает возврат «назад»: на странице рейсов есть кнопка
+ * «Назад», и после неё главная не должна встречать пустыми полями. Состояние
+ * формы в адресе не живёт (главная — это просто форма), поэтому запоминаем
+ * его на вкладку, как и отказ от регистрации на форме покупки.
+ */
+const SEARCH_STATE = 'home-search'
+
+/** Пункт назначения ждёт, пока догрузится список станции (восстановление). */
+let pendingTo: string | null = null
+
 watch(from, async (awtcod) => {
   to.value = null
   destinations.value = []
@@ -27,12 +38,30 @@ watch(from, async (awtcod) => {
       `/stations/${awtcod}/destinations`,
     )
     destinations.value = resp.data.map(d => ({ label: d.name, value: d.name }))
+    // Остановку подставляем только если она ещё есть в расписании станции.
+    if (pendingTo && destinations.value.some(d => d.value === pendingTo)) {
+      to.value = pendingTo
+    }
   }
   catch {
     toast.add({ title: 'Не удалось загрузить пункты назначения', color: 'error' })
   }
   finally {
     destinationsLoading.value = false
+    pendingTo = null
+  }
+})
+
+onMounted(() => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SEARCH_STATE) ?? 'null')
+    if (!saved?.from) return
+    if (saved.date) date.value = saved.date
+    pendingTo = saved.to ?? null
+    from.value = saved.from
+  }
+  catch {
+    // Значение испорчено (чужая вкладка, ручная правка) — просто игнорируем.
   }
 })
 
@@ -42,6 +71,11 @@ function search() {
     return
   }
   const fromName = stations.value.find(s => s.value === from.value)?.label ?? ''
+  sessionStorage.setItem(SEARCH_STATE, JSON.stringify({
+    from: from.value,
+    to: to.value,
+    date: date.value,
+  }))
   router.push({
     path: '/trips',
     query: { awtcod: from.value, from: fromName, to: to.value, date: date.value },
@@ -65,44 +99,37 @@ const popularAll = [
 const popular = computed(() =>
   popularAll.filter(p => stations.value.some(s => s.value === p.from)))
 
-/** Картинка hero — одна на оба слоя (резкий по высоте + размытая подложка). */
+/** Фон hero — картинка главной из legacy. */
 const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
+
+/**
+ * Затемнение под подписью плитки — градиент legacy
+ * (`.popular-routes-list-item a:after`) один в один: до 60% высоты
+ * прозрачный, дальше уходит в чёрный, иначе белый текст на светлом
+ * снимке не читается.
+ */
+const tileOverlay = {
+  backgroundImage: 'linear-gradient(transparent 0%, transparent 60%,'
+    + ' rgba(0,0,0,0.1) 66%, rgba(0,0,0,0.5) 93%, rgba(0,0,0,0.49) 100%)',
+}
 </script>
 
 <template>
   <div>
     <!--
-      Hero с картинкой главной из legacy (img/bus.jpg).
-
-      Картинка масштабируется ПО ВЫСОТЕ (`background-size: auto 100%`) и
-      никогда не искажается: соотношение сторон сохраняется, при нехватке
-      ширины подрезаются края. Было `cover` — оно подгоняло картинку по
-      ШИРИНЕ и срезало верх с низом, из-за чего от автобуса оставалась
-      полоса асфальта (особенно на телефоне, где блок высокий и узкий).
-      Пустоту по бокам на широких экранах закрывает размытая копия той же
-      картинки — иначе там была бы заливка цветом.
-
-      Минимальная высота взята из legacy (`.hero { height: 550px }` в
-      `avtovokzal57/css/main.css`): при низком блоке вписанная по высоте
-      картинка получается узкой, и автобус целиком прячется за формой поиска.
+      Hero с картинкой главной — один в один legacy (`.hero` в
+      `avtovokzal57/css/main.css`): `url(img/bus.jpg) no-repeat 50% 50%`,
+      `background-size: cover`, высота 550px, а на узком экране
+      (`@media max-width: 767px`) — `height: auto`, то есть по содержимому.
+      Высота здесь `min-h`, а не `h`: при той же геометрии (содержимое в
+      550px укладывается) блок не обрежет форму, если она вдруг станет выше.
     -->
-    <section class="relative overflow-hidden min-h-100 md:min-h-[550px] flex items-center">
-      <div
-        class="absolute inset-0 bg-cover bg-center scale-110 blur-xl"
-        :style="heroImage"
-      />
-      <!--
-        На узком экране картинка шире блока и подрезается по ширине; окно
-        сдвинуто влево (25%), потому что автобус стоит в левой части кадра —
-        при обрезке по центру от него остался бы один асфальт. На десктопе
-        картинка в блок помещается целиком, и ей незачем смещаться.
-      -->
-      <div
-        class="absolute inset-0 bg-no-repeat bg-[length:auto_100%] bg-[position:25%_50%] md:bg-center"
-        :style="heroImage"
-      />
+    <section
+      class="relative bg-cover bg-center bg-no-repeat md:min-h-[550px] flex items-center"
+      :style="heroImage"
+    >
       <div class="absolute inset-0 bg-black/40" />
-      <UContainer class="relative py-12 md:py-16">
+      <UContainer class="relative py-12 md:py-0">
         <h1 class="text-2xl md:text-4xl font-light text-white text-center mb-8 drop-shadow">
           Покупка билетов на официальном сайте автовокзала Орёл
         </h1>
@@ -116,7 +143,7 @@ const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
                 placeholder="Станция отправления"
                 title="Откуда едем"
                 search-placeholder="Название автовокзала или кассы"
-                size="lg"
+               
               />
             </UFormField>
             <UFormField label="Куда">
@@ -128,13 +155,13 @@ const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
                 placeholder="Пункт назначения"
                 title="Куда едем"
                 search-placeholder="Название остановки"
-                size="lg"
+               
               />
             </UFormField>
             <UFormField label="Дата поездки">
-              <UInput v-model="date" type="date" :min="today" size="lg" class="w-full" />
+              <UInput v-model="date" type="date" :min="today" class="w-full" />
             </UFormField>
-            <UButton size="lg" color="error" class="justify-center" @click="search">
+            <UButton color="error" class="justify-center" @click="search">
               Найти билеты
             </UButton>
           </div>
@@ -150,18 +177,28 @@ const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
         description="Билеты на транзитные рейсы доступны к продаже только в кассах автовокзала. При успешной оплате электронный билет и чек ККМ высылаются на указанную почту."
       />
 
+      <!--
+        Плитки направлений — геометрия legacy (`.popular-routes-list-item`
+        в `avtovokzal57/css/main.css`): 4 в ряд и высота 300px на десктопе,
+        2 в ряд и 240px на планшете (`max-width: 991px`), один ряд в ширину
+        экрана на телефоне (`max-width: 480px`). Подпись — внизу слева,
+        20px, поверх градиента, который прозрачен до 60% высоты; наведение
+        поднимает плитку на 10px с тенью.
+      -->
       <section>
         <h2 class="text-2xl font-light text-center mb-6">Популярные направления</h2>
-        <div class="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <NuxtLink
             v-for="p in popular"
             :key="p.title"
             :to="{ path: '/trips', query: { awtcod: p.from, from: p.fromName, to: p.to, all: 1 } }"
-            class="relative rounded-lg overflow-hidden group h-36"
+            :title="`Расписание и билеты по маршруту ${p.title}`"
+            class="relative rounded overflow-hidden h-60 lg:h-75 transition-all duration-100
+                   hover:-translate-y-2.5 hover:shadow-[0_10px_20px_rgba(0,0,0,0.4)]"
           >
-            <img :src="p.img" :alt="p.title" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform">
-            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-            <span class="absolute bottom-2 left-3 text-white font-medium drop-shadow">{{ p.title }}</span>
+            <img :src="p.img" :alt="p.title" class="absolute inset-0 w-full h-full object-cover">
+            <div class="absolute inset-0" :style="tileOverlay" />
+            <span class="absolute bottom-3 left-4.5 right-4.5 text-xl text-white">{{ p.title }}</span>
           </NuxtLink>
         </div>
       </section>

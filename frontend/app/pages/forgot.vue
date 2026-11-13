@@ -36,10 +36,10 @@ async function submit() {
     <UCard v-if="!sent">
       <form class="space-y-4" @submit.prevent="submit">
         <UFormField label="Электронная почта" required help="Адрес, на который покупали билеты">
-          <UInput v-model="email" type="email" autocomplete="email" size="lg" class="w-full" />
+          <UInput v-model="email" type="email" autocomplete="email" class="w-full" />
         </UFormField>
         <div class="flex items-center gap-3">
-          <UButton type="submit" color="error" size="lg" :loading="loading">Сбросить пароль</UButton>
+          <UButton type="submit" color="error" :loading="loading">Сбросить пароль</UButton>
           <UButton to="/login" variant="ghost" color="neutral">Войти</UButton>
         </div>
       </form>
