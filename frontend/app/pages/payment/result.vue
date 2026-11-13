@@ -129,7 +129,14 @@ const pdfUrl = computed(() => order.value
         icon="i-lucide-user-plus"
         title="Заведите личный кабинет"
         :description="`Билеты этого и будущих заказов на ${order.email} будут в одном месте: печать, PDF и возврат без кода. Приглашение мы отправили на почту.`"
-        :actions="[{ label: 'Создать кабинет', color: 'primary', to: '/register' }]"
+        :actions="[{
+          label: 'Создать кабинет',
+          color: 'primary',
+          // Почта заказа подставляется в форму регистрации: вводить её
+          // заново не нужно, а кабинет сразу увидит эту покупку
+          // (заказы ищутся и по orders.email).
+          to: { path: '/register', query: { email: order.email } },
+        }]"
       />
 
       <UAlert

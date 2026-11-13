@@ -105,9 +105,9 @@ async function submit() {
               label="Номер телефона" required :error="fieldErrors.phone"
               help="Понадобится перевозчику, если рейс изменится. Подставляется при покупке."
             >
-              <UInput
-                v-model="phone" placeholder="+7 910 000-00-00" size="lg" class="w-full"
-                autocomplete="tel" :highlight="!!fieldErrors.phone"
+              <PhoneInput
+                v-model="phone" size="lg" class="w-full"
+                :highlight="!!fieldErrors.phone"
               />
             </UFormField>
 

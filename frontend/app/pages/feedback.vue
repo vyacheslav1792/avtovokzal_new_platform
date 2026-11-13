@@ -185,11 +185,8 @@ async function again() {
             :error="fieldErrors.phone"
             help="Необязательно — по телефону вопрос решается быстрее"
           >
-            <UInput
+            <PhoneInput
               v-model="form.phone"
-              type="tel"
-              placeholder="+7 (900) 000-00-00"
-              autocomplete="tel"
               size="lg"
               class="w-full sm:max-w-xs"
             />

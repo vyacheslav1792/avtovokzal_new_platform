@@ -1,6 +1,30 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
-:root {
-  --brand-red: #c8102e;
+/*
+ * Фирменный красный сайта. Опорный тон — legacy-цвет ссылок боевого
+ * avtovokzal57 (`a { color: #d0021b }`, наведение `#840111` —
+ * `avtovokzal57/css/main.css`).
+ *
+ * Шаги выбраны под то, как Nuxt UI раскладывает палитру: `--ui-primary`
+ * (им красятся `text-primary`, сплошные кнопки, акценты) — это **500** в
+ * светлой теме и **400** в тёмной. Поэтому legacy-красный стоит шагом 500,
+ * наведение — 800, а 400 сделан светлее, чтобы ссылка читалась на тёмном фоне.
+ *
+ * Палитра подключается темой в `app/app.config.ts` (`ui.colors.primary`).
+ * `@theme static` обязателен: без него Tailwind выбрасывает неиспользованные
+ * в разметке шаги, а Nuxt UI обращается к ним через свои переменные.
+ */
+@theme static {
+  --color-brand-50: #fef2f3;
+  --color-brand-100: #fde3e5;
+  --color-brand-200: #fbc9ce;
+  --color-brand-300: #f79aa3;
+  --color-brand-400: #ef5c6c;
+  --color-brand-500: #d0021b;
+  --color-brand-600: #b80018;
+  --color-brand-700: #9a0014;
+  --color-brand-800: #840111;
+  --color-brand-900: #6d0a15;
+  --color-brand-950: #3d0207;
 }

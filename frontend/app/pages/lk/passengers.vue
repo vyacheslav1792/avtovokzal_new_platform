@@ -49,7 +49,20 @@ function emptyForm(): SavedPassengerPayload {
 
 const form = reactive<SavedPassengerPayload>(emptyForm())
 
+/** Дата рождения набрана целиком, но такой даты не существует (31.02 и т. п.). */
+const birthDateInvalid = ref(false)
+
+/**
+ * Маска серии и номера — пока только для паспорта РФ (21): 4 цифры серии
+ * и 6 цифр номера. У остальных документов формат разный (римские цифры,
+ * кириллица, произвольная длина), его проверяет backend.
+ */
+function docMask(docType: number): string | null {
+  return docType === 21 ? '#### ######' : null
+}
+
 function openCreate() {
+  birthDateInvalid.value = false
   editing.value = null
   fieldErrors.value = {}
   Object.assign(form, emptyForm())
@@ -57,6 +70,7 @@ function openCreate() {
 }
 
 function openEdit(passenger: SavedPassenger) {
+  birthDateInvalid.value = false
   editing.value = passenger
   fieldErrors.value = {}
   Object.assign(form, {
@@ -75,6 +89,9 @@ function openEdit(passenger: SavedPassenger) {
 
 async function save() {
   fieldErrors.value = {}
+
+  if (birthDateInvalid.value) return
+
   saving.value = true
   try {
     editing.value
@@ -212,10 +229,16 @@ function docHint(code: number): string {
               :highlight="!!fieldErrors.middle_name"
             />
           </UFormField>
-          <UFormField label="Дата рождения" required :error="fieldErrors.birth_date">
-            <UInput
-              v-model="form.birth_date" type="date" class="w-full"
-              :highlight="!!fieldErrors.birth_date"
+          <UFormField
+            label="Дата рождения" required
+            :error="fieldErrors.birth_date
+              || (birthDateInvalid ? 'Проверьте дату рождения — такой даты не существует.' : undefined)"
+          >
+            <DateInput
+              v-model="form.birth_date"
+              v-model:invalid="birthDateInvalid"
+              class="w-full"
+              :highlight="!!fieldErrors.birth_date || birthDateInvalid"
             />
           </UFormField>
           <UFormField label="Пол">
@@ -234,8 +257,9 @@ function docHint(code: number): string {
             label="Серия и номер" required :hint="docHint(form.doc_type)"
             :error="fieldErrors.doc_number"
           >
-            <UInput
-              v-model="form.doc_number" placeholder="4444 555555" class="w-full"
+            <MaskedInput
+              v-model="form.doc_number" :mask="docMask(form.doc_type)" placeholder="4444 555555"
+              :inputmode="docMask(form.doc_type) ? 'numeric' : 'text'" class="w-full"
               :highlight="!!fieldErrors.doc_number"
             />
           </UFormField>

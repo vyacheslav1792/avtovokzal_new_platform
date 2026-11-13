@@ -268,6 +268,26 @@ function addPassenger() {
 function removePassenger(i: number) {
   passengers.value.splice(i, 1)
   serverErrors.value = {}
+  // Признаки даты привязаны к индексу — после сдвига они указывали бы на
+  // соседа; DateInput взведёт их заново при следующем вводе.
+  birthDateInvalid.value = {}
+}
+
+/**
+ * Дата рождения набрана целиком, но такой даты не существует (31.02 и т. п.).
+ * Индекс пассажира → признак; хранится отдельно от `passengers`, потому что
+ * весь объект пассажира уходит в заказ.
+ */
+const birthDateInvalid = ref<Record<number, boolean>>({})
+
+/**
+ * Маска серии и номера документа. Пока только паспорт РФ (21): 4 цифры серии
+ * и 6 цифр номера. У остальных документов формат разный (римские цифры,
+ * кириллица, произвольная длина) — там маска только мешала бы, формат
+ * проверяет backend по правилам KS_CONTROL_DATA_PAS.
+ */
+function docMask(docType: number): string | null {
+  return docType === 21 ? '#### ######' : null
 }
 
 /** Подсказка формата серии/номера — по правилам базы автостанции. */
@@ -306,6 +326,12 @@ async function submit() {
 
   if (!agree.value) {
     toast.add({ title: 'Для покупки необходимо согласие на обработку персональных данных', color: 'warning' })
+    return
+  }
+
+  if (Object.values(birthDateInvalid.value).some(Boolean)) {
+    toast.add({ title: 'Проверьте дату рождения пассажира', color: 'error' })
+    await focusFirstError()
     return
   }
 
@@ -520,12 +546,15 @@ function formatDate(d: string) {
 
         <UFormField
           label="Дата рождения" required
-          :error="fieldError(`passengers.${i}.birth_date`)"
+          :error="fieldError(`passengers.${i}.birth_date`)
+            || (birthDateInvalid[i] ? 'Проверьте дату рождения — такой даты не существует.' : undefined)"
           :data-error-field="fieldError(`passengers.${i}.birth_date`) ? '' : undefined"
         >
-          <UInput
-            v-model="p.birth_date" type="date" class="w-full"
-            :highlight="!!fieldError(`passengers.${i}.birth_date`)"
+          <DateInput
+            v-model="p.birth_date"
+            v-model:invalid="birthDateInvalid[i]"
+            class="w-full"
+            :highlight="!!fieldError(`passengers.${i}.birth_date`) || !!birthDateInvalid[i]"
             @input="clearError(`passengers.${i}.birth_date`); detachFromSaved(p)"
           />
         </UFormField>
@@ -561,8 +590,9 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.doc_number`)"
           :data-error-field="fieldError(`passengers.${i}.doc_number`) ? '' : undefined"
         >
-          <UInput
-            v-model="p.doc_number" placeholder="4444 555555" class="w-full"
+          <MaskedInput
+            v-model="p.doc_number" :mask="docMask(p.doc_type)" placeholder="4444 555555"
+            :inputmode="docMask(p.doc_type) ? 'numeric' : 'text'" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.doc_number`)"
             @input="clearError(`passengers.${i}.doc_number`); detachFromSaved(p)"
           />
@@ -616,8 +646,8 @@ function formatDate(d: string) {
           :error="fieldError('phone')"
           :data-error-field="fieldError('phone') ? '' : undefined"
         >
-          <UInput
-            v-model="phone" placeholder="+7 910 000-00-00" class="w-full"
+          <PhoneInput
+            v-model="phone" class="w-full"
             :highlight="!!fieldError('phone')"
             @input="clearError('phone')"
           />
@@ -679,7 +709,7 @@ function formatDate(d: string) {
             </UButton>
             <UButton
               color="neutral" variant="outline"
-              :to="{ path: '/register', query: { redirect: route.fullPath } }"
+              :to="{ path: '/register', query: { redirect: route.fullPath, ...(email ? { email } : {}) } }"
             >
               Зарегистрироваться
             </UButton>

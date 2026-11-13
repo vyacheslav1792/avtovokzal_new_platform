@@ -137,8 +137,8 @@ async function signOut() {
           label="Номер телефона" :error="profileErrors.phone"
           help="Необязательно. Подставляется при покупке; изменить его можно и в самой форме покупки"
         >
-          <UInput
-            v-model="phone" size="lg" class="w-full" placeholder="+7 910 000-00-00"
+          <PhoneInput
+            v-model="phone" size="lg" class="w-full"
             :highlight="!!profileErrors.phone"
           />
         </UFormField>

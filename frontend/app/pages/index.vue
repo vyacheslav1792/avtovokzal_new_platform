@@ -64,17 +64,45 @@ const popularAll = [
 ]
 const popular = computed(() =>
   popularAll.filter(p => stations.value.some(s => s.value === p.from)))
+
+/** Картинка hero — одна на оба слоя (резкий по высоте + размытая подложка). */
+const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
 </script>
 
 <template>
   <div>
-    <!-- Hero с картинкой главной из legacy (img/bus.jpg) -->
-    <section
-      class="relative bg-cover bg-center"
-      :style="{ backgroundImage: 'url(/img/bus.jpg)' }"
-    >
+    <!--
+      Hero с картинкой главной из legacy (img/bus.jpg).
+
+      Картинка масштабируется ПО ВЫСОТЕ (`background-size: auto 100%`) и
+      никогда не искажается: соотношение сторон сохраняется, при нехватке
+      ширины подрезаются края. Было `cover` — оно подгоняло картинку по
+      ШИРИНЕ и срезало верх с низом, из-за чего от автобуса оставалась
+      полоса асфальта (особенно на телефоне, где блок высокий и узкий).
+      Пустоту по бокам на широких экранах закрывает размытая копия той же
+      картинки — иначе там была бы заливка цветом.
+
+      Минимальная высота взята из legacy (`.hero { height: 550px }` в
+      `avtovokzal57/css/main.css`): при низком блоке вписанная по высоте
+      картинка получается узкой, и автобус целиком прячется за формой поиска.
+    -->
+    <section class="relative overflow-hidden min-h-100 md:min-h-[550px] flex items-center">
+      <div
+        class="absolute inset-0 bg-cover bg-center scale-110 blur-xl"
+        :style="heroImage"
+      />
+      <!--
+        На узком экране картинка шире блока и подрезается по ширине; окно
+        сдвинуто влево (25%), потому что автобус стоит в левой части кадра —
+        при обрезке по центру от него остался бы один асфальт. На десктопе
+        картинка в блок помещается целиком, и ей незачем смещаться.
+      -->
+      <div
+        class="absolute inset-0 bg-no-repeat bg-[length:auto_100%] bg-[position:25%_50%] md:bg-center"
+        :style="heroImage"
+      />
       <div class="absolute inset-0 bg-black/40" />
-      <UContainer class="relative py-16 md:py-24">
+      <UContainer class="relative py-12 md:py-16">
         <h1 class="text-2xl md:text-4xl font-light text-white text-center mb-8 drop-shadow">
           Покупка билетов на официальном сайте автовокзала Орёл
         </h1>
@@ -82,26 +110,24 @@ const popular = computed(() =>
         <UCard class="max-w-4xl mx-auto shadow-xl">
           <div class="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] items-end">
             <UFormField label="Откуда">
-              <USelectMenu
+              <StationSelect
                 v-model="from"
                 :items="stations"
-                value-key="value"
                 placeholder="Станция отправления"
-                searchable
-                class="w-full"
+                title="Откуда едем"
+                search-placeholder="Название автовокзала или кассы"
                 size="lg"
               />
             </UFormField>
             <UFormField label="Куда">
-              <USelectMenu
+              <StationSelect
                 v-model="to"
                 :items="destinations"
-                value-key="value"
                 :loading="destinationsLoading"
                 :disabled="!from"
                 placeholder="Пункт назначения"
-                searchable
-                class="w-full"
+                title="Куда едем"
+                search-placeholder="Название остановки"
                 size="lg"
               />
             </UFormField>

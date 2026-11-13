@@ -141,8 +141,8 @@ const stationOptions = computed(() =>
   stations.value.map(s => ({ label: s.name, value: s.name })))
 
 /** Смена пункта отправления меняет адрес страницы — ссылкой можно делиться. */
-function selectStation(name: string | undefined) {
-  router.push(name ? { query: { from: name } } : { query: {} })
+function selectStation(name: string | number | null | undefined) {
+  router.push(name ? { query: { from: String(name) } } : { query: {} })
 }
 
 /*
@@ -230,27 +230,25 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
     <UCard v-if="from" class="mb-6 no-print">
       <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_auto] items-end">
         <UFormField label="Пункт отправления">
-          <USelectMenu
+          <StationSelect
             :model-value="from"
             :items="stationOptions"
-            value-key="value"
             placeholder="Выберите автовокзал или кассовый пункт"
-            searchable
-            class="w-full"
+            title="Пункт отправления"
+            search-placeholder="Название автовокзала или кассы"
             @update:model-value="selectStation"
           />
         </UFormField>
 
         <!-- legacy: выбор пункта прибытия вёл к расписанию до этой остановки -->
         <UFormField label="Пункт прибытия">
-          <USelectMenu
+          <StationSelect
             v-model="to"
             :items="destinations"
-            value-key="value"
             :loading="destinationsLoading"
             placeholder="Выберите пункт прибытия"
-            searchable
-            class="w-full"
+            title="Пункт прибытия"
+            search-placeholder="Название остановки"
           />
         </UFormField>
 
