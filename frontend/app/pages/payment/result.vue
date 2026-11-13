@@ -32,13 +32,19 @@ interface OrderData {
 // Сбербанк возвращает ?orderId=<id заказа в шлюзе>
 const sberOrderId = String(route.query.orderId ?? '')
 
-const { data, status, error } = await useAsyncData('confirm', () =>
+const { data, status, error, refresh } = await useAsyncData('confirm', () =>
   api<{ success: boolean, data: OrderData }>('/orders/confirm', {
     method: 'POST',
     body: { sber_order_id: sberOrderId },
   }), { server: false })
 
 const order = computed(() => data.value?.data)
+
+// Покупка доведена до конца — напоминание о ней больше не нужно
+// (его показывает PendingOrderNotice по заказам, запомненным в браузере).
+watch(order, (value) => {
+  if (value?.status === 'completed') forgetPendingOrder(value.order_id)
+}, { immediate: true })
 
 function formatDate(d?: string) {
   return d ? new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
@@ -66,14 +72,28 @@ const pdfUrl = computed(() => order.value
       <div class="text-sm text-muted">Не закрывайте страницу</div>
     </div>
 
-    <UAlert
-      v-else-if="error"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-circle-alert"
-      title="Не удалось подтвердить покупку"
-      :description="String(error?.data?.error ?? error?.message ?? '')"
-    />
+    <template v-else-if="error">
+      <UAlert
+        color="error"
+        variant="subtle"
+        icon="i-lucide-circle-alert"
+        title="Не удалось подтвердить покупку"
+        :description="String(error?.data?.error ?? error?.message ?? '')"
+      />
+      <!-- Деньги могли уже списаться: покупатель не должен уйти со страницы,
+           не зная, что делать дальше. -->
+      <UAlert
+        color="info"
+        variant="subtle"
+        icon="i-lucide-life-buoy"
+        title="Что делать"
+        description="Попробуйте обновить страницу — возможно, сбой был временным. Если билеты так и не оформятся, напишите нам: деньги за неоформленную покупку возвращаются."
+        :actions="[
+          { label: 'Повторить', color: 'error', onClick: () => refresh() },
+          { label: 'Написать нам', color: 'neutral', variant: 'outline', to: '/feedback' },
+        ]"
+      />
+    </template>
 
     <template v-else-if="order?.status === 'completed'">
       <UAlert

@@ -31,6 +31,20 @@ class CatalogController extends Controller
         return response()->json(['success' => true, 'data' => $list]);
     }
 
+    /**
+     * Правила продажи, которые должна знать форма покупки, чтобы не давать
+     * оформить заведомо отказной заказ (детский тариф без полного).
+     * Значения задаются конфигом — см. `config/sale_rules.php`.
+     */
+    public function saleRules(): JsonResponse
+    {
+        return response()->json(['success' => true, 'data' => [
+            'child_requires_adult' => (bool) config('sale_rules.child_requires_adult'),
+            'max_children_per_adult' => (int) config('sale_rules.max_children_per_adult'),
+            'child_requires_adult_message' => (string) config('sale_rules.child_requires_adult_message'),
+        ]]);
+    }
+
     public function destinations(int $awtcod): JsonResponse
     {
         return response()->json($this->salesApi->destinations($awtcod));

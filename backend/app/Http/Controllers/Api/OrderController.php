@@ -37,6 +37,9 @@ class OrderController extends Controller
                 'total_price' => (float) $order->total_price,
                 'payment_url' => $order->payment_url,
                 'places' => collect($order->passengers)->pluck('place'),
+                // До какого момента держится бронь мест — форма покупки
+                // показывает обратный отсчёт перед уходом на шлюз.
+                'pay_until' => $this->orders->payDeadline($order)->toIso8601String(),
             ],
         ], 201);
     }
@@ -51,6 +54,27 @@ class OrderController extends Controller
         $order = $this->orders->confirm($data['sber_order_id']);
 
         return response()->json(['success' => true, 'data' => $this->present($order)]);
+    }
+
+    /**
+     * Незавершённые покупки покупателя: что с ними делать дальше.
+     *
+     * Идентификаторы заказов сайт помнит в браузере (гость) — плюс к ним
+     * заказы кабинета, если пришёл Bearer-токен. Личных данных в ответе нет:
+     * маршрут, дата, места и сумма, по которым покупатель узнаёт свою
+     * покупку, — как и у публичного `GET orders/{id}`.
+     */
+    public function pending(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids' => ['sometimes', 'array', 'max:5'],
+            'ids.*' => ['string', 'max:36'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->orders->pending($data['ids'] ?? [], $request->user('sanctum')),
+        ]);
     }
 
     public function show(string $id): JsonResponse

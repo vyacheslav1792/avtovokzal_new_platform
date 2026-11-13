@@ -257,6 +257,13 @@ async function signOut() {
       <slot />
     </main>
 
+    <!--
+      Напоминание о незавершённой покупке (ушёл на шлюз и не вернулся).
+      Живёт в макете, а не на отдельной странице: покупатель возвращается
+      на сайт откуда угодно — с главной, из расписания, по ссылке из письма.
+    -->
+    <PendingOrderNotice />
+
     <footer class="bg-neutral-900 text-neutral-400 mt-12">
       <UContainer class="py-8 grid gap-8 md:grid-cols-2">
         <div>

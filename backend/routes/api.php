@@ -28,6 +28,8 @@ Route::prefix('v1')->group(function () {
     Route::get('trips', [CatalogController::class, 'trips']);
     Route::get('trips/places', [CatalogController::class, 'places']);
     Route::get('citizenships', [CatalogController::class, 'citizenships']);
+    // Правила продажи для формы покупки (детский тариф только с полным).
+    Route::get('sale-rules', [CatalogController::class, 'saleRules']);
 
     // Регулярное расписание (страница /raspisanie-avtobusov).
     Route::get('schedule', [ScheduleController::class, 'index']);
@@ -51,6 +53,9 @@ Route::prefix('v1')->group(function () {
 
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
+    // Незавершённые покупки (покупатель ушёл на шлюз и не вернулся).
+    // Ходит с каждой страницы сайта и дёргает шлюз — поэтому throttle.
+    Route::post('orders/pending', [OrderController::class, 'pending'])->middleware('throttle:30,1');
     // id заказа — uuid у новых покупок и 30 hex-символов у импортированных
     // из legacy (см. миграцию legacy_order_id_and_raw_fields), поэтому шаблон
     // маршрута шире whereUuid.

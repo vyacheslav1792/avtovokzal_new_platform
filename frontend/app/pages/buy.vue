@@ -103,10 +103,73 @@ const baggageOptions = [
   { label: '1 место', value: 1 },
   { label: '2 места', value: 2 },
 ]
-const tariffOptions = [
-  { label: 'Полный', value: 'adult' },
-  { label: 'Детский (до 12 лет)', value: 'child' },
-]
+
+/*
+ * Правило станции: детский билет — только вместе с полным, не больше
+ * N детей на взрослого (в legacy проверялось и на форме — `js/passengers.js`,
+ * и на сервере — `url/passengers.php`). Правило приходит с backend и там же
+ * выключается (`config/sale_rules.php` → CHILD_TARIFF_REQUIRES_ADULT),
+ * поэтому форма не решает за станцию, а лишь не даёт оформить заведомо
+ * отказной заказ.
+ */
+interface SaleRules {
+  child_requires_adult: boolean
+  max_children_per_adult: number
+  child_requires_adult_message: string
+}
+
+const { data: saleRulesResp } = await useAsyncData('sale-rules', () =>
+  api<{ success: boolean, data: SaleRules }>('/sale-rules'))
+
+const saleRules = computed(() => saleRulesResp.value?.data ?? null)
+
+/** Сколько детских билетов ещё можно взять, не считая самого пассажира. */
+function childLimitFor(current: PassengerForm): number {
+  const rules = saleRules.value
+  if (!rules?.child_requires_adult) return Number.POSITIVE_INFINITY
+
+  const others = passengers.value.filter(p => p !== current)
+  const adults = others.filter(p => p.tariff === 'adult').length
+  const children = others.filter(p => p.tariff === 'child').length
+
+  return adults * rules.max_children_per_adult - children
+}
+
+/** Детский тариф скрываем, когда взять его уже нельзя. */
+function tariffOptions(passenger: PassengerForm) {
+  const options = [{ label: 'Полный', value: 'adult' }]
+
+  if (passenger.tariff === 'child' || childLimitFor(passenger) > 0) {
+    options.push({ label: 'Детский (до 12 лет)', value: 'child' })
+  }
+
+  return options
+}
+
+function setTariff(passenger: PassengerForm, value: string) {
+  if (value === 'child' && childLimitFor(passenger) <= 0) {
+    toast.add({
+      title: 'Детский тариф недоступен',
+      description: saleRules.value?.child_requires_adult_message,
+      color: 'warning',
+      duration: 8000,
+    })
+    return
+  }
+
+  passenger.tariff = value as PassengerForm['tariff']
+}
+
+/** Состав пассажиров нарушает правило — кнопка оплаты не должна срабатывать. */
+const childRuleBroken = computed(() => {
+  const rules = saleRules.value
+  if (!rules?.child_requires_adult) return false
+
+  const adults = passengers.value.filter(p => p.tariff === 'adult').length
+  const children = passengers.value.filter(p => p.tariff === 'child').length
+
+  return children > 0 && (adults === 0 || children > adults * rules.max_children_per_adult)
+})
 const genderOptions = [
   { label: 'Мужской', value: 'М' },
   { label: 'Женский', value: 'Ж' },
@@ -229,6 +292,32 @@ function detachFromSaved(passenger: PassengerForm) {
 const agree = ref(false)
 const submitting = ref(false)
 
+/*
+ * Заказ создан, места зарезервированы — остался уход на шлюз. Пока окно
+ * открыто (или закрыто, но заказ жив), платить можно по этой же ссылке:
+ * второй раз оформлять заказ не нужно, иначе будут две брони на одни места.
+ */
+const payment = ref<{ url: string, payUntil: string } | null>(null)
+const paymentOpen = ref(false)
+
+/** Сколько ещё держатся места — обратный отсчёт в окне и в подсказке. */
+const now = ref(Date.now())
+let ticker: ReturnType<typeof setInterval> | undefined
+onMounted(() => (ticker = setInterval(() => (now.value = Date.now()), 1000)))
+onBeforeUnmount(() => clearInterval(ticker))
+
+const holdLeft = computed(() => {
+  if (!payment.value) return ''
+  const left = new Date(payment.value.payUntil).getTime() - now.value
+  if (left <= 0) return ''
+  const total = Math.floor(left / 1000)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+})
+
+function goToGateway() {
+  if (payment.value) window.location.href = payment.value.url
+}
+
 // Ошибки серверной валидации: путь поля → сообщение (показывается под полем).
 const serverErrors = ref<Record<string, string>>({})
 
@@ -290,16 +379,27 @@ function docMask(docType: number): string | null {
   return docType === 21 ? '#### ######' : null
 }
 
-/** Подсказка формата серии/номера — по правилам базы автостанции. */
+/**
+ * Подсказка формата серии/номера — по правилам вендорной процедуры
+ * `KS_CONTROL_DATA_PAS` (их же проверяет backend). Формат задан не у всех
+ * документов: у остальных станция серию с номером не проверяет, и выдумывать
+ * подсказку нельзя — покупатель введёт по ней то, чего в документе нет.
+ */
+const DOC_FORMATS: Record<number, { hint: string, placeholder: string }> = {
+  21: { hint: '4 цифры серии и 6 цифр номера', placeholder: '4444 555555' },
+  22: { hint: '2 цифры серии и 7 цифр номера', placeholder: '75 1234567' },
+  3: { hint: 'Римские цифры, две русские буквы и 6 цифр номера', placeholder: 'IV-АБ 123456' },
+  15: { hint: 'Две русские буквы и 7 цифр номера', placeholder: 'АБ 1234567' },
+  26: { hint: 'Две римские цифры и 7 цифр номера', placeholder: 'XV 1234567' },
+}
+
 function docHint(docType: number): string {
-  switch (docType) {
-    case 21: return '4 цифры серии и 6 цифр номера, например 4444 555555'
-    case 22: return '2 цифры серии и 7 цифр номера, например 75 1234567'
-    case 3: return 'например IV-АБ 123456'
-    case 15: return 'например АБ 1234567'
-    case 26: return 'например XV 1234567'
-    default: return 'серия и номер документа'
-  }
+  return DOC_FORMATS[docType]?.hint ?? ''
+}
+
+/** Пусто — формат документа станцией не задан, подсказывать нечего. */
+function docPlaceholder(docType: number): string {
+  return DOC_FORMATS[docType]?.placeholder ?? ''
 }
 
 function priceFor(p: PassengerForm) {
@@ -329,6 +429,16 @@ async function submit() {
     return
   }
 
+  if (childRuleBroken.value) {
+    toast.add({
+      title: 'Детский тариф недоступен',
+      description: saleRules.value?.child_requires_adult_message,
+      color: 'error',
+      duration: 8000,
+    })
+    return
+  }
+
   if (Object.values(birthDateInvalid.value).some(Boolean)) {
     toast.add({ title: 'Проверьте дату рождения пассажира', color: 'error' })
     await focusFirstError()
@@ -337,7 +447,10 @@ async function submit() {
 
   submitting.value = true
   try {
-    const resp = await api<{ success: boolean, data: { payment_url: string, order_id: string } }>(
+    const resp = await api<{
+      success: boolean
+      data: { payment_url: string, order_id: string, pay_until: string }
+    }>(
       '/orders',
       {
         method: 'POST',
@@ -355,8 +468,15 @@ async function submit() {
         },
       },
     )
-    // Уходим на платёжный шлюз Сбербанка.
-    window.location.href = resp.data.payment_url
+    // На шлюз уходим НЕ молча: в legacy для этого была отдельная страница
+    // `/pay` с предупреждением, без неё покупатель не понимает, что вернуться
+    // на сайт после оплаты обязательно. Страница лишняя — предупреждение
+    // показываем окном прямо здесь.
+    rememberPendingOrder(resp.data.order_id)
+    payment.value = { url: resp.data.payment_url, payUntil: resp.data.pay_until }
+    paymentOpen.value = true
+    submitting.value = false
+    return
   }
   catch (e: any) {
     const errors: Record<string, string[]> | undefined = e?.data?.errors
@@ -421,10 +541,22 @@ function formatDate(d: string) {
   <UContainer v-else class="py-8 space-y-6 max-w-4xl">
     <div class="flex gap-2 text-sm">
       <UBadge color="neutral" variant="soft">1. Рейсы</UBadge>
-      <UBadge color="error" variant="solid">2. Пассажиры</UBadge>
-      <UBadge color="neutral" variant="soft">3. Оплата</UBadge>
+      <UBadge :color="payment ? 'neutral' : 'error'" :variant="payment ? 'soft' : 'solid'">2. Пассажиры</UBadge>
+      <UBadge :color="payment ? 'error' : 'neutral'" :variant="payment ? 'solid' : 'soft'">3. Оплата</UBadge>
       <UBadge color="neutral" variant="soft">4. Готово</UBadge>
     </div>
+
+    <!-- Окно с предупреждением закрыли, а заказ жив: платить по той же
+         ссылке, второй заказ на те же места оформлять нельзя. -->
+    <UAlert
+      v-if="payment && !paymentOpen && holdLeft"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-clock"
+      title="Заказ создан и ждёт оплаты"
+      :description="`Места держим ещё ${holdLeft}. Билеты будут оформлены после оплаты.`"
+      :actions="[{ label: 'Перейти к оплате', color: 'error', onClick: () => (paymentOpen = true) }]"
+    />
 
     <UCard>
       <template #header>
@@ -497,16 +629,18 @@ function formatDate(d: string) {
           />
         </UFormField>
         <UFormField label="Тариф">
-          <USelect v-model="p.tariff" :items="tariffOptions" value-key="value" class="w-full" />
+          <USelect
+            :model-value="p.tariff" :items="tariffOptions(p)" value-key="value" class="w-full"
+            @update:model-value="(value: string) => setTariff(p, value)"
+          />
         </UFormField>
         <UFormField label="Багаж / ручная кладь">
           <USelect v-model="p.baggage" :items="baggageOptions" value-key="value" class="w-full" />
         </UFormField>
       </div>
 
-      <p class="mt-3 text-sm text-muted">
-        Пассажир имеет право перевезти с собой 2х детей до 12 лет по детскому тарифу.
-        Для ребёнка без сопровождения взрослого необходимо приобрести билет по полному тарифу.
+      <p v-if="saleRules?.child_requires_adult" class="mt-3 text-sm text-muted">
+        {{ saleRules.child_requires_adult_message }}
       </p>
 
       <div class="grid gap-4 md:grid-cols-3 mt-4">
@@ -579,19 +713,27 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.doc_type`)"
           :data-error-field="fieldError(`passengers.${i}.doc_type`) ? '' : undefined"
         >
+          <!-- Название документа не обрезаем многоточием: «Удостоверение
+               личности военнослужащего» в одну строку не помещается, и
+               покупатель должен видеть, что именно выбрал. -->
           <USelect
             v-model="p.doc_type" :items="DOC_TYPES" value-key="value" class="w-full"
+            :ui="{ base: 'items-start', value: 'whitespace-normal text-left pointer-events-none' }"
             @update:model-value="clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
         <UFormField
-          label="Серия и номер документа" required :hint="docHint(p.doc_type)"
+          label="Серия и номер документа" required :help="docHint(p.doc_type)"
           class="md:col-span-2"
           :error="fieldError(`passengers.${i}.doc_number`)"
           :data-error-field="fieldError(`passengers.${i}.doc_number`) ? '' : undefined"
         >
+          <!-- Подсказка формата — под полем (`help`), а не рядом с подписью
+               (`hint`): длинная подсказка переносила подпись на вторую
+               строку, и поля ряда переставали стоять на одной линии. -->
           <MaskedInput
-            v-model="p.doc_number" :mask="docMask(p.doc_type)" placeholder="4444 555555"
+            v-model="p.doc_number" :mask="docMask(p.doc_type)"
+            :placeholder="docPlaceholder(p.doc_type)"
             :inputmode="docMask(p.doc_type) ? 'numeric' : 'text'" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.doc_number`)"
             @input="clearError(`passengers.${i}.doc_number`); detachFromSaved(p)"
@@ -615,6 +757,17 @@ function formatDate(d: string) {
         </div>
       </template>
     </UCard>
+
+    <!-- Состав сломался после удаления пассажира: сами тарифы выбрать
+         неправильно не дают, но полного билета могло не остаться. -->
+    <UAlert
+      v-if="childRuleBroken"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="Детский тариф недоступен для такого состава"
+      :description="saleRules?.child_requires_adult_message"
+    />
 
     <UButton
       icon="i-lucide-plus"
@@ -662,20 +815,91 @@ function formatDate(d: string) {
       </UFormField>
 
       <template #footer>
-        <div class="flex items-center justify-between">
-          <div class="text-sm text-muted">
+        <!-- На телефоне ряд не помещался: подпись сжималась в колонку из
+             двух слов, а кнопка ломалась на две строки. Поэтому ниже sm
+             раскладываем в столбец, а сумма с кнопкой идут отдельной
+             строкой во всю ширину. -->
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="order-2 sm:order-1 text-sm text-muted sm:max-w-sm">
             Оплачивая заказ, вы соглашаетесь с условиями сервиса.<br>
             Если письма от сайта не приходят — проверьте папку «Спам».
           </div>
-          <div class="flex items-center gap-4">
-            <div>Всего: <b class="text-2xl">{{ total.toFixed(2) }} ₽</b></div>
-            <UButton size="xl" color="error" :loading="submitting" @click="submit">
+          <div class="order-1 sm:order-2 flex items-center justify-between gap-4">
+            <div class="whitespace-nowrap">Всего: <b class="text-2xl">{{ total.toFixed(2) }} ₽</b></div>
+            <UButton
+              size="xl" color="error" :loading="submitting" class="whitespace-nowrap"
+              @click="payment && holdLeft ? (paymentOpen = true) : submit()"
+            >
               Перейти к оплате
             </UButton>
           </div>
         </div>
       </template>
     </UCard>
+
+    <!--
+      Предупреждение перед уходом на шлюз. В legacy под это была отдельная
+      страница `/pay` со сплошным текстом; страница лишняя, но сам текст
+      нужен — без него покупатель не понимает, что после оплаты обязательно
+      нужно вернуться на сайт, иначе билеты не оформятся.
+    -->
+    <UModal
+      v-model:open="paymentOpen"
+      title="Оплата на сайте банка"
+      :ui="{ footer: 'justify-end' }"
+    >
+      <template #body>
+        <div class="space-y-3 text-sm">
+          <p>
+            Сейчас откроется защищённая страница платёжного шлюза. Реквизиты
+            карты вводятся на стороне банка — сайт их не получает и не хранит.
+          </p>
+          <p>
+            После оплаты дождитесь возврата на наш сайт: билеты оформляются
+            только здесь, и здесь же появится страница с билетами и кодом
+            возврата. Обычно возврат происходит автоматически.
+          </p>
+
+          <UAlert
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            title="Дождитесь возврата на сайт"
+            description="Пока вы не увидели страницу с билетами, поездка не оформлена — с таким заказом в автобус не посадят."
+          />
+
+          <UAlert
+            color="info"
+            variant="subtle"
+            icon="i-lucide-life-buoy"
+            title="Если что-то пойдёт не так"
+            description="Покупка не потеряется: вернитесь на сайт, и мы сами предложим продолжить оплату или завершить оформление."
+          />
+
+          <p v-if="holdLeft" class="text-muted">
+            Места на рейсе забронированы — оплатите в течение
+            <b class="text-highlighted tabular-nums">{{ holdLeft }}</b>.
+          </p>
+          <p v-else class="text-error">
+            Бронь мест истекла. Выберите рейс заново — оплата этого заказа уже не пройдёт.
+          </p>
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton color="neutral" variant="ghost" @click="paymentOpen = false">
+          Не сейчас
+        </UButton>
+        <UButton
+          color="error"
+          icon="i-lucide-credit-card"
+          :disabled="!holdLeft"
+          @click="goToGateway"
+        >
+          Перейти к оплате
+        </UButton>
+      </template>
+    </UModal>
 
     <!-- Предложение войти перед покупкой. Пропустить можно всегда:
          покупка без регистрации остаётся полноценной. -->

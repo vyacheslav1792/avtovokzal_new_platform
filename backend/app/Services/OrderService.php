@@ -8,9 +8,11 @@ use App\Jobs\SendRegistrationInvite;
 use App\Models\Order;
 use App\Models\User;
 use App\Support\PassengerName;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Voronkovich\SberbankAcquiring\OrderStatus;
 
 class OrderService
 {
@@ -41,14 +43,21 @@ class OrderService
             ]);
         }
 
-        $adults = collect($data['passengers'])->filter(
-            fn (array $p) => $this->tariffType($p) === 'П',
-        )->count();
-        $children = count($data['passengers']) - $adults;
-        if ($adults === 0 || $children > $adults * 2) {
-            throw ValidationException::withMessages([
-                'passengers' => 'Детские билеты приобретаются только в связке с полным: не более 2 детей на одного взрослого',
-            ]);
+        // Детский тариф — только вместе с полным (правило станции, legacy
+        // проверял его и на форме, и на сервере). Выключается конфигом:
+        // config/sale_rules.php → CHILD_TARIFF_REQUIRES_ADULT.
+        if (config('sale_rules.child_requires_adult')) {
+            $adults = collect($data['passengers'])->filter(
+                fn (array $p) => $this->tariffType($p) === 'П',
+            )->count();
+            $children = count($data['passengers']) - $adults;
+            $perAdult = (int) config('sale_rules.max_children_per_adult');
+
+            if ($children > 0 && ($adults === 0 || $children > $adults * $perAdult)) {
+                throw ValidationException::withMessages([
+                    'passengers' => (string) config('sale_rules.child_requires_adult_message'),
+                ]);
+            }
         }
 
         $reservation = $this->salesApi->reserve([
@@ -171,6 +180,137 @@ class OrderService
      * Подтверждение после возврата со шлюза: проверка оплаты,
      * оформление билетов, постановка чека и письма в очередь.
      */
+    /**
+     * Сколько держится бронь мест: `KS_BRONTIME_PLACE` вызывается с 24
+     * минутами (`BusterGateway::reserve`). После этого места уходят обратно
+     * в продажу, и оплачивать заказ уже бессмысленно.
+     */
+    private const RESERVATION_MINUTES = 24;
+
+    /**
+     * Насколько раньше отправления закрывается продажа через сайт —
+     * те же 1920 секунд, что проверяет `create()`.
+     */
+    private const SALE_STOPS_BEFORE_SECONDS = 1920;
+
+    /**
+     * Незавершённые покупки: заказ создан, но билетов у покупателя нет.
+     *
+     * Случай из жизни: покупатель ушёл на страницу шлюза и закрыл её —
+     * вернувшись на сайт, он не знает ни номера заказа, ни того, списались
+     * ли деньги. В legacy это решалось баннером поверх страниц, а сама
+     * незавершённая покупка жила в PHP-сессии и умирала вместе с ней.
+     * Здесь заказы ищутся двумя путями: по идентификаторам, которые сайт
+     * запомнил в браузере (переживают перезапуск), и по кабинету — у
+     * авторизованного покупателя незавершённая покупка найдётся и с
+     * другого устройства.
+     *
+     * @param  string[]  $ids  идентификаторы заказов из браузера
+     * @return array<int, array<string, mixed>>
+     */
+    public function pending(array $ids, ?User $user = null): array
+    {
+        if ($ids === [] && ! $user) {
+            return [];
+        }
+
+        $orders = Order::query()
+            ->whereIn('status', [Order::STATUS_PAYMENT_REGISTERED, Order::STATUS_PAID])
+            ->whereNotNull('sber_order_id')
+            // Старьё не разбираем: бронь давно слетела, а шлюз закрыл заказ
+            // по своему таймауту — спрашивать его незачем.
+            ->where('created_at', '>=', now()->subHours(2))
+            ->where(function ($query) use ($ids, $user) {
+                if ($ids !== []) {
+                    $query->whereIn('id', $ids);
+                }
+                if ($user) {
+                    $query->orWhere('user_id', $user->id);
+                }
+            })
+            ->latest()
+            ->limit(5)
+            ->get();
+
+        return $orders
+            ->map(fn (Order $order) => $this->pendingState($order))
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Что покупателю делать с незавершённым заказом. null — ничего: заказ
+     * уже не спасти (бронь слетела, шлюз заказ закрыл) либо шлюз недоступен
+     * и обещать покупателю нечего.
+     */
+    private function pendingState(Order $order): ?array
+    {
+        $deadline = $this->payDeadline($order);
+
+        if ($order->status === Order::STATUS_PAID) {
+            // Деньги уже у нас, а билетов нет — оформление доделывается
+            // всегда, даже если бронь формально истекла: решать судьбу
+            // чужих денег молчанием нельзя.
+            $state = 'awaiting_confirmation';
+        } else {
+            try {
+                $gateway = (int) ($this->payments->statusExtended((string) $order->sber_order_id)['orderStatus'] ?? -1);
+            } catch (\Throwable $e) {
+                Log::warning('Не удалось узнать статус заказа в шлюзе', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return null;
+            }
+
+            if ($gateway === OrderStatus::DEPOSITED) {
+                $state = 'awaiting_confirmation';
+            } elseif ($gateway === OrderStatus::CREATED && $deadline->isFuture()) {
+                $state = 'awaiting_payment';
+            } else {
+                // Отменён, отклонён или бронь уже истекла — предлагать
+                // нечего, пусть ищет рейс заново.
+                return null;
+            }
+        }
+
+        return [
+            'order_id' => $order->id,
+            'state' => $state,
+            // Нужен странице /payment/result: она подтверждает оплату по
+            // идентификатору заказа в шлюзе — как и при возврате с него.
+            'sber_order_id' => $order->sber_order_id,
+            'from_name' => $order->from_name,
+            'to_name' => $order->to_name,
+            'trip_name' => $order->trip_name,
+            'date_start' => $order->date_start->format('Y-m-d'),
+            'time_start' => substr((string) $order->time_start, 0, 5),
+            'total_price' => (float) $order->total_price,
+            'places' => collect($order->passengers)->pluck('place')->values()->all(),
+            // Ссылка на шлюз — только пока по ней есть смысл платить.
+            'payment_url' => $state === 'awaiting_payment' ? $order->payment_url : null,
+            'pay_until' => $state === 'awaiting_payment' ? $deadline->toIso8601String() : null,
+        ];
+    }
+
+    /**
+     * До какого момента имеет смысл платить: пока держится бронь мест и пока
+     * не закрылась продажа на рейс.
+     */
+    public function payDeadline(Order $order): Carbon
+    {
+        $reservationUntil = $order->created_at->copy()->addMinutes(self::RESERVATION_MINUTES);
+
+        $departure = Carbon::parse(
+            $order->date_start->format('Y-m-d').' '.$order->time_start,
+            config('app.timezone'),
+        )->subSeconds(self::SALE_STOPS_BEFORE_SECONDS);
+
+        return $departure->lt($reservationUntil) ? $departure : $reservationUntil;
+    }
+
     public function confirm(string $sberOrderId): Order
     {
         $order = Order::where('sber_order_id', $sberOrderId)->firstOrFail();
