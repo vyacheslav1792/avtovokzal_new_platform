@@ -145,10 +145,25 @@ watch(() => route.fullPath, closePanel)
     </button>
 
     <Teleport to="body">
+      <!--
+        Две поправки на случай, когда список открывают ИЗ модального окна
+        (форма пассажира в кабинете) — панель телепортируется в body и
+        оказывается ВНЕ диалога:
+
+        - `pointer-events: auto` — Reka на время окна гасит указатель всему,
+          что лежит вне диалога (`body { pointer-events: none }`), и по
+          пунктам списка иначе просто не попасть;
+        - `@pointerdown.stop` / `@mousedown.stop` — тот же Reka закрывает
+          диалог по нажатию «снаружи», и выбор документа заодно закрывал
+          форму пассажира.
+      -->
       <div
         v-if="open"
         class="md:hidden fixed inset-0 z-50 flex flex-col bg-default"
+        style="pointer-events: auto"
         role="dialog"
+        @pointerdown.stop
+        @mousedown.stop
         @keydown.esc="closePanel"
       >
         <!-- Закреплённая шапка: «назад» и поиск -->

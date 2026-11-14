@@ -37,7 +37,12 @@ const unpaid = computed(() => pending.value.find(o => o.state === 'awaiting_paym
  * блокам тоже не место.
  */
 const silent = computed(() =>
-  route.path.startsWith('/payment/') || route.path.startsWith('/print/'))
+  route.path.startsWith('/payment/')
+  || route.path.startsWith('/print/')
+  // На форме покупки о том же заказе говорит её собственная полоса
+  // «Заказ создан и ждёт оплаты» — две одинаковые подсказки разом только
+  // мешают, а полоса внизу ещё и перекрывает окно оплаты.
+  || route.path === '/buy')
 
 const paidOpen = ref(false)
 watch(paid, value => (paidOpen.value = !!value))
@@ -124,7 +129,7 @@ async function cancel(id: string) {
       v-model:open="paidOpen"
       title="Покупка не завершена"
       :dismissible="false"
-      :ui="{ footer: 'justify-end' }"
+      :ui="MOBILE_FULLSCREEN_MODAL"
     >
       <template #body>
         <UAlert
@@ -150,10 +155,16 @@ async function cancel(id: string) {
       </template>
 
       <template #footer>
-        <UButton color="neutral" variant="ghost" @click="paidOpen = false">
+        <UButton
+          color="neutral" variant="ghost" :class="MODAL_BUTTON_CLASS"
+          @click="paidOpen = false"
+        >
           Позже
         </UButton>
-        <UButton color="error" icon="i-lucide-ticket-check" @click="finish(paid!.sber_order_id)">
+        <UButton
+          color="error" icon="i-lucide-ticket-check" :class="MODAL_BUTTON_CLASS"
+          @click="finish(paid!.sber_order_id)"
+        >
           Завершить оформление
         </UButton>
       </template>

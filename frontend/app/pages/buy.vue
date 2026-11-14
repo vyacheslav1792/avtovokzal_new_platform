@@ -191,6 +191,9 @@ function emptyPassenger(): PassengerForm {
     // галочка не показывается, а backend её игнорирует — сохранять некуда.
     save_to_profile: true,
     saved_id: null,
+    // Выбор в поле «Пассажир» ещё не сделан — поля ввода прячем, пока
+    // покупатель не укажет, кто едет (см. `chosen` в PassengerForm).
+    chosen: false,
   }
 }
 
@@ -214,6 +217,14 @@ const emailFromProfile = computed(() => isLoggedIn.value && !!user.value?.email)
  * на служебный адрес сайта.
  */
 const emailRequired = computed(() => !isLoggedIn.value)
+
+/*
+ * Номер телефона в кабинете может отсутствовать (вход через VK без него) —
+ * тогда предлагаем запомнить тот, что указан для заказа. Если номер уже
+ * есть, галочки нет: молча перетирать чужой или более свежий номер нельзя.
+ */
+const canSavePhone = computed(() => isLoggedIn.value && !user.value?.phone)
+const savePhone = ref(true)
 
 const emailHelp = computed(() => {
   if (emailFromProfile.value) return 'Адрес вашего личного кабинета — билеты придут на него'
@@ -267,10 +278,58 @@ await loadSavedPassengers()
 // Вход мог случиться уже на этой странице (модалка выше) — подтянем список.
 watch(isLoggedIn, value => value && loadSavedPassengers(true))
 
-const savedOptions = computed(() => savedPassengers.value.map(p => ({
-  label: `${p.full_name} · ${p.document}`,
-  value: p.id,
-})))
+/**
+ * Варианты поля «Пассажир»: сохранённые в профиле и «Другой пассажир».
+ *
+ * Пункт «Другой» обязателен: без него поле выглядит как выбор из готового
+ * списка, и покупатель не понимает, как ввести того, кого в профиле нет.
+ * Поля ввода до выбора скрыты — иначе покупатель заполняет их сверху вниз
+ * и список профиля просто не замечает.
+ */
+const NEW_PASSENGER = 0
+
+const savedOptions = computed(() => [
+  ...savedPassengers.value.map(p => ({
+    label: `${p.full_name} · ${p.document}`,
+    value: p.id,
+  })),
+  { label: 'Другой пассажир', value: NEW_PASSENGER },
+])
+
+/** Поле выбора показываем, только когда в профиле кто-то есть. */
+const hasSavedPassengers = computed(() => isLoggedIn.value && savedPassengers.value.length > 0)
+
+/** Поля пассажира: либо выбора нет вовсе, либо он уже сделан. */
+function passengerFieldsVisible(passenger: PassengerForm): boolean {
+  return !hasSavedPassengers.value || !!passenger.chosen
+}
+
+/** Выбор в поле «Пассажир»: запись профиля либо «Другой пассажир». */
+function choosePassenger(index: number, id: number) {
+  const passenger = passengers.value[index]
+  if (!passenger) return
+
+  if (id === NEW_PASSENGER) {
+    // Чистый бланк, но место, тариф и багаж не трогаем — их уже выбрали.
+    Object.assign(passenger, {
+      last_name: '',
+      first_name: '',
+      middle_name: '',
+      birth_date: '',
+      gender: 'М',
+      doc_type: 21,
+      doc_number: '',
+      citizenship: 185,
+      save_to_profile: true,
+      saved_id: null,
+      chosen: true,
+    })
+
+    return
+  }
+
+  fillFromSaved(index, id)
+}
 
 /** Подставить сохранённого пассажира в форму. */
 function fillFromSaved(index: number, id: number) {
@@ -280,6 +339,7 @@ function fillFromSaved(index: number, id: number) {
   if (!saved || !passenger) return
 
   Object.assign(passenger, {
+    chosen: true,
     last_name: saved.last_name,
     first_name: saved.first_name,
     middle_name: saved.middle_name ?? '',
@@ -421,39 +481,6 @@ function removePassenger(i: number) {
  */
 const birthDateInvalid = ref<Record<number, boolean>>({})
 
-/**
- * Маска серии и номера документа. Пока только паспорт РФ (21): 4 цифры серии
- * и 6 цифр номера. У остальных документов формат разный (римские цифры,
- * кириллица, произвольная длина) — там маска только мешала бы, формат
- * проверяет backend по правилам KS_CONTROL_DATA_PAS.
- */
-function docMask(docType: number): string | null {
-  return docType === 21 ? '#### ######' : null
-}
-
-/**
- * Подсказка формата серии/номера — по правилам вендорной процедуры
- * `KS_CONTROL_DATA_PAS` (их же проверяет backend). Формат задан не у всех
- * документов: у остальных станция серию с номером не проверяет, и выдумывать
- * подсказку нельзя — покупатель введёт по ней то, чего в документе нет.
- */
-const DOC_FORMATS: Record<number, { hint: string, placeholder: string }> = {
-  21: { hint: '4 цифры серии и 6 цифр номера', placeholder: '4444 555555' },
-  22: { hint: '2 цифры серии и 7 цифр номера', placeholder: '75 1234567' },
-  3: { hint: 'Римские цифры, две русские буквы и 6 цифр номера', placeholder: 'IV-АБ 123456' },
-  15: { hint: 'Две русские буквы и 7 цифр номера', placeholder: 'АБ 1234567' },
-  26: { hint: 'Две римские цифры и 7 цифр номера', placeholder: 'XV 1234567' },
-}
-
-function docHint(docType: number): string {
-  return DOC_FORMATS[docType]?.hint ?? ''
-}
-
-/** Пусто — формат документа станцией не задан, подсказывать нечего. */
-function docPlaceholder(docType: number): string {
-  return DOC_FORMATS[docType]?.placeholder ?? ''
-}
-
 function priceFor(p: PassengerForm) {
   const t = trip.value
   if (!t) return 0
@@ -478,6 +505,15 @@ async function submit() {
 
   if (!agree.value) {
     toast.add({ title: 'Для покупки необходимо согласие на обработку персональных данных', color: 'warning' })
+    return
+  }
+
+  if (passengers.value.some(p => !passengerFieldsVisible(p))) {
+    toast.add({
+      title: 'Укажите, кто едет',
+      description: 'Выберите пассажира из профиля или «Другой пассажир» и заполните данные.',
+      color: 'warning',
+    })
     return
   }
 
@@ -515,8 +551,10 @@ async function submit() {
           to_name: toName.value,
           email: email.value,
           phone: phone.value,
+          // `chosen` — состояние формы, backend про него не знает.
+          passengers: passengers.value.map(({ chosen, ...rest }) => rest),
+          ...(canSavePhone.value ? { save_phone: savePhone.value } : {}),
           agree_pd: true,
-          passengers: passengers.value,
         },
       },
     )
@@ -672,21 +710,29 @@ function formatDate(d: string) {
         </div>
       </template>
 
-      <!-- Пассажиры из профиля: одним выбором подставляем ФИО и документ. -->
+      <!--
+        Кто едет: запись из профиля или «Другой пассажир». Поле появляется,
+        только если в профиле кто-то есть, а поля ввода до выбора скрыты —
+        иначе покупатель заполняет форму сверху вниз и сохранённых
+        пассажиров не замечает. Список — тот же компонент, что у документа:
+        «ИВАНОВ ИВАН ИВАНОВИЧ · 4444 555555» в строку не помещается, и
+        обрезать его многоточием нельзя.
+      -->
       <UFormField
-        v-if="isLoggedIn && savedOptions.length"
-        label="Выбрать из профиля"
-        help="Данные подставятся в поля ниже — их можно поправить"
+        v-if="hasSavedPassengers"
+        label="Пассажир"
+        :help="p.chosen ? 'Данные можно поправить — на заказ пойдёт то, что в полях ниже' : 'Выберите из сохранённых в профиле или заполните данные заново'"
         class="mb-4"
       >
-        <USelectMenu
-          :model-value="p.saved_id ?? undefined"
+        <ResponsiveSelect
+          :model-value="p.chosen ? (p.saved_id ?? NEW_PASSENGER) : undefined"
           :items="savedOptions"
-          value-key="value"
-          placeholder="Новый пассажир"
-          class="w-full md:w-2/3"
+          placeholder="Кто едет?"
+          title="Кто едет"
+          search-placeholder="Фамилия или номер документа"
+          class="md:w-2/3"
           :disabled="locked"
-          @update:model-value="(id: number) => fillFromSaved(i, id)"
+          @update:model-value="(id: number) => choosePassenger(i, id)"
         />
       </UFormField>
 
@@ -725,7 +771,9 @@ function formatDate(d: string) {
         {{ saleRules.child_requires_adult_message }}
       </p>
 
-      <div class="grid gap-4 md:grid-cols-3 mt-4">
+      <!-- Данные пассажира показываем после выбора в поле «Пассажир»:
+           место, тариф и багаж к человеку не относятся и видны всегда. -->
+      <div v-if="passengerFieldsVisible(p)" class="grid gap-4 md:grid-cols-3 mt-4">
         <UFormField
           label="Фамилия" required
           :error="fieldError(`passengers.${i}.last_name`)"
@@ -835,7 +883,7 @@ function formatDate(d: string) {
       <!-- Новый пассажир: предлагаем запомнить его в кабинете. Уже
            сохранённого (подставленного из профиля) не переспрашиваем. -->
       <UCheckbox
-        v-if="isLoggedIn && !p.saved_id"
+        v-if="isLoggedIn && !p.saved_id && passengerFieldsVisible(p)"
         v-model="p.save_to_profile"
         class="mt-4"
         :disabled="locked"
@@ -897,7 +945,16 @@ function formatDate(d: string) {
           <PhoneInput
             v-model="phone" class="w-full"
             :highlight="!!fieldError('phone')"
+            :disabled="locked"
             @input="clearError('phone')"
+          />
+          <UCheckbox
+            v-if="canSavePhone"
+            v-model="savePhone"
+            class="mt-2"
+            :disabled="locked"
+            label="Сохранить номер телефона в личном кабинете"
+            :ui="{ label: 'text-sm text-muted' }"
           />
         </UFormField>
       </div>
@@ -943,7 +1000,7 @@ function formatDate(d: string) {
     <UModal
       v-model:open="paymentOpen"
       title="Оплата на сайте банка"
-      :ui="{ footer: 'justify-end' }"
+      :ui="MOBILE_FULLSCREEN_MODAL"
     >
       <template #body>
         <div class="space-y-3 text-sm">
@@ -986,17 +1043,22 @@ function formatDate(d: string) {
       <template #footer>
         <UButton
           color="neutral" variant="outline" icon="i-lucide-x"
+          :class="MODAL_BUTTON_CLASS"
           :loading="cancelling"
           @click="cancelOrder"
         >
           Отменить заказ
         </UButton>
-        <UButton color="neutral" variant="ghost" @click="paymentOpen = false">
+        <UButton
+          color="neutral" variant="ghost" :class="MODAL_BUTTON_CLASS"
+          @click="paymentOpen = false"
+        >
           Не сейчас
         </UButton>
         <UButton
           color="error"
           icon="i-lucide-credit-card"
+          :class="MODAL_BUTTON_CLASS"
           :disabled="!holdLeft"
           @click="goToGateway"
         >
@@ -1007,7 +1069,11 @@ function formatDate(d: string) {
 
     <!-- Предложение войти перед покупкой. Пропустить можно всегда:
          покупка без регистрации остаётся полноценной. -->
-    <UModal v-model:open="authPromptOpen" title="Войти в личный кабинет?">
+    <UModal
+      v-model:open="authPromptOpen"
+      title="Войти в личный кабинет?"
+      :ui="MOBILE_FULLSCREEN_MODAL"
+    >
       <template #body>
         <p class="mb-4">
           С кабинетом почта и телефон подставятся сами, а все билеты — покупки,
@@ -1031,17 +1097,20 @@ function formatDate(d: string) {
 
       <template #footer>
         <div class="w-full space-y-3">
-          <div class="flex flex-wrap gap-2">
-            <UButton color="error" :to="{ path: '/login', query: { redirect: route.fullPath } }">
+          <div class="grid gap-2 sm:flex sm:flex-wrap">
+            <UButton
+              color="error" class="justify-center"
+              :to="{ path: '/login', query: { redirect: route.fullPath } }"
+            >
               Войти
             </UButton>
             <UButton
-              color="neutral" variant="outline"
+              color="neutral" variant="outline" class="justify-center"
               :to="{ path: '/register', query: { redirect: route.fullPath, ...(email ? { email } : {}) } }"
             >
               Зарегистрироваться
             </UButton>
-            <UButton color="neutral" variant="ghost" @click="skipAuthPrompt">
+            <UButton color="neutral" variant="ghost" class="justify-center" @click="skipAuthPrompt">
               Продолжить без регистрации
             </UButton>
           </div>

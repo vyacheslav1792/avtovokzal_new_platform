@@ -52,15 +52,6 @@ const form = reactive<SavedPassengerPayload>(emptyForm())
 /** Дата рождения набрана целиком, но такой даты не существует (31.02 и т. п.). */
 const birthDateInvalid = ref(false)
 
-/**
- * Маска серии и номера — пока только для паспорта РФ (21): 4 цифры серии
- * и 6 цифр номера. У остальных документов формат разный (римские цифры,
- * кириллица, произвольная длина), его проверяет backend.
- */
-function docMask(docType: number): string | null {
-  return docType === 21 ? '#### ######' : null
-}
-
 function openCreate() {
   birthDateInvalid.value = false
   editing.value = null
@@ -136,14 +127,6 @@ function formatBirthDate(value: string): string {
   const [y, m, d] = value.split('-')
   return d && m && y ? `${d}.${m}.${y}` : value
 }
-
-/** Подсказка по формату документа — та же, что на форме покупки. */
-function docHint(code: number): string {
-  if (code === 21) return 'например 4444 555555'
-  if (code === 22) return 'например 75 1234567'
-  if (code === 3) return 'например IV-МЮ 123456'
-  return ''
-}
 </script>
 
 <template>
@@ -205,9 +188,16 @@ function docHint(code: number): string {
       </div>
     </UCard>
 
+    <!--
+      Форма — один в один с формой покупки: те же поля, те же маски и
+      подсказки форматов (общий композабл `useDocumentFormat`), те же
+      полноэкранные списки на телефоне. Иначе в профиль попадает документ,
+      с которым покупка не пройдёт, а привычки у двух форм расходятся.
+    -->
     <UModal
       v-model:open="dialogOpen"
       :title="editing ? 'Изменить пассажира' : 'Новый пассажир'"
+      :ui="MOBILE_FULLSCREEN_MODAL"
     >
       <template #body>
         <form id="passenger-form" class="grid gap-4 md:grid-cols-2" @submit.prevent="save">
@@ -245,20 +235,31 @@ function docHint(code: number): string {
             <USelect v-model="form.gender" :items="genderOptions" value-key="value" class="w-full" />
           </UFormField>
           <UFormField label="Гражданство" :error="fieldErrors.citizenship">
-            <USelectMenu
-              v-model="form.citizenship" :items="citizenshipOptions" value-key="value"
-              class="w-full" :highlight="!!fieldErrors.citizenship"
+            <ResponsiveSelect
+              v-model="form.citizenship"
+              :items="citizenshipOptions"
+              title="Гражданство пассажира"
+              search-placeholder="Название страны"
+              :highlight="!!fieldErrors.citizenship"
             />
           </UFormField>
           <UFormField label="Документ" :error="fieldErrors.doc_type">
-            <USelect v-model="form.doc_type" :items="DOC_TYPES" value-key="value" class="w-full" />
+            <ResponsiveSelect
+              v-model="form.doc_type"
+              :items="DOC_TYPES"
+              title="Документ пассажира"
+              search-placeholder="Название документа"
+            />
           </UFormField>
           <UFormField
-            label="Серия и номер" required :hint="docHint(form.doc_type)"
+            label="Серия и номер" required :help="docHint(form.doc_type)"
             :error="fieldErrors.doc_number"
           >
+            <!-- Подсказка формата под полем, а не рядом с подписью: длинная
+                 подсказка переносила подпись и ломала выравнивание ряда. -->
             <MaskedInput
-              v-model="form.doc_number" :mask="docMask(form.doc_type)" placeholder="4444 555555"
+              v-model="form.doc_number" :mask="docMask(form.doc_type)"
+              :placeholder="docPlaceholder(form.doc_type)"
               :inputmode="docMask(form.doc_type) ? 'numeric' : 'text'" class="w-full"
               :highlight="!!fieldErrors.doc_number"
             />
@@ -267,14 +268,18 @@ function docHint(code: number): string {
       </template>
 
       <template #footer>
-        <div class="flex gap-3">
-          <UButton type="submit" form="passenger-form" color="error" :loading="saving">
-            Сохранить
-          </UButton>
-          <UButton color="neutral" variant="outline" :disabled="saving" @click="dialogOpen = false">
-            Отмена
-          </UButton>
-        </div>
+        <UButton
+          color="neutral" variant="outline" :class="MODAL_BUTTON_CLASS"
+          :disabled="saving" @click="dialogOpen = false"
+        >
+          Отмена
+        </UButton>
+        <UButton
+          type="submit" form="passenger-form" color="error" :class="MODAL_BUTTON_CLASS"
+          :loading="saving"
+        >
+          Сохранить
+        </UButton>
       </template>
     </UModal>
   </UContainer>

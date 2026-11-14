@@ -32,6 +32,9 @@ class StoreOrderRequest extends FormRequest
             // (`site.fiscal_fallback_email`).
             'email' => [$this->user('sanctum') ? 'nullable' : 'required', 'email', 'max:255'],
             'phone' => ['required', 'string', 'min:10', 'max:32'],
+            // Галочка «Сохранить номер в профиль» — показывается только
+            // покупателю из кабинета, у которого номера ещё нет.
+            'save_phone' => ['sometimes', 'boolean'],
             'agree_pd' => ['accepted'],
             'passengers' => ['required', 'array', 'min:1', 'max:10'],
             'passengers.*.place' => ['required', 'integer', 'min:1'],

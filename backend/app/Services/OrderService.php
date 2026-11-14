@@ -8,6 +8,7 @@ use App\Jobs\SendRegistrationInvite;
 use App\Models\Order;
 use App\Models\User;
 use App\Support\PassengerName;
+use App\Support\Phone;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -136,6 +137,7 @@ class OrderService
         ]);
 
         if ($user) {
+            $this->rememberPhone($user, $data);
             $this->rememberPassengers($user, $data['passengers'], $passengers);
         }
 
@@ -180,6 +182,30 @@ class OrderService
      * Подтверждение после возврата со шлюза: проверка оплаты,
      * оформление билетов, постановка чека и письма в очередь.
      */
+    /**
+     * Запомнить телефон в профиле, если покупатель попросил галочкой.
+     *
+     * Предлагается только тем, у кого номера в кабинете ещё нет (например
+     * после входа через VK) — чужой или устаревший номер молча не перетираем.
+     * Нераспознанный номер (городской, зарубежный) просто не сохраняем:
+     * в профиле он нужен для связи перевозчика, а формат там тот же
+     * `Phone::normalize`, что и при обычной правке профиля.
+     */
+    private function rememberPhone(User $user, array $data): void
+    {
+        if (empty($data['save_phone']) || $user->phone) {
+            return;
+        }
+
+        $phone = Phone::normalize($data['phone'] ?? null);
+
+        if (! $phone) {
+            return;
+        }
+
+        $user->forceFill(['phone' => $phone])->save();
+    }
+
     /**
      * Почта заказа. У покупателя из кабинета — из профиля, у гостя — из
      * формы. Но кабинет через VK может остаться вообще без почты: VK отдаёт

@@ -330,7 +330,10 @@ useSeoMeta({
                 прибытие {{ formatDateTime(arrivesAt) }}</template>
             </div>
             <div class="text-sm text-muted truncate">
-              Перевозчик: {{ trip.carrier }} · {{ trip.bus }}
+              <!-- Марку автобуса не показываем: она в базе станции
+                   зачастую не совпадает с тем, что реально выйдет на рейс,
+                   и только вводит пассажира в заблуждение. -->
+              Перевозчик: {{ trip.carrier }}
             </div>
             <div class="text-sm text-muted">
               Полный: <b class="text-highlighted">{{ trip.price_full.toFixed(2) }} ₽</b>
