@@ -118,18 +118,32 @@ scheduler` тоже дописан в деплой-скрипт (бэкап
 → `docker compose restart scheduler` (иначе не перечитаются задания ofelia;
 обе ловушки — см. выше) → `composer install` → `php artisan migrate --force`.
 
-**ЛОВУШКА: скрипт обслуживает только `backend`.** `composer install` и
-`migrate` он выполняет в контейнере `app`; у `ais-api`, `sales-api` и
-`kkm-api` свои зависимости и свои миграции, и их приходится прогонять
-руками:
+`composer install` и `migrate` выполняются **только по флагам** и сразу во
+всех четырёх php-сервисах (`app`, `sales_app`, `kkm_app`, `ais_app`):
 
 ```bash
-docker compose exec ais_app composer install --no-dev --no-interaction
-docker compose exec ais_app php artisan migrate --force
+/usr/local/bin/updateAvtovokzalFromGit.sh -s -composerInstall -migrate
 ```
 
-(Так приехала авторизация сотрудников АИС 14.11.2026: новая зависимость
-`bjeavons/zxcvbn-php` и миграция таблиц `employees`/`roles`.)
+Деплой с новой зависимостью или новой миграцией без этих флагов пройдёт
+«успешно» и оставит прод на старом составе vendor и старой схеме.
+
+**ЛОВУШКА: nginx держит IP php-апстрима с момента своего старта.**
+`fastcgi_pass ais_app:9000` разрешается ОДИН раз при загрузке конфига. Если
+php-контейнер пересоздан (`up -d` при смене его конфига), он получает новый
+адрес, а прежний достаётся соседнему контейнеру — и nginx молча проксирует
+запросы **в другой сервис**. Ловилось 14.11.2026 на деплое авторизации АИС:
+`GET /api/v1/reports` отвечал `404 The route api/v1/reports could not be
+found` — потому что `ais_web` ходил в php-fpm backend'а сайта, где такого
+маршрута нет (а `/api/v1/auth/me` там есть и падал 500 на
+`Route [login] not defined`). При этом `php artisan route:list` в самом
+`ais_app` показывал маршрут на месте — отсюда и сбивающая с толку картина.
+Лечится рестартом nginx-контейнеров, он дописан в деплой-скрипт (бэкап
+`updateAvtovokzalFromGit.sh.bak_20261114_nginx`):
+
+```bash
+docker compose restart web ais_web sales_web kkm_web
+```
 
 Доступ к приватному репозиторию GitHub — по **deploy-ключу** сервера
 (`/root/.ssh/avtovokzal_deploy`, host-alias `github-avtovokzal`; `origin`
