@@ -2,6 +2,7 @@
 const route = useRoute()
 const api = useApi()
 const { isLoggedIn } = useAuth()
+const { capture: captureOffline } = useOfflineTickets()
 
 interface OrderData {
   order_id: string
@@ -42,8 +43,15 @@ const order = computed(() => data.value?.data)
 
 // Покупка доведена до конца — напоминание о ней больше не нужно
 // (его показывает PendingOrderNotice по заказам, запомненным в браузере).
+//
+// Здесь же билет кладётся на устройство (PWA): в автобусе сети может не
+// быть, а билет показать надо. Сохраняем сразу после оформления — и
+// гостю тоже: кабинета у него нет, и больше взять билет будет неоткуда.
 watch(order, (value) => {
-  if (value?.status === 'completed') forgetPendingOrder(value.order_id)
+  if (value?.status !== 'completed') return
+
+  forgetPendingOrder(value.order_id)
+  captureOffline(value.order_id)
 }, { immediate: true })
 
 function formatDate(d?: string) {
@@ -101,7 +109,7 @@ const pdfUrl = computed(() => order.value
         variant="subtle"
         icon="i-lucide-ticket-check"
         title="Вы успешно приобрели билет(ы)!"
-        :description="`Данные переданы на автовокзал. Электронный билет и чек будут отправлены на ${order.email}.`"
+        :description="`Данные переданы на автовокзал. Электронный билет и чек будут отправлены на ${order.email}. Билет сохранён на этом устройстве — его видно и без интернета.`"
       />
 
       <UCard>
@@ -190,6 +198,15 @@ const pdfUrl = computed(() => order.value
           class="justify-center whitespace-nowrap"
         >
           Скачать билеты в PDF
+        </UButton>
+        <UButton
+          to="/tickets"
+          variant="outline"
+          color="error"
+          icon="i-lucide-smartphone"
+          class="justify-center whitespace-nowrap"
+        >
+          Билеты на устройстве
         </UButton>
         <UButton
           to="/" variant="outline" color="neutral" icon="i-lucide-house"

@@ -106,6 +106,10 @@ docker compose exec ais_app php artisan migrate    # миграции AIS API
   `/api/auth/session`: хранит Bearer-токен кабинета в httpOnly cookie
   (Safari/ITP стирает JS-cookie и localStorage через неделю) и отдаёт его
   порталу; срок — полгода бездействия, продлевается при каждом чтении.
+  **PWA:** сайт ставится на телефон приложением (манифест + service worker
+  `public/sw.js`), а купленные билеты открываются **без интернета** —
+  страница `/tickets` читает их из IndexedDB, куда они попадают после
+  покупки и при заходе в кабинет. Выключается `PWA=0` в корневом `.env`.
 - **`ais-spa/`** (:3001, dev) — SPA отчётов АИС (Vue 3 + Vite), перенос из
   устаревшего репозитория `avtovokzal_ais_spa`; ходит в ais-api (`/api/v1/reports*`)
   и в backend сайта (`/site-api`). Без входа показывает форму входа вместо

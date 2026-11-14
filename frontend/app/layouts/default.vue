@@ -44,6 +44,9 @@ function iconFor(url: string): string {
 // Меню кабинета в шапке (десктоп).
 const accountItems = computed(() => [[
   { label: 'Мои билеты', icon: 'i-lucide-ticket', to: '/lk' },
+  // Билеты на устройстве: открываются без сети (PWA), поэтому пункт есть
+  // и у гостя — в мобильном меню ниже.
+  { label: 'Билеты на устройстве', icon: 'i-lucide-smartphone', to: '/tickets' },
   { label: 'Пассажиры', icon: 'i-lucide-users', to: '/lk/passengers' },
   { label: 'Профиль', icon: 'i-lucide-settings', to: '/lk/profile' },
 ], [
@@ -212,6 +215,22 @@ async function signOut() {
         <USeparator />
 
         <div class="py-2">
+          <!-- Купленные билеты лежат на устройстве и открываются без сети,
+               поэтому пункт нужен и гостю: кабинета у него нет, а билет
+               в автобусе показать надо. -->
+          <NuxtLink
+            to="/tickets"
+            class="flex items-center gap-3 px-4 py-3 text-base transition-colors"
+            :class="isActive('/tickets')
+              ? 'text-primary font-medium bg-primary/10'
+              : 'text-default hover:bg-elevated'"
+          >
+            <UIcon name="i-lucide-ticket-check" class="size-5 shrink-0 text-dimmed" />
+            Мои билеты <span class="text-xs text-dimmed">(без интернета)</span>
+          </NuxtLink>
+
+          <InstallAppButton />
+
           <template v-if="isLoggedIn">
             <div class="px-4 py-2 text-sm text-muted truncate">
               {{ userLabel(user) }}
@@ -283,6 +302,11 @@ async function signOut() {
       на сайт откуда угодно — с главной, из расписания, по ссылке из письма.
     -->
     <PendingOrderNotice />
+
+    <!-- PWA: «вышла новая версия» для приложения с домашнего экрана и
+         предложение установить его (не чаще раза в неделю). -->
+    <AppUpdateNotice />
+    <InstallAppPrompt />
 
     <footer class="bg-neutral-900 text-neutral-400 mt-12">
       <UContainer class="py-8 grid gap-8 md:grid-cols-2">

@@ -19,6 +19,15 @@ export default defineNuxtConfig({
         },
         // Плитка Windows — тот же набор, что в legacy (index.php)
         { name: 'msapplication-TileImage', content: '/favicon/ms-icon-144x144.png' },
+        // PWA: цвет системной строки у приложения с домашнего экрана —
+        // тот же, что у шапки сайта (bg-neutral-900) и у фона иконки.
+        { name: 'theme-color', content: '#28292e' },
+        // iOS манифест почти не читает: имя и режим без адресной строки
+        // задаются этими метками.
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-title', content: 'Автовокзал57' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+        { name: 'mobile-web-app-capable', content: 'yes' },
       ],
       // Иконки сайта перенесены из legacy как есть (`avtovokzal57/favicon/`,
       // те же размеры и те же файлы — оранжевый автобус). Без этого списка
@@ -26,6 +35,8 @@ export default defineNuxtConfig({
       // `/favicon.ico` (16/32/96 из тех же картинок) лежит в `public/` — его
       // браузеры и поисковые роботы запрашивают сами, без ссылки в разметке.
       link: [
+        // PWA: без манифеста браузер не предложит установить приложение.
+        { rel: 'manifest', href: '/manifest.webmanifest' },
         { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/favicon/favicon-16x16.png' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon/favicon-32x32.png' },
         { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon/favicon-96x96.png' },
@@ -57,6 +68,17 @@ export default defineNuxtConfig({
     // не должны отдавать эту страницу и её payload из кэша.
     '/buy': { headers: { 'cache-control': 'no-store' } },
     '/buy/**': { headers: { 'cache-control': 'no-store' } },
+    // Страницы, обязанные открываться БЕЗ СЕТИ (см. public/sw.js):
+    // оболочку целиком кладёт в кэш service worker, поэтому она не должна
+    // зависеть ни от backend, ни от того, кто вошёл в кабинет — рендерим
+    // их только в браузере. Билеты страница читает из IndexedDB.
+    '/tickets': { ssr: false },
+    '/offline': { ssr: false },
+    // Service worker браузер перепроверяет сам, но прокси и CDN не должны
+    // отдавать его из кэша: иначе обновление сайта не доедет до
+    // установленных приложений.
+    '/sw.js': { headers: { 'cache-control': 'no-cache' } },
+    '/manifest.webmanifest': { headers: { 'cache-control': 'no-cache' } },
   },
   runtimeConfig: {
     // SSR внутри docker-сети ходит в backend напрямую (сервис web).
@@ -78,6 +100,11 @@ export default defineNuxtConfig({
       // NUXT_PUBLIC_ACCESSIBILITY). Выключенная версия не рендерит ни кнопку,
       // ни панель, а класс режима на `<html>` не ставится.
       accessibility: true,
+      // PWA: установка приложения и работа без сети (service worker).
+      // `PWA=0` в корневом `.env` (compose → NUXT_PUBLIC_PWA) выключает
+      // и регистрацию service worker, и кнопку установки. В dev он не
+      // регистрируется в любом случае — кэш мешает Vite.
+      pwa: true,
     },
   },
 })

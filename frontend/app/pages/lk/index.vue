@@ -40,6 +40,18 @@ const {
   startRefund, confirmRefund, closeDialog,
 } = useTicketRefund(() => refresh())
 
+/*
+ * Билеты предстоящих поездок кладём на устройство (PWA): в кабинет
+ * покупатель заходит дома с сетью, а билет нужен в дороге, где её может
+ * не быть. Делается молча и в фоне — ошибку синхронизации показывать
+ * незачем, кабинет от неё не зависит.
+ */
+const { sync: syncOffline } = useOfflineTickets()
+
+onMounted(() => {
+  syncOffline({ withCabinet: true })
+})
+
 function formatDate(iso: string) {
   const [y, m, d] = iso.split('-')
   return `${d}.${m}.${y}`
@@ -65,6 +77,9 @@ function ticketTotal(t: CabinetTicket) {
       </div>
       <div class="flex items-center gap-2">
         <UButton to="/" color="error" icon="i-lucide-ticket">Купить билет</UButton>
+        <UButton to="/tickets" color="neutral" variant="outline" icon="i-lucide-smartphone">
+          Билеты на устройстве
+        </UButton>
         <UButton to="/lk/passengers" color="neutral" variant="outline" icon="i-lucide-users">
           Пассажиры
         </UButton>

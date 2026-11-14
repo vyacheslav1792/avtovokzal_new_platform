@@ -47,6 +47,19 @@ const silent = computed(() =>
 const paidOpen = ref(false)
 watch(paid, value => (paidOpen.value = !!value))
 
+/*
+ * Сообщаем остальным, что низ экрана занят: предложение установить
+ * приложение внизу той же страницы уступит это место (см.
+ * `InstallAppPrompt`).
+ */
+const pendingNotice = usePendingNotice()
+watchEffect(() => {
+  pendingNotice.value = !silent.value && !!(paid.value || unpaid.value)
+})
+onBeforeUnmount(() => {
+  pendingNotice.value = false
+})
+
 onMounted(load)
 // Вход в кабинет открывает заказы, сделанные с другого устройства.
 watch(isLoggedIn, () => load())

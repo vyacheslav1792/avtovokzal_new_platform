@@ -1,0 +1,56 @@
+{
+  "id": "/",
+  "name": "Автовокзал57 — билеты на автобус",
+  "short_name": "Автовокзал57",
+  "description": "Автовокзалы Орла и Орловской области: расписание, покупка билетов и купленные билеты под рукой — они открываются без интернета.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#ffffff",
+  "theme_color": "#28292e",
+  "categories": ["travel", "navigation"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Мои билеты",
+      "short_name": "Билеты",
+      "description": "Купленные билеты — открываются без интернета",
+      "url": "/tickets",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Купить билет",
+      "short_name": "Купить",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Расписание",
+      "short_name": "Расписание",
+      "url": "/raspisanie-avtobusov",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

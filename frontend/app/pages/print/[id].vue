@@ -1,52 +1,20 @@
 <script setup lang="ts">
 // Печатная форма билетов (перенос legacy print.php): страница A4 на каждый
 // билет + квитанция на каждое место багажа. Без шапки и подвала сайта.
+// Состав полей печатной формы описан один раз — теми же типами
+// пользуется офлайн-хранилище билетов (PWA, `useOfflineTickets`).
+import type {
+  OfflineBaggageTicket as BaggageTicket,
+  OfflineOrderData as PrintData,
+  OfflineTicket as PrintTicket,
+} from '~/composables/useOfflineTickets'
+
 definePageMeta({ layout: false })
 
 const route = useRoute()
 const api = useApi()
 
 useSeoMeta({ title: 'Печать билета' })
-
-interface BaggageTicket {
-  serial: string
-  number: string
-}
-
-interface PrintTicket {
-  serial: string
-  number: string
-  place: string | number
-  tariff: string
-  price: number
-  baggage: number
-  price_bag: number
-  baggage_tickets: BaggageTicket[]
-  passenger: string
-  citizenship: string
-  doc_name: string
-  doc_number: string
-  birth_date: string
-  gender: string
-}
-
-interface PrintData {
-  order_id: string
-  from_name: string
-  to_name: string
-  trip_name: string
-  carrier: string
-  date_start: string
-  time_start: string
-  date_end: string | null
-  time_end: string | null
-  sold_at: string
-  back_code: string | null
-  fiscal_sign: string | null
-  total_price: number
-  depersonalized: boolean
-  tickets: PrintTicket[]
-}
 
 const { data, error } = await useAsyncData(`print-${route.params.id}`, () =>
   api<{ success: boolean, data: PrintData }>(`/orders/${route.params.id}/print`))

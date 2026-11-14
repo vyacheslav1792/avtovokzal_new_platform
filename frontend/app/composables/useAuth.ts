@@ -41,9 +41,18 @@ const LEGACY_TOKEN_COOKIE = 'auth_token'
  */
 async function readSession(): Promise<string | null> {
   const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
-  const resp = await $fetch<{ token: string | null }>('/api/auth/session', { headers })
 
-  return resp.token
+  try {
+    const resp = await $fetch<{ token: string | null }>('/api/auth/session', { headers })
+
+    return resp.token
+  }
+  catch {
+    // Без сети (PWA открыли офлайн ради сохранённых билетов) запрос
+    // падает. Приложение при этом обязано подняться: страница `/tickets`
+    // читает билеты с устройства и в кабинете не нуждается.
+    return null
+  }
 }
 
 /** Личный кабинет: состояние пользователя и операции входа. */
@@ -147,6 +156,12 @@ export function useAuth() {
       // Токен мог протухнуть — из браузера всё равно выходим.
     }
     await forgetSession()
+    // Билеты с устройства (PWA) стираем именно здесь, при ЯВНОМ выходе:
+    // в офлайн-копии лежат ФИО и номера документов пассажиров, а телефон
+    // может быть общим. В `forgetSession` этого делать нельзя — она
+    // срабатывает и когда `/auth/me` не ответил из-за сети, и билеты
+    // пропадали бы ровно тогда, когда они нужнее всего.
+    await clearOfflineOrders()
   }
 
   async function updateProfile(payload: { phone: string, name?: string }) {

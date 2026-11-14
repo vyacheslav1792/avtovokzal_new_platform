@@ -340,3 +340,8 @@ services:
       # кнопка в шапке + панель настроек. `ACCESSIBILITY_VERSION=0` в корневом
       # .env убирает кнопку и всю версию целиком.
       NUXT_PUBLIC_ACCESSIBILITY: "${ACCESSIBILITY_VERSION:-1}"
+      # PWA: установка приложения на телефон и работа без сети (купленные
+      # билеты). `PWA=0` в корневом .env убирает service worker и кнопку
+      # установки целиком. В dev service worker не регистрируется в любом
+      # случае — его кэш мешает Vite отдавать свежие бандлы.
+      NUXT_PUBLIC_PWA: "${PWA:-1}"
