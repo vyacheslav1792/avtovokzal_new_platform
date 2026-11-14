@@ -435,11 +435,19 @@ html.a11y [class*="flex"]:not([class*="flex-col"]) {
  * Вместо переноса ряда переносится НАЗВАНИЕ (на две строки), а логотип на
  * узком экране прячется: он декоративный, рядом то же самое словами.
  */
-html.a11y header > [class*="flex"]:not([class*="flex-col"]),
-html.a11y header a[class*="flex"]:not([class*="flex-col"]) {
-  flex-wrap: nowrap !important;
+@media (max-width: 1023px) {
+  html.a11y header > [class*="flex"]:not([class*="flex-col"]),
+  html.a11y header a[class*="flex"]:not([class*="flex-col"]) {
+    flex-wrap: nowrap !important;
+  }
 }
 
+/*
+ * Только до `lg`: выше там не «бургер», а полное меню из пяти пунктов, и
+ * запрет переноса сжимал название до ширины колонки — «Орелавтотранс»
+ * разрывалось посреди слова. На широком экране шапке перенос не мешает:
+ * меню уходит на вторую строку целиком, название остаётся читаемым.
+ */
 @media (max-width: 640px) {
   html.a11y header img {
     display: none !important;
@@ -597,14 +605,45 @@ html.a11y svg {
  */
 html.a11y .popular-route {
   height: auto !important;
+  /* В пикселях, а не в `rem`: ограничение привязано к размеру самих
+     снимков (277–673px по ширине), а не к выбранному кеглю. */
+  max-width: 400px !important;
   border: var(--a11y-line-width) solid var(--a11y-fg) !important;
 }
 
+/*
+ * Снимок показывается в СВОЁМ размере и НЕ увеличивается. `width: 100%`
+ * растягивал картинку 347px на всю ширину экрана: на десктопе получалось
+ * мутное пятно во весь экран, в котором всё равно ничего не разобрать.
+ * Ценности для слабовидящего в этой картинке нет — она остаётся только как
+ * опознавательный знак направления.
+ */
 html.a11y .popular-route img {
   position: static !important;
-  width: 100% !important;
+  display: block !important;
+  width: auto !important;
+  max-width: 100% !important;
   height: auto !important;
+  max-height: 260px !important;
   object-fit: contain !important;
+  margin-inline: auto !important;
+}
+
+/*
+ * Плитки — второе исключение из «одной колонки» (первое — панель настроек):
+ * каждая не шире 400px, и в одну колонку они выстроились бы в длинный
+ * столбец с пустым полем во весь экран справа.
+ */
+@media (min-width: 640px) {
+  html.a11y [class*="grid-cols"]:has(> .popular-route) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  html.a11y [class*="grid-cols"]:has(> .popular-route) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
 }
 
 /*
