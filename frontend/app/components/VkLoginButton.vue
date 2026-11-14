@@ -1,8 +1,17 @@
 <script setup lang="ts">
 /**
- * Кнопка «Войти через VK». Это обычная ссылка на серверный маршрут Nuxt
- * `/auth/vk`, который уводит покупателя на id.vk.ru — поэтому вход
- * работает и без JS, и без стороннего SDK на странице.
+ * Кнопка «Войти через VK».
+ *
+ * Ссылка ведёт прямо на `id.vk.ru`: на телефоне такую ссылку система
+ * отдаёт приложению VK (Android App Links / iOS Universal Links), и
+ * покупатель входит в один тап, уже будучи залогиненным в приложении.
+ * Через наш `/auth/vk` этого не происходило — там 302-редирект, а на
+ * редиректах браузер приложению ссылку не передаёт и открывает веб-форму.
+ *
+ * Адрес спрашиваем у сервера Nuxt заранее (`/api/auth/vk/start`): он же
+ * кладёт одноразовый `state` в httpOnly cookie. Пока ответа нет — и если
+ * JS выключен — в `href` остаётся прежний серверный маршрут, который
+ * сделает то же самое редиректом.
  */
 const props = defineProps<{
   /** Куда вернуть покупателя после входа (адрес внутри сайта). */
@@ -11,11 +20,30 @@ const props = defineProps<{
   label?: string
 }>()
 
-const href = computed(() => {
-  const target = props.redirect?.startsWith('/') ? props.redirect : '/lk'
+const target = computed(() => props.redirect?.startsWith('/') ? props.redirect : '/lk')
 
-  return `/auth/vk?redirect=${encodeURIComponent(target)}`
-})
+/** Прямой адрес id.vk.ru; null — ещё не получили (или не удалось). */
+const directUrl = ref<string | null>(null)
+
+async function loadDirectUrl() {
+  directUrl.value = null
+  try {
+    const resp = await $fetch<{ url: string }>('/api/auth/vk/start', {
+      query: { redirect: target.value },
+    })
+    directUrl.value = resp.url
+  }
+  catch {
+    // Backend недоступен или вход через VK выключен — останется
+    // серверный маршрут, он отработает свою ошибку сам.
+  }
+}
+
+onMounted(loadDirectUrl)
+watch(target, loadDirectUrl)
+
+const href = computed(() =>
+  directUrl.value ?? `/auth/vk?redirect=${encodeURIComponent(target.value)}`)
 </script>
 
 <template>

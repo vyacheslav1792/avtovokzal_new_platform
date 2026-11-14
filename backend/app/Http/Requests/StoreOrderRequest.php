@@ -26,7 +26,11 @@ class StoreOrderRequest extends FormRequest
             'statcod' => ['required', 'integer'],
             'date' => ['required', 'date_format:Y-m-d'],
             'to_name' => ['required', 'string', 'max:128'],
-            'email' => ['required', 'email', 'max:255'],
+            // Гостю почта обязательна. У покупателя из кабинета она берётся
+            // из профиля, а у кабинета через VK её может не быть вовсе —
+            // тогда поле необязательно, а в чек уйдёт служебный адрес
+            // (`site.fiscal_fallback_email`).
+            'email' => [$this->user('sanctum') ? 'nullable' : 'required', 'email', 'max:255'],
             'phone' => ['required', 'string', 'min:10', 'max:32'],
             'agree_pd' => ['accepted'],
             'passengers' => ['required', 'array', 'min:1', 'max:10'],
@@ -94,7 +98,7 @@ class StoreOrderRequest extends FormRequest
                 // из профиля (OrderService::create), а не из формы.
                 $email = $this->user('sanctum')?->email ?? $this->input('email');
 
-                if (BlockedEmail::blocked($email)) {
+                if ($email && BlockedEmail::blocked($email)) {
                     $validator->errors()->add(
                         'email',
                         'Ваш e-mail в чёрном списке, покупка невозможна. Используйте другой e-mail',

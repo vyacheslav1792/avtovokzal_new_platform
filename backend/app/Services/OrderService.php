@@ -115,7 +115,7 @@ class OrderService
             'total_price' => $total,
             // У авторизованного покупателя почта — из профиля: подменить её
             // запросом нельзя, иначе билеты уйдут не туда.
-            'email' => mb_strtolower($user?->email ?? $data['email']),
+            'email' => $this->orderEmail($user, $data['email'] ?? null),
             'user_id' => $user?->id,
             'phone' => $data['phone'] ?? null,
             'ip' => $ip,
@@ -180,6 +180,32 @@ class OrderService
      * Подтверждение после возврата со шлюза: проверка оплаты,
      * оформление билетов, постановка чека и письма в очередь.
      */
+    /**
+     * Почта заказа. У покупателя из кабинета — из профиля, у гостя — из
+     * формы. Но кабинет через VK может остаться вообще без почты: VK отдаёт
+     * её не всегда, а требовать её на форме мы не стали. Тогда в заказ идёт
+     * служебный адрес — он нужен фискальному чеку (54-ФЗ: электронный чек
+     * надо куда-то отправить, пустой адрес ККТ не примет).
+     */
+    private function orderEmail(?User $user, ?string $input): string
+    {
+        $email = $user?->email ?: $input;
+
+        return mb_strtolower($email ?: (string) config('site.fiscal_fallback_email'));
+    }
+
+    /**
+     * Это служебный адрес для чеков, а не почта покупателя — наши письма
+     * (билеты, приглашение в кабинет, уведомление о возврате) туда слать
+     * нельзя: ящик общий и покупателю не принадлежит.
+     */
+    public static function isFiscalFallbackEmail(?string $email): bool
+    {
+        $fallback = (string) config('site.fiscal_fallback_email');
+
+        return $fallback !== '' && mb_strtolower((string) $email) === mb_strtolower($fallback);
+    }
+
     /**
      * Сколько держится бронь мест: `KS_BRONTIME_PLACE` вызывается с 24
      * минутами (`BusterGateway::reserve`). После этого места уходят обратно
@@ -459,6 +485,10 @@ class OrderService
      */
     private function isFirstPurchaseOfGuest(Order $order): bool
     {
+        if (self::isFiscalFallbackEmail($order->email)) {
+            return false;
+        }
+
         if ($order->user_id || User::where('email', $order->email)->exists()) {
             return false;
         }

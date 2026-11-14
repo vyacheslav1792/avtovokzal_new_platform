@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\OrderService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -58,7 +59,10 @@ class User extends Authenticatable
         return Order::query()->where(function ($q) {
             $q->where('user_id', $this->id);
 
-            if ($this->email) {
+            // Покупки «на этот адрес», сделанные до регистрации, считаются
+            // своими. Служебный адрес для фискальных чеков сюда не годится:
+            // он общий, и по нему сошлись бы заказы разных покупателей.
+            if ($this->email && ! OrderService::isFiscalFallbackEmail($this->email)) {
                 $q->orWhere('email', $this->email);
             }
         });

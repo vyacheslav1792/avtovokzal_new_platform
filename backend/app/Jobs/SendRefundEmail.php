@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Mail\RefundMail;
+use App\Services\OrderService;
 use App\Models\Refund;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,6 +33,16 @@ class SendRefundEmail implements ShouldQueue
         // tickets нужны шаблону: по ним он решает, упоминать ли остальные
         // билеты заказа.
         $refund = Refund::with('order.tickets')->findOrFail($this->refundId);
+
+        // У покупателя может не быть почты (вход через VK): в заказе стоит
+        // служебный адрес для фискального чека, наши письма туда не идут.
+        if (OrderService::isFiscalFallbackEmail($refund->order->email)) {
+            Log::info('Письмо о возврате не отправляем: у покупателя нет почты', [
+                'refund_id' => $refund->id,
+            ]);
+
+            return;
+        }
 
         Mail::to($refund->order->email)->send(new RefundMail($refund));
 

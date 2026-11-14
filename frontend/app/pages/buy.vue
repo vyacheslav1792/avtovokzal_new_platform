@@ -206,6 +206,21 @@ const email = ref(user.value?.email ?? '')
 const phone = ref(formatPhone(user.value?.phone))
 const emailFromProfile = computed(() => isLoggedIn.value && !!user.value?.email)
 
+/*
+ * Почта обязательна только гостю. У кабинета она берётся из профиля, а
+ * кабинет, заведённый через VK, может остаться вообще без почты — VK отдаёт
+ * её не всегда. Требовать адрес в этом случае значит упереться в пустое поле
+ * на ровном месте: билеты видны в кабинете, а фискальный чек по 54-ФЗ уйдёт
+ * на служебный адрес сайта.
+ */
+const emailRequired = computed(() => !isLoggedIn.value)
+
+const emailHelp = computed(() => {
+  if (emailFromProfile.value) return 'Адрес вашего личного кабинета — билеты придут на него'
+  if (!emailRequired.value) return 'Необязательно: билеты будут в личном кабинете. Укажите почту, если хотите получить их письмом'
+  return undefined
+})
+
 watch(user, (u) => {
   if (u) {
     if (u.email) email.value = u.email
@@ -216,17 +231,18 @@ watch(user, (u) => {
 /*
  * Гостю предлагаем войти или завести кабинет — с ним не придётся вводить
  * почту заново, а билеты будут под рукой. Шаг **необязательный**: покупка
- * без регистрации остаётся как была, и отказ мы запоминаем на вкладку
- * (sessionStorage), чтобы окно не выскакивало на каждом рейсе.
+ * без регистрации остаётся полноценной. Отказ НЕ запоминаем: предложение
+ * показывается при каждой покупке, иначе увидеть его можно ровно один раз
+ * и больше никогда — а решение завести кабинет у покупателя обычно
+ * созревает не с первого билета.
  */
 const { data: providers } = await useAuthProviders()
 const authPromptOpen = ref(false)
-const AUTH_PROMPT_SKIPPED = 'buy-auth-prompt-skipped'
 
 onMounted(() => {
   // Рейс не найден или продажа закрыта — предлагать нечего.
   if (!trip.value || unavailableReason.value) return
-  if (isLoggedIn.value || sessionStorage.getItem(AUTH_PROMPT_SKIPPED)) return
+  if (isLoggedIn.value) return
 
   authPromptOpen.value = true
 })
@@ -237,7 +253,6 @@ watch(isLoggedIn, (value) => {
 })
 
 function skipAuthPrompt() {
-  sessionStorage.setItem(AUTH_PROMPT_SKIPPED, '1')
   authPromptOpen.value = false
 }
 
@@ -767,9 +782,13 @@ function formatDate(d: string) {
           :error="fieldError(`passengers.${i}.citizenship`)"
           :data-error-field="fieldError(`passengers.${i}.citizenship`) ? '' : undefined"
         >
-          <USelectMenu
-            v-model="p.citizenship" :items="citizenshipOptions" value-key="value"
-            class="w-full"
+          <!-- Гражданств под две сотни — на телефоне список раскрывается
+               на весь экран с поиском, как и список документов. -->
+          <ResponsiveSelect
+            v-model="p.citizenship"
+            :items="citizenshipOptions"
+            title="Гражданство пассажира"
+            search-placeholder="Название страны"
             :highlight="!!fieldError(`passengers.${i}.citizenship`)"
             :disabled="locked"
             @update:model-value="clearError(`passengers.${i}.citizenship`); clearError(`passengers.${i}.doc_number`)"
@@ -858,14 +877,14 @@ function formatDate(d: string) {
       <fieldset :disabled="locked" class="contents">
       <div class="grid gap-4 md:grid-cols-2">
         <UFormField
-          label="E-Mail для билетов и чека" required
+          label="E-Mail для билетов и чека" :required="emailRequired"
           :error="fieldError('email')"
-          :help="emailFromProfile ? 'Адрес вашего личного кабинета — билеты придут на него' : undefined"
+          :help="emailHelp"
           :data-error-field="fieldError('email') ? '' : undefined"
         >
           <UInput
             v-model="email" type="email" placeholder="you@example.com" class="w-full"
-            :disabled="emailFromProfile"
+            :disabled="emailFromProfile || locked"
             :highlight="!!fieldError('email')"
             @input="clearError('email')"
           />

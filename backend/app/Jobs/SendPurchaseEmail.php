@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Mail\PurchaseMail;
 use App\Models\Order;
+use App\Services\OrderService;
 use App\Services\PdfRenderer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,6 +34,16 @@ class SendPurchaseEmail implements ShouldQueue
     public function handle(PdfRenderer $renderer): void
     {
         $order = Order::with('tickets')->findOrFail($this->orderId);
+
+        // Почты у покупателя нет (вход через VK без e-mail): в заказе стоит
+        // служебный адрес для фискального чека, и наши письма туда не идут.
+        if (OrderService::isFiscalFallbackEmail($order->email)) {
+            Log::info('Письмо о покупке не отправляем: у покупателя нет почты', [
+                'order_id' => $order->id,
+            ]);
+
+            return;
+        }
 
         // Вложение необязательно: ссылка на билеты в письме есть всегда, и
         // недоступный Gotenberg не повод оставить покупателя без письма.

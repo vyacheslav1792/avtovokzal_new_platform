@@ -52,6 +52,20 @@ return [
     'support_email' => env('SUPPORT_EMAIL', 'support@orelavtotrans.ru'),
     'support_phone' => env('SUPPORT_PHONE', '8 (4862) 72-11-11'),
 
+    /*
+     * Адрес для фискальных чеков, когда почты покупателя нет.
+     *
+     * Такое бывает у входа через VK: аккаунт может не отдать e-mail, а
+     * требовать его на форме покупки мы не хотим. 54-ФЗ при этом требует
+     * отправить электронный чек, и пустой адрес ККТ не примет — поэтому в
+     * чек уходит этот служебный ящик.
+     *
+     * **Наши письма сюда НЕ шлём** (билеты, приглашение в кабинет,
+     * уведомление о возврате): ящик общий и покупателю не принадлежит —
+     * см. `OrderService::isFiscalFallbackEmail`.
+     */
+    'fiscal_fallback_email' => env('FISCAL_FALLBACK_EMAIL', 'checks@orelavtotrans.ru'),
+
     // Чёрный список адресов (legacy $CHS) живёт в таблице `blocked_emails`,
     // управляется командой `emails:block` / `emails:unblock` — см. App\Models\BlockedEmail.
 
