@@ -6,17 +6,21 @@
  * появляется только при включённом режиме, поэтому обычный вид сайта ни
  * одним правилом отсюда не затрагивается — что бы здесь ни написали.
  *
- * Почему `!important` и селектор `*`. Страницы свёрстаны утилитами Tailwind
- * и темой Nuxt UI: цвета заданы прямо в разметке (`bg-neutral-900`,
- * `text-white`, `text-muted`) и в переменных темы. Перекрыть их выборочно
- * нельзя — пришлось бы переписать каждую страницу и потом следить, чтобы
- * новая разметка не разошлась со специальным режимом. Поэтому режим снимает
- * ВСЕ фоны и цвета разом и красит страницу двумя переменными.
+ * Как устроена перекраска. Схема — ДВА цвета: `--a11y-bg` (фон страницы) и
+ * `--a11y-fg` (текст). Из них получается всё:
  *
- * Фон снимается в прозрачный (а не заливается цветом схемы): полупрозрачные
- * накладки (`bg-black/40` под заголовком главной, градиент под подписями
- * плиток) иначе стали бы сплошными плашками и закрыли бы и текст, и картинки.
- * Цвет страницы задан один раз на `body`, всё остальное его просто показывает.
+ *   • обычная поверхность (страница, карточки, поля, выпадающие списки) —
+ *     фон `bg`, текст `fg`, рамка `fg` толщиной 2px: без оттенков серого
+ *     границы блоков видно только по рамке;
+ *   • акцентная поверхность (шапка, подвал, сплошные кнопки, выбранные
+ *     пункты) — ИНВЕРСИЯ: фон `fg`, текст `bg`. Так у блоков, у которых фон
+ *     был, он и остаётся — просто другой. Прозрачными они не становятся:
+ *     шапка без фона сливалась со страницей, и сайт выглядел сломанным.
+ *
+ * Фон задаётся общим правилом по `*`, а не через переменные темы Nuxt UI:
+ * у страниц есть и свои жёстко заданные цвета в разметке (`bg-neutral-900`
+ * у шапки), и собственные `<style>` в текстовых страницах из базы (блоки
+ * FAQ, «Способы оплаты»), которые переменные темы не перекрывают.
  */
 
 /* ───────────────────────── Переменные схем и шагов ───────────────────────── */
@@ -35,13 +39,25 @@ html.a11y-scheme-blue { --a11y-fg: #063462; --a11y-bg: #9dd1ff; }
 html.a11y-scheme-beige { --a11y-fg: #4d3b2a; --a11y-bg: #f7f3d6; }
 
 /*
- * Размер шрифта задаётся КОРНЮ документа: размеры и отступы Tailwind
- * заданы в `rem`, поэтому вместе с текстом пропорционально растёт вся
- * страница, а не только буквы в абзацах.
+ * Размер шрифта задаётся КОРНЮ документа: размеры и отступы Tailwind заданы
+ * в `rem`, поэтому вместе с текстом пропорционально растёт вся страница.
  */
 html.a11y { font-size: 18px; }
 html.a11y.a11y-font-2 { font-size: 22px; }
-html.a11y.a11y-font-3 { font-size: 28px; }
+html.a11y.a11y-font-3 { font-size: 26px; }
+
+/*
+ * На телефоне шаги мельче. Вместе с кеглем растут и rem-отступы, и на 320px
+ * при 26px от ширины экрана на текст не остаётся почти ничего: строка в
+ * десяток знаков, а горизонтальная прокрутка для слабовидящего недопустима.
+ * 22px на телефоне — это всё ещё очень крупно (обычный размер сайта 16px),
+ * а дальше увеличивает сам браузер, и там масштабируется уже всё окно.
+ */
+@media (max-width: 480px) {
+  html.a11y { font-size: 17px; }
+  html.a11y.a11y-font-2 { font-size: 20px; }
+  html.a11y.a11y-font-3 { font-size: 22px; }
+}
 
 /* Межбуквенный интервал (кернинг). */
 html.a11y.a11y-letter-1 { --a11y-letter-spacing: normal; }
@@ -56,50 +72,72 @@ html.a11y.a11y-line-3 { --a11y-line-height: 2.2; }
 html.a11y.a11y-sans { --a11y-font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; }
 html.a11y.a11y-serif { --a11y-font-family: Georgia, "Times New Roman", Times, serif; }
 
-/* ────────────────────────────── Общий сброс ────────────────────────────── */
+/* ───────────────────── Переменные темы Nuxt UI ───────────────────── */
 
+/*
+ * Темы компонентов читают цвета отсюда. Общее правило по `*` ниже и так
+ * перекрывает фон и текст, но переменные нужны там, где цвет попадает не в
+ * `background-color`/`color`: тени фокуса, обводки `ring-*`, `currentColor`
+ * внутри иконок и разделителей.
+ */
+html.a11y {
+  --ui-bg: var(--a11y-bg);
+  --ui-bg-muted: var(--a11y-bg);
+  --ui-bg-elevated: var(--a11y-bg);
+  --ui-bg-accented: var(--a11y-bg);
+  --ui-bg-inverted: var(--a11y-fg);
+  --ui-text: var(--a11y-fg);
+  --ui-text-dimmed: var(--a11y-fg);
+  --ui-text-muted: var(--a11y-fg);
+  --ui-text-toned: var(--a11y-fg);
+  --ui-text-highlighted: var(--a11y-fg);
+  --ui-text-inverted: var(--a11y-bg);
+  --ui-border: var(--a11y-fg);
+  --ui-border-muted: var(--a11y-fg);
+  --ui-border-accented: var(--a11y-fg);
+  --ui-border-inverted: var(--a11y-fg);
+  --ui-primary: var(--a11y-fg);
+  --ui-secondary: var(--a11y-fg);
+  --ui-success: var(--a11y-fg);
+  --ui-info: var(--a11y-fg);
+  --ui-warning: var(--a11y-fg);
+  --ui-error: var(--a11y-fg);
+}
+
+/* ────────────────────────────── Общая перекраска ────────────────────────────── */
+
+html.a11y,
 html.a11y body {
   background-color: var(--a11y-bg) !important;
   color: var(--a11y-fg) !important;
 }
 
-html.a11y *,
-html.a11y *::before,
-html.a11y *::after {
-  background: transparent !important;
+html.a11y * {
+  /* Фон МЕНЯЕТСЯ на фон схемы, а не снимается: прозрачный фон у шапки,
+     карточек и кнопок читался как пропавшая вёрстка. */
+  background-color: var(--a11y-bg) !important;
+  /* Фоновые картинки и градиенты — декорация, под текстом они съедают
+     контраст (фото автобуса под формой поиска, затемнение под подписями). */
+  background-image: none !important;
   color: var(--a11y-fg) !important;
   border-color: var(--a11y-fg) !important;
-  /* Тени и обводки цветом в этом режиме только мешают разбирать границы. */
-  box-shadow: none !important;
+  outline-color: var(--a11y-fg) !important;
+  /* `box-shadow` НЕ сбрасываем: на нём в теме держатся рамки `ring-*` —
+     границы карточек, полей ввода и выпадающих списков. Цвет им задаёт
+     `--ui-border` выше, то есть цвет текста схемы; снятие теней убирало
+     вместе с ними и все границы блоков. */
   text-shadow: none !important;
   filter: none !important;
   font-family: var(--a11y-font-family) !important;
   letter-spacing: var(--a11y-letter-spacing) !important;
   line-height: var(--a11y-line-height) !important;
-  /* Крупный шрифт в узкой колонке: длинное слово должно переноситься,
-     а не выдавливать страницу в горизонтальную прокрутку. */
-  overflow-wrap: break-word !important;
 }
 
-/*
- * Иконки Nuxt UI — это `<span class="iconify">` с `mask-image` и заливкой
- * `background-color: currentColor`. Прозрачный фон из правила выше сделал
- * бы их невидимыми, поэтому заливку возвращаем (и она же подхватывает цвет
- * выбранной схемы).
- */
-html.a11y .iconify {
-  background-color: currentColor !important;
-}
-
-/*
- * Анимации и плавные переходы в этом режиме выключены (WCAG 2.3.3: движение
- * мешает читать). `transform` НЕ сбрасываем: на нём держится позиционирование
- * выпадающих списков и центрирование модальных окон — обнулив его, мы
- * собрали бы все всплывающие слои в левом верхнем углу.
- */
-html.a11y * {
-  animation: none !important;
-  transition: none !important;
+html.a11y *::before,
+html.a11y *::after {
+  color: var(--a11y-fg) !important;
+  border-color: var(--a11y-fg) !important;
+  text-shadow: none !important;
 }
 
 /* Подсказка в пустом поле — тоже текст, и он обязан читаться. */
@@ -109,45 +147,146 @@ html.a11y ::placeholder {
 }
 
 /*
- * Крупный шрифт не влезает в прежнюю сетку: при 28px строка шапки
- * (логотип + меню + кабинет + кнопка режима) выдавливала страницу в
- * горизонтальную прокрутку на 143px. Поэтому горизонтальные ряды шапки,
- * меню и подвала в этом режиме переносятся на следующую строку.
- * Прокрутка влево-вправо для слабовидящего — худшее, что можно сделать:
- * при увеличении страницы текст должен переноситься (WCAG 1.4.10).
+ * Иконки Nuxt UI — это `<span class="iconify">` с `mask-image` и заливкой
+ * `background-color: currentColor`. Фон схемы из правила выше сделал бы их
+ * невидимыми (залитый прямоугольник под маской), поэтому заливку
+ * возвращаем — и она же подхватывает цвет текста рядом.
  */
-html.a11y header *,
-html.a11y nav,
-html.a11y nav *,
-html.a11y footer * {
-  flex-wrap: wrap !important;
-  min-width: 0 !important;
+html.a11y .iconify {
+  background-color: currentColor !important;
 }
 
 /*
- * Многоколоночные сетки выстраиваются в одну колонку. При 28px шрифта в
- * колонку 180px («Дата поездки» формы поиска) не влезает ни подпись, ни
- * само поле, а фиксированная сетка `grid-cols-[1fr_1fr_180px_auto]`
- * выпирала за край экрана. Одна колонка — обычное решение для версий для
- * слабовидящих: читать и заполнять сверху вниз проще, чем ловить взглядом
- * соседние колонки при большом увеличении.
+ * Декоративные накладки во всю площадь блока (`absolute inset-0`):
+ * затемнение под заголовком главной и градиент под подписями плиток. Им
+ * фон схемы ставить нельзя — сплошной прямоугольник закрыл бы и картинку
+ * под собой, и текст. Затемнение «фикс»/модальных окон этим правилом не
+ * задевается: у них `fixed`, а не `absolute`.
  */
-html.a11y [class*="grid-cols"] {
-  grid-template-columns: 1fr !important;
+html.a11y [class*="absolute"][class*="inset-0"] {
+  background-color: transparent !important;
 }
 
-html.a11y [class*="columns-"] {
-  columns: 1 !important;
+/* Анимации и переходы выключены: движение мешает читать (WCAG 2.3.3).
+   `transform` НЕ сбрасываем — на нём держится позиционирование выпадающих
+   списков и центрирование модальных окон. */
+html.a11y * {
+  animation: none !important;
+  transition: none !important;
 }
 
-/* Названия в шапке и меню не обрезаем многоточием — лучше в две строки. */
-html.a11y header .truncate,
-html.a11y nav .truncate,
-html.a11y footer .truncate {
-  overflow: visible !important;
-  text-overflow: clip !important;
-  white-space: normal !important;
+/* ─────────────────────── Акцентные поверхности (инверсия) ─────────────────────── */
+
+/*
+ * Шапка и подвал были тёмными — в этом режиме они инвертированы: фон цветом
+ * текста, текст цветом фона. Полоса сверху и снизу сохраняет структуру
+ * страницы, а контраст остаётся предельным в обе стороны.
+ */
+html.a11y header,
+html.a11y footer {
+  background-color: var(--a11y-fg) !important;
+  color: var(--a11y-bg) !important;
+  border-color: var(--a11y-bg) !important;
 }
+
+html.a11y header *,
+html.a11y footer * {
+  background-color: transparent !important;
+  color: var(--a11y-bg) !important;
+  border-color: var(--a11y-bg) !important;
+}
+
+html.a11y header *::placeholder,
+html.a11y footer *::placeholder {
+  color: var(--a11y-bg) !important;
+}
+
+/*
+ * Логотип — силуэт ЧИСТО БЕЛЫМ по прозрачному фону (проверено по пикселям
+ * `public/img/logo.png`: 100% непрозрачных точек светлее 200). Он виден
+ * только на тёмной подложке, а на схеме «белым на чёрном» полоса шапки
+ * становится белой — и логотип пропадал. Инвертируем его ровно на этой
+ * схеме; на остальных подложка тёмная (чёрная, тёмно-синяя, коричневая) и
+ * белый силуэт читается как на боевом сайте.
+ */
+html.a11y-scheme-black header img {
+  filter: invert(1) !important;
+}
+
+/*
+ * Сплошные кнопки темы (`bg-primary`, `bg-error`, `bg-inverted`) и
+ * выбранные пункты списков. Селектор `~=` берёт ТОЧНО этот класс, иначе
+ * сюда же попали бы полупрозрачные `bg-primary/10` у мягких вариантов.
+ */
+html.a11y [class~="bg-primary"],
+html.a11y [class~="bg-error"],
+html.a11y [class~="bg-secondary"],
+html.a11y [class~="bg-success"],
+html.a11y [class~="bg-info"],
+html.a11y [class~="bg-warning"],
+html.a11y [class~="bg-inverted"],
+html.a11y [role="option"][aria-selected="true"],
+html.a11y [role="option"][data-highlighted],
+html.a11y [role="menuitem"][data-highlighted],
+html.a11y [data-state="checked"],
+html.a11y [aria-pressed="true"] {
+  background-color: var(--a11y-fg) !important;
+  color: var(--a11y-bg) !important;
+  border-color: var(--a11y-fg) !important;
+}
+
+html.a11y [class~="bg-primary"] *,
+html.a11y [class~="bg-error"] *,
+html.a11y [class~="bg-inverted"] *,
+html.a11y [role="option"][aria-selected="true"] *,
+html.a11y [role="option"][data-highlighted] *,
+html.a11y [role="menuitem"][data-highlighted] *,
+html.a11y [aria-pressed="true"] * {
+  background-color: transparent !important;
+  color: var(--a11y-bg) !important;
+}
+
+/* Иконка внутри инвертированного блока красится цветом текста блока. */
+html.a11y [class~="bg-primary"] .iconify,
+html.a11y [class~="bg-error"] .iconify,
+html.a11y [class~="bg-inverted"] .iconify,
+html.a11y [role="option"][aria-selected="true"] .iconify,
+html.a11y [role="option"][data-highlighted] .iconify,
+html.a11y [role="menuitem"][data-highlighted] .iconify,
+html.a11y [aria-pressed="true"] .iconify,
+html.a11y header .iconify,
+html.a11y footer .iconify {
+  background-color: currentColor !important;
+}
+
+/*
+ * Сплошная кнопка ВНУТРИ шапки или подвала инвертируется наоборот —
+ * иначе её фон совпал бы с фоном полосы и кнопка пропала.
+ */
+html.a11y header [class~="bg-primary"],
+html.a11y header [class~="bg-error"],
+html.a11y footer [class~="bg-primary"],
+html.a11y footer [class~="bg-error"] {
+  background-color: var(--a11y-bg) !important;
+  color: var(--a11y-fg) !important;
+  border-color: var(--a11y-bg) !important;
+}
+
+html.a11y header [class~="bg-primary"] *,
+html.a11y header [class~="bg-error"] *,
+html.a11y footer [class~="bg-primary"] *,
+html.a11y footer [class~="bg-error"] * {
+  color: var(--a11y-fg) !important;
+}
+
+/*
+ * **ЛОВУШКА, из-за которой кнопка «Найти билеты» выходила чёрной на чёрном.**
+ * Полупрозрачным подложкам мягких вариантов (`bg-primary/10`) отдельное
+ * правило НЕ нужно: общий сброс выше и так красит их фоном страницы. А
+ * написанное по образцу `[class*="bg-error/"]` ловило `hover:bg-error/75` у
+ * СПЛОШНОЙ кнопки и перекрывало её инверсию — фон становился цветом
+ * страницы, текст оставался цветом фона, и подпись пропадала.
+ */
 
 /* ──────────────────── Ссылки, кнопки и поля ввода ──────────────────── */
 
@@ -161,21 +300,31 @@ html.a11y a:focus-visible {
   text-decoration-thickness: 3px !important;
 }
 
+/* Текущая страница в меню — начертанием и подчёркиванием, а не оттенком
+   фона: на двухцветной схеме оттенков нет. */
+html.a11y [aria-current="page"] {
+  font-weight: 700 !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 3px !important;
+}
+
 /* Фокус виден всегда и везде: по сайту ходят с клавиатуры. */
 html.a11y *:focus-visible {
   outline: 3px solid var(--a11y-fg) !important;
   outline-offset: 2px !important;
 }
 
-/*
- * Сплошные кнопки темы без своего фона превратились бы в обычный текст —
- * возвращаем им рамку, чтобы было видно, что это кнопка.
- */
+html.a11y header *:focus-visible,
+html.a11y footer *:focus-visible {
+  outline-color: var(--a11y-bg) !important;
+}
+
+/* Кнопка остаётся кнопкой: рамка есть и у ghost-вариантов без фона. */
 html.a11y button,
 html.a11y [role="button"],
 html.a11y input[type="submit"],
 html.a11y input[type="button"] {
-  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+  border: var(--a11y-line-width) solid currentColor !important;
   text-decoration: none !important;
 }
 
@@ -193,13 +342,30 @@ html.a11y [disabled] {
   border-style: dashed !important;
 }
 
+/*
+ * Переключатель («Показывать ушедшие рейсы»): состояние у него читается по
+ * положению бегунка, а бегунок на двухцветной схеме сливался с дорожкой —
+ * оба получали фон страницы, и выходила пустая капсула без признака
+ * включения. Дорожка и бегунок всегда разного цвета.
+ */
+html.a11y [role="switch"] {
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+html.a11y [role="switch"] > * {
+  background-color: var(--a11y-fg) !important;
+}
+
+html.a11y [role="switch"][data-state="checked"] > * {
+  background-color: var(--a11y-bg) !important;
+}
+
 /* ──────────────── Всплывающие слои: им фон обязателен ──────────────── */
 
 /*
  * Модальные окна, выпадающие списки, меню и уведомления всплывают ПОВЕРХ
- * страницы — прозрачными они наложились бы на текст под собой. Цепляемся за
- * роли ARIA и обёртку Reka UI, а не за классы темы: роли у компонентов не
- * меняются от версии к версии.
+ * страницы. Цепляемся за роли ARIA и обёртку Reka UI, а не за классы темы:
+ * роли у компонентов не меняются от версии к версии.
  */
 html.a11y [role="dialog"],
 html.a11y [role="alertdialog"],
@@ -210,21 +376,154 @@ html.a11y [role="status"],
 html.a11y [role="alert"],
 html.a11y [data-reka-popper-content-wrapper] > * {
   background-color: var(--a11y-bg) !important;
+  color: var(--a11y-fg) !important;
   border: var(--a11y-line-width) solid var(--a11y-fg) !important;
 }
 
-/* Выбранный и подсвеченный пункт списка — инверсией, а не оттенком фона. */
-html.a11y [role="option"][aria-selected="true"],
-html.a11y [role="option"][data-highlighted],
-html.a11y [role="menuitem"][data-highlighted] {
-  background-color: var(--a11y-fg) !important;
-  color: var(--a11y-bg) !important;
+/*
+ * Кнопка закрытия модального окна в теме позиционирована абсолютно, и
+ * заголовок под неё места не оставляет. При крупном шрифте кнопка выросла и
+ * легла поверх заголовка («Войти в личный кабин⨉»). В этом режиме ставим её
+ * в общий ряд — заголовок и крестик делят строку и переносятся вместе.
+ */
+html.a11y [role="dialog"] button[class*="absolute"] {
+  position: static !important;
+  margin-inline-start: auto !important;
 }
 
-html.a11y [role="option"][aria-selected="true"] .iconify,
-html.a11y [role="option"][data-highlighted] .iconify,
-html.a11y [role="menuitem"][data-highlighted] .iconify {
-  background-color: currentColor !important;
+/* Панель выпадающего списка не должна быть шире экрана: у темы на ней
+   фиксированные `min-w-*` в rem, а они растут вместе с кеглем. */
+html.a11y [role="listbox"],
+html.a11y [role="menu"],
+html.a11y [data-reka-popper-content-wrapper] > * {
+  min-width: 0 !important;
+  max-width: 100vw !important;
+}
+
+/* ───────────── Вёрстка: всё должно влезать по ширине ───────────── */
+
+/*
+ * Горизонтальная прокрутка в этом режиме недопустима: при увеличении
+ * содержимое обязано переноситься (WCAG 1.4.10). Крупный шрифт тянет за
+ * собой rem-отступы и rem-ширины, поэтому ниже снимаются все ограничения,
+ * из-за которых содержимое не умещалось и обрезалось.
+ */
+
+/* Ряды переносятся на следующую строку. `flex-col` исключён: у колонок
+   перенос означал бы вторую колонку вместо продолжения списка. */
+html.a11y [class*="flex"]:not([class*="flex-col"]) {
+  flex-wrap: wrap !important;
+}
+
+/* Элемент ряда может сжиматься: без `min-width: 0` длинное слово внутри
+   растягивает весь ряд и выдавливает соседей за край. */
+html.a11y [class*="flex"] > *,
+html.a11y [class*="grid"] > * {
+  min-width: 0 !important;
+}
+
+/* Фиксированные минимальные ширины (`min-w-56`, `min-w-40`) заданы в rem и
+   растут с кеглем: 56 шагов при 22px — это 492px, шире любого телефона. */
+html.a11y [class*="min-w-"] {
+  min-width: 0 !important;
+}
+
+/*
+ * Никаких многоточий и неразрывных строк: не влезло — переносим.
+ * Это прямое требование к версии (и в обычной вёрстке так сделать нельзя:
+ * там на обрезке держится высота шапки и строк списков).
+ */
+html.a11y [class*="truncate"],
+html.a11y [class*="text-ellipsis"],
+html.a11y [class*="whitespace-nowrap"],
+html.a11y [class*="text-nowrap"] {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  max-width: 100% !important;
+}
+
+/* Подпись кнопки переносится, высота — по содержимому. Иначе длинные
+   подписи («Завершить оформление», «Отменить заказ») обрезались. */
+html.a11y button,
+html.a11y [role="button"],
+html.a11y a[class*="inline-flex"],
+html.a11y button[class*="inline-flex"] {
+  white-space: normal !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  /* Свой межстрочный интервал: общий (до 2.2) раздувал кнопки — кнопка
+     с одной иконкой становилась 59px вместо 36px и наезжала на соседей. */
+  line-height: 1.3 !important;
+}
+
+/*
+ * ВНУТРИ кнопки ряд НЕ переносится. Перенос там означал не «подпись в две
+ * строки», а «стрелка списка уехала под текст»: у поля «Откуда» галочка
+ * падала на вторую строку и поле выглядело сломанным. Переносится сам
+ * ТЕКСТ (`white-space: normal` выше), а иконка остаётся на своей строке.
+ */
+html.a11y button[class*="flex"]:not([class*="flex-col"]),
+html.a11y [role="button"][class*="flex"]:not([class*="flex-col"]),
+html.a11y a[class*="inline-flex"]:not([class*="flex-col"]) {
+  flex-wrap: nowrap !important;
+}
+
+/*
+ * Многоколоночные сетки выстраиваются в одну колонку. При крупном кегле в
+ * колонку 180px («Дата поездки» формы поиска) не влезает ни подпись, ни
+ * поле, а фиксированная сетка `grid-cols-[1fr_1fr_180px_auto]` выпирала за
+ * край экрана. Одна колонка — обычное решение для версий для слабовидящих:
+ * заполнять сверху вниз проще, чем ловить взглядом соседние колонки.
+ */
+html.a11y [class*="grid-cols"] {
+  grid-template-columns: 1fr !important;
+}
+
+html.a11y [class*="columns-"] {
+  columns: 1 !important;
+}
+
+/* Длинные слова (адреса, названия остановок) переносятся внутри слова. */
+html.a11y body,
+html.a11y p,
+html.a11y li,
+html.a11y td,
+html.a11y th,
+html.a11y span,
+html.a11y div,
+html.a11y a,
+html.a11y button,
+html.a11y label,
+html.a11y h1, html.a11y h2, html.a11y h3, html.a11y h4 {
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+}
+
+/* Картинки и кадры не вылезают за свой блок. */
+html.a11y img,
+html.a11y picture,
+html.a11y video,
+html.a11y iframe,
+html.a11y svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* Таблицы: содержимое ячеек переносится, сама таблица не шире блока.
+   Широкие таблицы страниц уже лежат в своих `overflow-x-auto`-обёртках —
+   прокручивается таблица, а не страница. */
+html.a11y table {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+html.a11y th,
+html.a11y td {
+  white-space: normal !important;
 }
 
 /* ──────────────────────────── Изображения ──────────────────────────── */
@@ -253,32 +552,48 @@ html.a11y.a11y-no-images .iconify {
 
 html.a11y .a11y-panel {
   background-color: var(--a11y-bg) !important;
+  color: var(--a11y-fg) !important;
   border-bottom: var(--a11y-line-width) solid var(--a11y-fg) !important;
 }
 
-/* Выбранное значение — инверсия: на схеме «белым на чёрном» оттенками
-   фона разницу не увидеть. */
-html.a11y .a11y-panel [aria-pressed="true"],
-html.a11y .a11y-panel [aria-checked="true"] {
-  background-color: var(--a11y-fg) !important;
-  color: var(--a11y-bg) !important;
-  font-weight: 700 !important;
+/*
+ * Панель — служебная полоса, а не текст страницы: межбуквенный и межстрочный
+ * интервал в ней свои. С общими (до 0.14em и 2.2) кнопки панели распирало, а
+ * кружок-образец цвета вылезал за край своей кнопки: при межстрочном 2.2
+ * строка внутри кружка становилась 48px при его собственных 33px.
+ */
+html.a11y .a11y-panel,
+html.a11y .a11y-panel * {
+  letter-spacing: normal !important;
+  line-height: 1.3 !important;
 }
 
-html.a11y .a11y-panel [aria-pressed="true"] .iconify,
-html.a11y .a11y-panel [aria-checked="true"] .iconify {
+html.a11y .a11y-swatch {
+  line-height: 1 !important;
+  flex: none !important;
+}
+
+/* Выбранное значение — инверсия: на схеме «белым на чёрном» оттенками фона
+   разницу не увидеть. */
+html.a11y .a11y-panel [aria-pressed="true"] {
+  background-color: var(--a11y-fg) !important;
+  color: var(--a11y-bg) !important;
+}
+
+html.a11y .a11y-panel [aria-pressed="true"] .iconify {
   background-color: currentColor !important;
 }
 
 /*
- * Кружки с образцами схем — единственное место, где цвет значим сам по
- * себе, поэтому общий сброс для них отменён (цвета приходят из разметки
- * инлайновым стилем).
+ * Кружки с образцами схем — единственное место режима, где цвет значим сам
+ * по себе, поэтому общий сброс для них отменён (цвета приходят из разметки
+ * инлайновым стилем). Внутри нажатой кнопки — тоже.
  */
-html.a11y .a11y-swatch {
+html.a11y .a11y-swatch,
+html.a11y .a11y-panel [aria-pressed="true"] .a11y-swatch {
   background-color: var(--a11y-swatch-bg) !important;
   color: var(--a11y-swatch-fg) !important;
-  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+  border: var(--a11y-line-width) solid currentColor !important;
 }
 
 /* ────────────────────────────── Печать ────────────────────────────── */
@@ -287,8 +602,13 @@ html.a11y .a11y-swatch {
 @media print {
   html.a11y body,
   html.a11y * {
-    background: #fff !important;
+    background-color: #fff !important;
     color: #000 !important;
+    border-color: #000 !important;
+  }
+
+  html.a11y .iconify {
+    background-color: currentColor !important;
   }
 
   html.a11y .a11y-panel {

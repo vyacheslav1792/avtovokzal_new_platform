@@ -990,7 +990,10 @@ function formatDate(d: string) {
             Оплачивая заказ, вы соглашаетесь с условиями сервиса.<br>
             Если письма от сайта не приходят — проверьте папку «Спам».
           </div>
-          <div class="order-1 sm:order-2 flex items-center justify-between gap-4">
+          <!-- `flex-wrap`: на экране 320px «Всего: … ₽» и «Перейти к оплате»
+               в одну строку не помещались, и кнопка оплаты уезжала за край
+               экрана (ловилось прогоном вёрстки на узких экранах). -->
+          <div class="order-1 sm:order-2 flex flex-wrap items-center justify-between gap-4">
             <div class="whitespace-nowrap">Всего: <b class="text-2xl">{{ total.toFixed(2) }} ₽</b></div>
             <UButton
               size="xl" color="error" :loading="submitting" class="whitespace-nowrap"
