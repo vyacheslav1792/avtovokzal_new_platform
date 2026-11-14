@@ -167,12 +167,16 @@ const pdfUrl = computed(() => order.value
         description="Посадка в автобус осуществляется по документу, указанному при покупке билета. Печать билета необязательна. Возврат — не позднее чем за 30 минут до отправления."
       />
 
-      <div class="text-center flex justify-center gap-3">
+      <!-- На телефоне три кнопки в ряд не помещались: подписи ломались на
+           две-три строки, а последняя уезжала за край экрана. Ниже sm —
+           столбиком во всю ширину, подписи в одну строку. -->
+      <div class="grid gap-3 sm:flex sm:flex-wrap sm:justify-center">
         <UButton
           :to="`/print/${order.order_id}`"
           target="_blank"
           color="error"
           icon="i-lucide-printer"
+          class="justify-center whitespace-nowrap"
         >
           Распечатать билеты
         </UButton>
@@ -183,10 +187,14 @@ const pdfUrl = computed(() => order.value
           variant="outline"
           color="error"
           icon="i-lucide-file-down"
+          class="justify-center whitespace-nowrap"
         >
           Скачать билеты в PDF
         </UButton>
-        <UButton to="/" variant="outline" color="neutral" icon="i-lucide-house">
+        <UButton
+          to="/" variant="outline" color="neutral" icon="i-lucide-house"
+          class="justify-center whitespace-nowrap"
+        >
           Вернуться на главную
         </UButton>
       </div>

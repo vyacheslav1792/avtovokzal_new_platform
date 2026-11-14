@@ -266,7 +266,7 @@ function ticketTotal(t: CabinetTicket) {
       </template>
 
       <template #footer>
-        <div class="flex gap-3">
+        <div class="flex flex-wrap gap-3">
           <template v-if="step === 'preview'">
             <UButton color="error" :loading="loading" @click="confirmRefund">
               Выполнить возврат

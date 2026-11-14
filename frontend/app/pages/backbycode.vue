@@ -170,7 +170,7 @@ function reset() {
           title="Денежные средства возвращаются банком в срок от 3 до 7 дней, в некоторых случаях банк эмитент может увеличить этот срок до 30 дней."
         />
         <p>Для подтверждения операции кликните выполнить возврат.</p>
-        <div class="flex gap-3 pt-2">
+        <div class="flex flex-wrap gap-3 pt-2">
           <UButton color="error" :loading="loading" @click="confirmRefund">
             Выполнить возврат
           </UButton>
