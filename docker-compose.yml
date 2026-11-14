@@ -336,3 +336,7 @@ services:
       # бывает, поэтому на локальном контуре она просто выключена
       # (серверный ключ — CAPTCHA_SERVER_KEY в backend/.env).
       NUXT_PUBLIC_CAPTCHA_KEY: "${CAPTCHA_CLIENT_KEY:-}"
+      # Версия сайта для людей с нарушениями зрения (ГОСТ Р 52872-2019):
+      # кнопка в шапке + панель настроек. `ACCESSIBILITY_VERSION=0` в корневом
+      # .env убирает кнопку и всю версию целиком.
+      NUXT_PUBLIC_ACCESSIBILITY: "${ACCESSIBILITY_VERSION:-1}"

@@ -9,6 +9,13 @@ const { data: menu } = await useSiteMenu()
 const { user, isLoggedIn, logout } = useAuth()
 const route = useRoute()
 
+/*
+ * Версия для людей с нарушениями зрения (ГОСТ Р 52872-2019): классы режима
+ * на `<html>`. Единственная точка подключения — печатные формы идут с
+ * `layout: false` и специального режима не знают.
+ */
+const { enabled: a11yEnabled } = useAccessibilityHead()
+
 /**
  * Разделы сайта, у которых свои внутренние адреса: пункт меню должен
  * подсвечиваться и на них (страница покупки — часть «Купить билеты»).
@@ -76,6 +83,15 @@ async function signOut() {
 
 <template>
   <div class="min-h-screen flex flex-col bg-default">
+    <!--
+      Настройки версии для слабовидящих. Стоят выше шапки (и не «липкие»):
+      по ГОСТ Р 52872-2019 управление альтернативной версией должно быть в
+      начале документа, а шапка остаётся sticky top-0 как была — иначе
+      разъехались бы все `sticky top-16` на страницах (BackButton).
+      В обычном режиме компонент не рендерит ничего.
+    -->
+    <AccessibilityPanel v-if="a11yEnabled" />
+
     <header class="bg-neutral-900 text-white sticky top-0 z-40">
       <UContainer class="flex items-center gap-3 lg:gap-5 py-3">
         <NuxtLink to="/" class="flex items-center gap-2 min-w-0">
@@ -110,7 +126,8 @@ async function signOut() {
           </template>
         </nav>
 
-        <div class="hidden lg:flex items-center">
+        <div class="hidden lg:flex items-center gap-1">
+          <AccessibilityToggle label />
           <UDropdownMenu v-if="isLoggedIn" :items="accountItems">
             <UButton
               color="neutral"
@@ -134,16 +151,19 @@ async function signOut() {
           </UButton>
         </div>
 
-        <UButton
-          class="lg:hidden ml-auto shrink-0 text-neutral-200 hover:text-white"
-          color="neutral"
-          variant="ghost"
-          size="xl"
-          icon="i-lucide-menu"
-          aria-label="Меню"
-          :aria-expanded="menuOpen"
-          @click="menuOpen = true"
-        />
+        <div class="lg:hidden ml-auto flex items-center shrink-0">
+          <AccessibilityToggle />
+          <UButton
+            class="shrink-0 text-neutral-200 hover:text-white"
+            color="neutral"
+            variant="ghost"
+            size="xl"
+            icon="i-lucide-menu"
+            aria-label="Меню"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = true"
+          />
+        </div>
       </UContainer>
     </header>
 

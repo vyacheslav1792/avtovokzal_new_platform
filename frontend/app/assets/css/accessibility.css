@@ -1,0 +1,297 @@
+/*
+ * Версия сайта для людей с нарушениями зрения — ГОСТ Р 52872-2019, WCAG 2.1 AA.
+ * Логика и хранение настроек — `app/composables/useAccessibility.ts`.
+ *
+ * ПРАВИЛО ЭТОГО ФАЙЛА: каждый селектор начинается с `html.a11y`. Класс
+ * появляется только при включённом режиме, поэтому обычный вид сайта ни
+ * одним правилом отсюда не затрагивается — что бы здесь ни написали.
+ *
+ * Почему `!important` и селектор `*`. Страницы свёрстаны утилитами Tailwind
+ * и темой Nuxt UI: цвета заданы прямо в разметке (`bg-neutral-900`,
+ * `text-white`, `text-muted`) и в переменных темы. Перекрыть их выборочно
+ * нельзя — пришлось бы переписать каждую страницу и потом следить, чтобы
+ * новая разметка не разошлась со специальным режимом. Поэтому режим снимает
+ * ВСЕ фоны и цвета разом и красит страницу двумя переменными.
+ *
+ * Фон снимается в прозрачный (а не заливается цветом схемы): полупрозрачные
+ * накладки (`bg-black/40` под заголовком главной, градиент под подписями
+ * плиток) иначе стали бы сплошными плашками и закрыли бы и текст, и картинки.
+ * Цвет страницы задан один раз на `body`, всё остальное его просто показывает.
+ */
+
+/* ───────────────────────── Переменные схем и шагов ───────────────────────── */
+
+html.a11y {
+  --a11y-fg: #000;
+  --a11y-bg: #fff;
+  /* Толщина рамок: единственное, чем в этом режиме различаются блоки. */
+  --a11y-line-width: 2px;
+}
+
+/* Три обязательные по ГОСТ схемы и четвёртая, привычная по госсайтам. */
+html.a11y-scheme-white { --a11y-fg: #000; --a11y-bg: #fff; }
+html.a11y-scheme-black { --a11y-fg: #fff; --a11y-bg: #000; }
+html.a11y-scheme-blue { --a11y-fg: #063462; --a11y-bg: #9dd1ff; }
+html.a11y-scheme-beige { --a11y-fg: #4d3b2a; --a11y-bg: #f7f3d6; }
+
+/*
+ * Размер шрифта задаётся КОРНЮ документа: размеры и отступы Tailwind
+ * заданы в `rem`, поэтому вместе с текстом пропорционально растёт вся
+ * страница, а не только буквы в абзацах.
+ */
+html.a11y { font-size: 18px; }
+html.a11y.a11y-font-2 { font-size: 22px; }
+html.a11y.a11y-font-3 { font-size: 28px; }
+
+/* Межбуквенный интервал (кернинг). */
+html.a11y.a11y-letter-1 { --a11y-letter-spacing: normal; }
+html.a11y.a11y-letter-2 { --a11y-letter-spacing: 0.06em; }
+html.a11y.a11y-letter-3 { --a11y-letter-spacing: 0.14em; }
+
+/* Межстрочный интервал. Минимум 1.5 — требование WCAG 1.4.12. */
+html.a11y.a11y-line-1 { --a11y-line-height: 1.5; }
+html.a11y.a11y-line-2 { --a11y-line-height: 1.8; }
+html.a11y.a11y-line-3 { --a11y-line-height: 2.2; }
+
+html.a11y.a11y-sans { --a11y-font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; }
+html.a11y.a11y-serif { --a11y-font-family: Georgia, "Times New Roman", Times, serif; }
+
+/* ────────────────────────────── Общий сброс ────────────────────────────── */
+
+html.a11y body {
+  background-color: var(--a11y-bg) !important;
+  color: var(--a11y-fg) !important;
+}
+
+html.a11y *,
+html.a11y *::before,
+html.a11y *::after {
+  background: transparent !important;
+  color: var(--a11y-fg) !important;
+  border-color: var(--a11y-fg) !important;
+  /* Тени и обводки цветом в этом режиме только мешают разбирать границы. */
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+  font-family: var(--a11y-font-family) !important;
+  letter-spacing: var(--a11y-letter-spacing) !important;
+  line-height: var(--a11y-line-height) !important;
+  /* Крупный шрифт в узкой колонке: длинное слово должно переноситься,
+     а не выдавливать страницу в горизонтальную прокрутку. */
+  overflow-wrap: break-word !important;
+}
+
+/*
+ * Иконки Nuxt UI — это `<span class="iconify">` с `mask-image` и заливкой
+ * `background-color: currentColor`. Прозрачный фон из правила выше сделал
+ * бы их невидимыми, поэтому заливку возвращаем (и она же подхватывает цвет
+ * выбранной схемы).
+ */
+html.a11y .iconify {
+  background-color: currentColor !important;
+}
+
+/*
+ * Анимации и плавные переходы в этом режиме выключены (WCAG 2.3.3: движение
+ * мешает читать). `transform` НЕ сбрасываем: на нём держится позиционирование
+ * выпадающих списков и центрирование модальных окон — обнулив его, мы
+ * собрали бы все всплывающие слои в левом верхнем углу.
+ */
+html.a11y * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Подсказка в пустом поле — тоже текст, и он обязан читаться. */
+html.a11y ::placeholder {
+  color: var(--a11y-fg) !important;
+  opacity: 1 !important;
+}
+
+/*
+ * Крупный шрифт не влезает в прежнюю сетку: при 28px строка шапки
+ * (логотип + меню + кабинет + кнопка режима) выдавливала страницу в
+ * горизонтальную прокрутку на 143px. Поэтому горизонтальные ряды шапки,
+ * меню и подвала в этом режиме переносятся на следующую строку.
+ * Прокрутка влево-вправо для слабовидящего — худшее, что можно сделать:
+ * при увеличении страницы текст должен переноситься (WCAG 1.4.10).
+ */
+html.a11y header *,
+html.a11y nav,
+html.a11y nav *,
+html.a11y footer * {
+  flex-wrap: wrap !important;
+  min-width: 0 !important;
+}
+
+/*
+ * Многоколоночные сетки выстраиваются в одну колонку. При 28px шрифта в
+ * колонку 180px («Дата поездки» формы поиска) не влезает ни подпись, ни
+ * само поле, а фиксированная сетка `grid-cols-[1fr_1fr_180px_auto]`
+ * выпирала за край экрана. Одна колонка — обычное решение для версий для
+ * слабовидящих: читать и заполнять сверху вниз проще, чем ловить взглядом
+ * соседние колонки при большом увеличении.
+ */
+html.a11y [class*="grid-cols"] {
+  grid-template-columns: 1fr !important;
+}
+
+html.a11y [class*="columns-"] {
+  columns: 1 !important;
+}
+
+/* Названия в шапке и меню не обрезаем многоточием — лучше в две строки. */
+html.a11y header .truncate,
+html.a11y nav .truncate,
+html.a11y footer .truncate {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+}
+
+/* ──────────────────── Ссылки, кнопки и поля ввода ──────────────────── */
+
+/* Ссылка обязана отличаться от текста не только цветом (WCAG 1.4.1). */
+html.a11y a {
+  text-decoration: underline !important;
+}
+
+html.a11y a:hover,
+html.a11y a:focus-visible {
+  text-decoration-thickness: 3px !important;
+}
+
+/* Фокус виден всегда и везде: по сайту ходят с клавиатуры. */
+html.a11y *:focus-visible {
+  outline: 3px solid var(--a11y-fg) !important;
+  outline-offset: 2px !important;
+}
+
+/*
+ * Сплошные кнопки темы без своего фона превратились бы в обычный текст —
+ * возвращаем им рамку, чтобы было видно, что это кнопка.
+ */
+html.a11y button,
+html.a11y [role="button"],
+html.a11y input[type="submit"],
+html.a11y input[type="button"] {
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+  text-decoration: none !important;
+}
+
+html.a11y input,
+html.a11y select,
+html.a11y textarea {
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+/* Отключённые элементы: прозрачность на цветных схемах читается плохо. */
+html.a11y :disabled,
+html.a11y [aria-disabled="true"],
+html.a11y [disabled] {
+  opacity: 1 !important;
+  border-style: dashed !important;
+}
+
+/* ──────────────── Всплывающие слои: им фон обязателен ──────────────── */
+
+/*
+ * Модальные окна, выпадающие списки, меню и уведомления всплывают ПОВЕРХ
+ * страницы — прозрачными они наложились бы на текст под собой. Цепляемся за
+ * роли ARIA и обёртку Reka UI, а не за классы темы: роли у компонентов не
+ * меняются от версии к версии.
+ */
+html.a11y [role="dialog"],
+html.a11y [role="alertdialog"],
+html.a11y [role="menu"],
+html.a11y [role="listbox"],
+html.a11y [role="tooltip"],
+html.a11y [role="status"],
+html.a11y [role="alert"],
+html.a11y [data-reka-popper-content-wrapper] > * {
+  background-color: var(--a11y-bg) !important;
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+/* Выбранный и подсвеченный пункт списка — инверсией, а не оттенком фона. */
+html.a11y [role="option"][aria-selected="true"],
+html.a11y [role="option"][data-highlighted],
+html.a11y [role="menuitem"][data-highlighted] {
+  background-color: var(--a11y-fg) !important;
+  color: var(--a11y-bg) !important;
+}
+
+html.a11y [role="option"][aria-selected="true"] .iconify,
+html.a11y [role="option"][data-highlighted] .iconify,
+html.a11y [role="menuitem"][data-highlighted] .iconify {
+  background-color: currentColor !important;
+}
+
+/* ──────────────────────────── Изображения ──────────────────────────── */
+
+/*
+ * Выключение графики (ГОСТ Р 52872-2019). Фоновые картинки в этом режиме
+ * сняты всегда — они декоративные и съедают контраст; переключатель
+ * управляет содержательными `<img>`, `<picture>` и `<video>`.
+ *
+ * `<iframe>` и `<svg>` сознательно НЕ прячем: в кадре живёт капча формы
+ * обратной связи (Yandex SmartCaptcha), и без неё форму стало бы не
+ * отправить — выключение картинок не должно отбирать возможность написать.
+ */
+html.a11y.a11y-no-images img,
+html.a11y.a11y-no-images picture,
+html.a11y.a11y-no-images video {
+  display: none !important;
+}
+
+/* Иконки интерфейса — не изображения, а подписи к кнопкам: остаются. */
+html.a11y.a11y-no-images .iconify {
+  display: inline-block !important;
+}
+
+/* ───────────────────────── Панель настроек ───────────────────────── */
+
+html.a11y .a11y-panel {
+  background-color: var(--a11y-bg) !important;
+  border-bottom: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+/* Выбранное значение — инверсия: на схеме «белым на чёрном» оттенками
+   фона разницу не увидеть. */
+html.a11y .a11y-panel [aria-pressed="true"],
+html.a11y .a11y-panel [aria-checked="true"] {
+  background-color: var(--a11y-fg) !important;
+  color: var(--a11y-bg) !important;
+  font-weight: 700 !important;
+}
+
+html.a11y .a11y-panel [aria-pressed="true"] .iconify,
+html.a11y .a11y-panel [aria-checked="true"] .iconify {
+  background-color: currentColor !important;
+}
+
+/*
+ * Кружки с образцами схем — единственное место, где цвет значим сам по
+ * себе, поэтому общий сброс для них отменён (цвета приходят из разметки
+ * инлайновым стилем).
+ */
+html.a11y .a11y-swatch {
+  background-color: var(--a11y-swatch-bg) !important;
+  color: var(--a11y-swatch-fg) !important;
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+/* ────────────────────────────── Печать ────────────────────────────── */
+
+/* На бумаге — всегда чёрным по белому, панель настроек не печатается. */
+@media print {
+  html.a11y body,
+  html.a11y * {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  html.a11y .a11y-panel {
+    display: none !important;
+  }
+}

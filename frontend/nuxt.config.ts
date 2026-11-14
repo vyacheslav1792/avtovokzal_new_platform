@@ -3,7 +3,10 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
   modules: ['@nuxt/ui'],
-  css: ['~/assets/css/main.css'],
+  // Стили специального режима идут отдельным файлом и ПОСЛЕ основного:
+  // все их селекторы начинаются с `html.a11y`, поэтому на обычный вид сайта
+  // они не влияют (см. app/assets/css/accessibility.css).
+  css: ['~/assets/css/main.css', '~/assets/css/accessibility.css'],
   app: {
     head: {
       title: 'Автовокзал57 Орёл — покупка билетов онлайн',
@@ -69,6 +72,12 @@ export default defineNuxtConfig({
       // связи — NUXT_PUBLIC_CAPTCHA_KEY. Пустой = капчи на форме нет
       // (локальный контур: тестовых ключей у сервиса не бывает).
       captchaKey: '',
+      // Версия сайта для людей с нарушениями зрения (ГОСТ Р 52872-2019):
+      // кнопка в шапке и панель настроек. Выключается целиком —
+      // `ACCESSIBILITY_VERSION=0` в корневом `.env` (compose передаёт её как
+      // NUXT_PUBLIC_ACCESSIBILITY). Выключенная версия не рендерит ни кнопку,
+      // ни панель, а класс режима на `<html>` не ставится.
+      accessibility: true,
     },
   },
 })
