@@ -15,7 +15,8 @@ use Illuminate\Validation\Rule;
  * В legacy это были preg_match прямо в url/contact.php: новое спам-слово =
  * правка исходника и выкладка на боевой сервер.
  *
- * БЕЗ авторизации — как остальные админские разделы (этап users).
+ * Права сотрудника АИС: `spam-rules.view` и `spam-rules.edit`
+ * (middleware `ais.can` в routes/api.php).
  */
 class AdminSpamRuleController extends Controller
 {

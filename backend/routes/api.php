@@ -106,36 +106,65 @@ Route::prefix('v1')->group(function () {
         Route::post('cabinet/refunds/confirm', [CabinetController::class, 'refundConfirm']);
     });
 
-    // Админский возврат (перенос ais/back_bilet.php); авторизация — на этапе
-    // users, на прод без неё не открывать.
-    Route::post('admin/refunds/inspect', [AdminRefundController::class, 'inspect']);
-    Route::post('admin/refunds/confirm', [AdminRefundController::class, 'confirm']);
-    Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair']);
+    /*
+     * Админское API сайта: его вызывает АИС (ais-spa через /site-api).
+     * Каждый маршрут требует СВОЕГО права сотрудника АИС — права хранятся
+     * в БД `ais`, сотрудника backend читает оттуда же (App\Services\AisAuth),
+     * а набор прав описан в shared/ais_permissions.php. Опасные операции
+     * (возврат денег, удаления) там же помечены как требующие кода
+     * подтверждения — его спрашивает то же middleware.
+     */
 
-    // Редактирование контактов сайта из админки АИС (там же, без авторизации).
-    Route::get('admin/contacts', [AdminContactController::class, 'index']);
-    Route::put('admin/contacts', [AdminContactController::class, 'update']);
+    // Админский возврат (перенос ais/back_bilet.php).
+    Route::post('admin/refunds/inspect', [AdminRefundController::class, 'inspect'])
+        ->middleware('ais.can:back-ticket.inspect');
+    Route::post('admin/refunds/confirm', [AdminRefundController::class, 'confirm'])
+        ->middleware('ais.can:back-ticket.refund');
+    Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair'])
+        ->middleware('ais.can:back-ticket.repair');
+
+    // Редактирование контактов сайта из админки АИС.
+    Route::get('admin/contacts', [AdminContactController::class, 'index'])
+        ->middleware('ais.can:contacts.view');
+    Route::put('admin/contacts', [AdminContactController::class, 'update'])
+        ->middleware('ais.can:contacts.edit');
 
     // Страницы, меню и файлы сайта — там же, из админки АИС.
-    Route::get('admin/pages', [AdminPageController::class, 'index']);
-    Route::post('admin/pages', [AdminPageController::class, 'store']);
-    Route::get('admin/pages/{page}', [AdminPageController::class, 'show']);
-    Route::put('admin/pages/{page}', [AdminPageController::class, 'update']);
-    Route::delete('admin/pages/{page}', [AdminPageController::class, 'destroy']);
+    Route::get('admin/pages', [AdminPageController::class, 'index'])
+        ->middleware('ais.can:pages.view');
+    Route::post('admin/pages', [AdminPageController::class, 'store'])
+        ->middleware('ais.can:pages.edit');
+    Route::get('admin/pages/{page}', [AdminPageController::class, 'show'])
+        ->middleware('ais.can:pages.view');
+    Route::put('admin/pages/{page}', [AdminPageController::class, 'update'])
+        ->middleware('ais.can:pages.edit');
+    Route::delete('admin/pages/{page}', [AdminPageController::class, 'destroy'])
+        ->middleware('ais.can:pages.delete');
 
-    Route::get('admin/menu', [AdminMenuController::class, 'index']);
-    Route::put('admin/menu', [AdminMenuController::class, 'update']);
+    Route::get('admin/menu', [AdminMenuController::class, 'index'])
+        ->middleware('ais.can:menu.view');
+    Route::put('admin/menu', [AdminMenuController::class, 'update'])
+        ->middleware('ais.can:menu.edit');
 
     // Обращения с сайта и антиспам-словарь — там же, из админки АИС.
-    Route::get('admin/feedback', [AdminFeedbackController::class, 'index']);
-    Route::get('admin/feedback/{feedback}', [AdminFeedbackController::class, 'show'])->whereNumber('feedback');
-    Route::put('admin/feedback/{feedback}', [AdminFeedbackController::class, 'update'])->whereNumber('feedback');
-    Route::delete('admin/feedback/{feedback}', [AdminFeedbackController::class, 'destroy'])->whereNumber('feedback');
+    Route::get('admin/feedback', [AdminFeedbackController::class, 'index'])
+        ->middleware('ais.can:feedback.view');
+    Route::get('admin/feedback/{feedback}', [AdminFeedbackController::class, 'show'])
+        ->whereNumber('feedback')->middleware('ais.can:feedback.view');
+    Route::put('admin/feedback/{feedback}', [AdminFeedbackController::class, 'update'])
+        ->whereNumber('feedback')->middleware('ais.can:feedback.edit');
+    Route::delete('admin/feedback/{feedback}', [AdminFeedbackController::class, 'destroy'])
+        ->whereNumber('feedback')->middleware('ais.can:feedback.delete');
 
-    Route::get('admin/spam-rules', [AdminSpamRuleController::class, 'index']);
-    Route::put('admin/spam-rules', [AdminSpamRuleController::class, 'update']);
+    Route::get('admin/spam-rules', [AdminSpamRuleController::class, 'index'])
+        ->middleware('ais.can:spam-rules.view');
+    Route::put('admin/spam-rules', [AdminSpamRuleController::class, 'update'])
+        ->middleware('ais.can:spam-rules.edit');
 
-    Route::get('admin/uploads', [AdminUploadController::class, 'index']);
-    Route::post('admin/uploads', [AdminUploadController::class, 'store']);
-    Route::delete('admin/uploads', [AdminUploadController::class, 'destroy']);
+    Route::get('admin/uploads', [AdminUploadController::class, 'index'])
+        ->middleware('ais.can:uploads.view');
+    Route::post('admin/uploads', [AdminUploadController::class, 'store'])
+        ->middleware('ais.can:uploads.upload');
+    Route::delete('admin/uploads', [AdminUploadController::class, 'destroy'])
+        ->middleware('ais.can:uploads.delete');
 });

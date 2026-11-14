@@ -10,6 +10,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import FileManager from '../components/FileManager.vue'
 import HtmlEditor from '../components/HtmlEditor.vue'
 import { createPage, fetchPage, updatePage } from '../siteApi'
+import { can } from '../auth'
 
 // CodeMirror весит больше всего остального приложения вместе взятого —
 // грузим его только когда открыли HTML-режим, а не при заходе в отчёты.
@@ -199,7 +200,7 @@ onMounted(() => {
       <CodeEditor v-if="mode === 'html'" v-model="page.content" />
 
       <p class="edit-actions">
-        <button type="button" class="btn primary" :disabled="saving || !dirty" @click="save">
+        <button v-if="can('pages.edit')" type="button" class="btn primary" :disabled="saving || !dirty" @click="save">
           {{ saving ? 'Сохранение…' : 'Сохранить' }}
         </button>
         <span v-if="dirty" class="muted">есть несохранённые изменения</span>

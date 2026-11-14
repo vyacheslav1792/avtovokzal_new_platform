@@ -13,7 +13,8 @@ use RuntimeException;
  * перечень 223-ФЗ, плакаты о мошенничестве. В legacy их клали в
  * avtovokzal57/docs по FTP.
  *
- * БЕЗ авторизации — как остальная админка; на прод не открывать.
+ * Права сотрудника АИС: `uploads.view`, `uploads.upload` и
+ * `uploads.delete` (последнее — с кодом подтверждения).
  */
 class AdminUploadController extends Controller
 {

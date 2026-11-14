@@ -11,8 +11,8 @@ use Illuminate\Http\JsonResponse;
  * Редактирование контактов из админки АИС (ais-spa, страница /contacts).
  * В legacy эти данные правились прямо в исходнике url/contacts.php.
  *
- * БЕЗ авторизации — как и админский возврат; на прод не открывать
- * (авторизация появится на этапе users).
+ * Права сотрудника АИС: `contacts.view` и `contacts.edit`
+ * (middleware `ais.can` в routes/api.php).
  */
 class AdminContactController extends Controller
 {

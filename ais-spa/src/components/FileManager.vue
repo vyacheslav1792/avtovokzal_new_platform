@@ -7,6 +7,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { deleteUpload, fetchUploads, uploadFile } from '../siteApi'
+import { can } from '../auth'
 
 const emit = defineEmits(['close', 'pick'])
 
@@ -88,7 +89,7 @@ onMounted(load)
 
       <div class="fm-tools">
         <input v-model="filter" class="fm-filter" type="search" placeholder="Поиск по имени">
-        <label class="btn small primary fm-upload">
+        <label v-if="can('uploads.upload')" class="btn small primary fm-upload">
           {{ uploading ? 'Загрузка…' : 'Загрузить файл' }}
           <input ref="input" type="file" multiple hidden :disabled="uploading" @change="upload">
         </label>
@@ -115,7 +116,7 @@ onMounted(load)
             <td class="fm-num">{{ date(file.modified_at) }}</td>
             <td class="fm-actions">
               <button type="button" class="btn small primary" @click="emit('pick', file)">Вставить</button>
-              <button type="button" class="btn small" @click="remove(file)">Удалить</button>
+              <button v-if="can('uploads.delete')" type="button" class="btn small" @click="remove(file)">Удалить</button>
             </td>
           </tr>
           <tr v-if="!visible.length">

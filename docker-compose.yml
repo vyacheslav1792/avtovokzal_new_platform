@@ -102,6 +102,9 @@ services:
     working_dir: /var/www/html
     volumes:
       - ./backend:/var/www/html
+      # Каталог модулей и прав АИС (shared/ais_permissions.php): backend
+      # проверяет по нему права сотрудника на своих /api/v1/admin/*.
+      - ./shared:/var/www/shared:ro
       # Файлы страниц сайта (PDF документов, плакаты): в legacy лежали
       # в avtovokzal57/docs и заливались по FTP, теперь их грузит админка.
       - ./data/uploads:/var/www/uploads
@@ -177,6 +180,7 @@ services:
       args:
         UID: ${UID:-1000}
         GID: ${GID:-1000}
+    container_name: avtovokzal-ais-app # стабильное имя для job-exec ofelia
     working_dir: /var/www/html
     volumes:
       - ./ais-api:/var/www/html

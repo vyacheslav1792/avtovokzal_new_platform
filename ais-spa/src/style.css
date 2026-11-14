@@ -225,3 +225,63 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
 .fm-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
 .fm-filter { flex: 1 1 auto; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 14px; }
 .fm-upload { display: inline-flex; align-items: center; }
+
+/* ── Авторизация сотрудников, профиль, сотрудники и роли ──────────────── */
+
+.boot { padding: 40px 22px; }
+
+/* Кто вошёл — в топбаре справа */
+.topbar-user { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.topbar-name { color: var(--text); text-decoration: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-name:hover { text-decoration: underline; }
+
+/* Форма входа: единственный экран без топбара и меню */
+.login-screen { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; box-shadow: 0 2px 14px rgba(31, 39, 51, .06); }
+.login-title { font-size: 20px; font-weight: 700; }
+.login-sub { margin: 4px 0 18px; }
+.login-field { display: block; margin-bottom: 14px; }
+.login-field .field-label { display: block; margin-bottom: 5px; }
+.login-field input { width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 15px; background: #fff; }
+.login-submit { width: 100%; }
+.login-hint { font-size: 12px; margin: 14px 0 0; }
+
+/* Блоки настроек (профиль, формы сотрудника и роли) */
+.narrow { max-width: 760px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.panel h2 { font-size: 16px; margin: 0 0 10px; }
+.hint { font-size: 12px; margin: 2px 0 12px; }
+.form-grid { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0; }
+.form-grid .field input { padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 14px; background: #fff; min-width: 220px; }
+.form-grid .field-wide { flex: 1 1 380px; }
+.form-grid .field-wide input { width: 100%; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.check input { margin: 0; }
+
+/* Выданный секрет: показывается один раз */
+.secret { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; background: #fff; border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 6px; user-select: all; }
+
+/* Роли сотрудника */
+.role-picker { display: flex; flex-direction: column; gap: 6px; }
+.role-chip { display: inline-block; background: var(--head); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 12px; margin: 0 4px 4px 0; }
+.emp-actions { flex-wrap: wrap; }
+
+/* Редактор прав роли */
+.perm-group { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.perm-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.perm-group-title { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
+.perm-module { padding: 6px 0 6px 2px; }
+.perm-module-title { margin-bottom: 2px; }
+/* Права модуля — под его названием, с отступом: видно, к чему они относятся */
+.perm-list { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-left: 24px; }
+.perm-confirm { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #8a6d3b; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 999px; padding: 0 6px; }
+
+.home-sub { font-size: 16px; margin: 22px 0 0; }
+
+/* Код подтверждения опасного действия */
+.cc-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(20, 26, 38, .45); display: flex; align-items: flex-start; justify-content: center; padding: 60px 16px; overflow: auto; }
+.cc-dialog { width: 100%; max-width: 380px; background: var(--panel); border-radius: 12px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, .25); }
+.cc-title { font-weight: 700; margin-bottom: 6px; }
+.cc-input { width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 15px; margin: 12px 0; }
+.cc-actions { display: flex; gap: 8px; }

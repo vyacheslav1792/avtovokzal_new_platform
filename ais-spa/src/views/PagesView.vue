@@ -7,6 +7,7 @@
  */
 import { onMounted, ref } from 'vue'
 import { deletePage, fetchPages } from '../siteApi'
+import { can } from '../auth'
 
 const SITE_URL = (import.meta.env.VITE_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '')
 
@@ -61,8 +62,8 @@ onMounted(() => {
 
     <template v-else>
       <p>
-        <router-link class="btn primary" to="/pages/new">Новая страница</router-link>
-        <router-link class="btn" to="/menu" style="margin-left: 8px">Меню сайта</router-link>
+        <router-link v-if="can('pages.edit')" class="btn primary" to="/pages/new">Новая страница</router-link>
+        <router-link v-if="can('menu.view')" class="btn" to="/menu" style="margin-left: 8px">Меню сайта</router-link>
       </p>
 
       <table class="pages-table">
@@ -90,8 +91,10 @@ onMounted(() => {
             </td>
             <td>{{ updated(page.updated_at) }}</td>
             <td class="pages-actions">
-              <router-link class="btn small" :to="`/pages/${page.id}`">Править</router-link>
-              <button type="button" class="btn small" @click="remove(page)">Удалить</button>
+              <router-link class="btn small" :to="`/pages/${page.id}`">
+                {{ can('pages.edit') ? 'Править' : 'Открыть' }}
+              </router-link>
+              <button v-if="can('pages.delete')" type="button" class="btn small" @click="remove(page)">Удалить</button>
             </td>
           </tr>
           <tr v-if="!pages.length">

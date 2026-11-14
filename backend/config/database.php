@@ -104,6 +104,29 @@ return [
             'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
         ],
 
+        // БД АИС (ais-api): сотрудники, роли и сессии. Админские
+        // /api/v1/admin/* сайта вызывает АИС, и сотрудника с его правами
+        // backend проверяет ЗДЕСЬ же — прямым чтением тех же таблиц, а не
+        // запросом в ais-api: лишний сетевой вызов на каждый запрос, да ещё
+        // и с кэшем прав, не нужен (оба приложения живут в одном Postgres).
+        // Пишет backend в эту базу только отметку обращения к сессии.
+        'ais' => [
+            'driver' => 'pgsql',
+            'host' => env('AIS_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('AIS_DB_PORT', env('DB_PORT', '5432')),
+            'database' => env('AIS_DB_DATABASE', 'ais'),
+            'username' => env('AIS_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('AIS_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Сроки жизни сессии считаются по московскому времени — тому же,
+            // в котором их пишет ais-api.
+            'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

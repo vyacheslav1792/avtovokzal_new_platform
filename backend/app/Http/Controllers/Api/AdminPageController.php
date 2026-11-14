@@ -13,8 +13,9 @@ use Illuminate\Http\JsonResponse;
  * В legacy правка текста означала выкладку файла url/<slug>.php на боевой
  * сервер, а <title> — правку switch в index.php.
  *
- * БЕЗ авторизации — как контакты и админский возврат; на прод не открывать
- * (авторизация появится на этапе users).
+ * Права сотрудника АИС: `pages.view` на чтение, `pages.edit` на правку,
+ * `pages.delete` на удаление (оно же требует кода подтверждения) —
+ * см. middleware `ais.can` в routes/api.php.
  */
 class AdminPageController extends Controller
 {

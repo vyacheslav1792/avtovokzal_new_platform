@@ -4,9 +4,11 @@
 // спам-слово, правили исходник и выкладывали его на боевой сервер.
 // Здесь правила лежат в базе и правятся отсюда.
 //
-// Авторизации пока нет — как и на остальных админских страницах (этап users).
+// Кнопка сохранения показывается только с правом `spam-rules.edit`:
+// правила может быть разрешено лишь смотреть.
 import { ref, computed, onMounted } from 'vue'
 import { fetchSpamRules, saveSpamRules } from '../siteApi'
+import { can } from '../auth'
 
 const KINDS = [
   { value: 'substring', label: 'Слово или часть слова' },
@@ -240,7 +242,7 @@ onMounted(() => {
       </section>
 
       <div class="sr-save">
-        <button class="btn primary" :disabled="saving || !dirty" @click="save">
+        <button v-if="can('spam-rules.edit')" class="btn primary" :disabled="saving || !dirty" @click="save">
           {{ saving ? 'Сохранение…' : 'Сохранить' }}
         </button>
         <button class="btn" :disabled="saving || !dirty" @click="load">Отменить изменения</button>

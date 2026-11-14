@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\AisEmployeeCan;
+use App\Services\SalesApiException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -13,14 +15,18 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Админские маршруты сайта вызывает АИС — сотрудника и его права
+        // backend читает из БД `ais` (см. App\Services\AisAuth).
+        $middleware->alias([
+            'ais.can' => AisEmployeeCan::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
 
-        $exceptions->render(function (\App\Services\SalesApiException $e, Request $request) {
+        $exceptions->render(function (SalesApiException $e, Request $request) {
             return response()->json([
                 'success' => false,
                 'error' => $e->getMessage(),

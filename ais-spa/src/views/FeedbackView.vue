@@ -4,7 +4,8 @@
 // не видел никто. Здесь каждое обращение лежит в базе сайта, у него есть
 // статус, заметка оператора и отметка времени ответа.
 //
-// Авторизации пока нет — как и на остальных админских страницах (этап users).
+// Заметку и статус правит тот, у кого есть `feedback.edit`, удаляет —
+// `feedback.delete`; остальным эти кнопки не показываются.
 import { ref, computed, onMounted, watch } from 'vue'
 import {
   fetchFeedback,
@@ -12,6 +13,7 @@ import {
   updateFeedbackMessage,
   deleteFeedbackMessage,
 } from '../siteApi'
+import { can } from '../auth'
 
 const STATUSES = [
   { value: 'new', label: 'Новые' },
@@ -295,7 +297,7 @@ onMounted(() => {
       </label>
 
       <div class="fb-actions">
-        <button class="btn" :disabled="saving" @click="saveNote">Сохранить заметку</button>
+        <button v-if="can('feedback.edit')" class="btn" :disabled="saving" @click="saveNote">Сохранить заметку</button>
         <span class="fb-sep"></span>
         <button
           v-for="s in STATUSES"
@@ -308,7 +310,7 @@ onMounted(() => {
           {{ s.label }}
         </button>
         <span class="fb-sep"></span>
-        <button class="btn danger" :disabled="saving" @click="remove">Удалить</button>
+        <button v-if="can('feedback.delete')" class="btn danger" :disabled="saving" @click="remove">Удалить</button>
       </div>
     </div>
   </div>

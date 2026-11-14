@@ -6,6 +6,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { fetchMenu, fetchPages, saveMenu } from '../siteApi'
+import { can } from '../auth'
 
 const SITE_URL = (import.meta.env.VITE_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '')
 
@@ -172,7 +173,7 @@ onMounted(() => {
       </datalist>
 
       <p class="edit-actions">
-        <button type="button" class="btn primary" :disabled="saving || !dirty" @click="save">
+        <button v-if="can('menu.edit')" type="button" class="btn primary" :disabled="saving || !dirty" @click="save">
           {{ saving ? 'Сохранение…' : 'Сохранить меню' }}
         </button>
         <span v-if="dirty" class="muted">есть несохранённые изменения</span>

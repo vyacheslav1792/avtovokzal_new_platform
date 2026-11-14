@@ -2,36 +2,13 @@
 // проксируется vite-сервером, см. vite.config.js. Здесь — страницы, меню
 // и файлы: в legacy всё это правилось прямо в исходниках сайта
 // (url/<slug>.php, списки ссылок в index.php, файлы в docs по FTP).
+//
+// Эти маршруты тоже требуют сотрудника АИС с нужным правом: backend читает
+// его из БД ais по той же cookie сессии (см. App\Services\AisAuth).
+// Разбор ошибок, 401 и код подтверждения — общие, в http.js.
+import { json, request as req } from './http'
+
 const API = '/site-api/v1'
-
-async function req(url, opts) {
-  const r = await fetch(url, opts)
-  let data = null
-  try { data = await r.json() } catch (e) { /* не JSON */ }
-  if (!r.ok || (data && data.success === false)) {
-    const msg = (data && (data.error || firstValidationError(data))) || `Ошибка запроса (HTTP ${r.status})`
-    throw new Error(msg)
-  }
-  return data
-}
-
-/** Первая ошибка валидации Laravel — её и показываем пользователю. */
-function firstValidationError(data) {
-  const errors = data && data.errors
-  if (!errors || typeof errors !== 'object') return null
-  for (const messages of Object.values(errors)) {
-    if (Array.isArray(messages) && messages.length) return messages[0]
-  }
-  return data.message || null
-}
-
-function json(method, body) {
-  return {
-    method,
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  }
-}
 
 /* Страницы сайта */
 

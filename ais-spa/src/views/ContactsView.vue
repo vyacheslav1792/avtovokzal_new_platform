@@ -5,8 +5,10 @@
 // лежали дважды — таблицей для десктопа и карточками для мобильных.
 // Здесь редактируются данные, вёрстку обеих версий собирает сайт.
 //
-// Авторизации пока нет — как и на странице возврата билета (этап users).
+// Сохранение доступно только с правом `contacts.edit`.
 import { ref, computed, onMounted } from 'vue'
+import { can } from '../auth'
+import { json, request } from '../http'
 
 const SITE_API = '/site-api/v1/admin/contacts'
 
@@ -82,22 +84,13 @@ function fill(data) {
   snapshot.value = JSON.stringify(payload())
 }
 
+// Запрос к админскому API контактов. Разбор ошибок, 401 и код
+// подтверждения — общие для всей админки (http.js), поэтому своей
+// обёртки здесь больше нет.
 async function req(method, body) {
-  const r = await fetch(SITE_API, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  let data = null
-  try { data = await r.json() } catch (e) { /* не JSON */ }
-  if (!r.ok || !data || data.success === false) {
-    // Laravel validation: {message, errors: {поле: [тексты]}}
-    const msg = data && data.errors
-      ? Object.values(data.errors).flat().join(' ')
-      : (data && (data.message || data.error)) || `Ошибка запроса (HTTP ${r.status})`
-    throw new Error(msg)
-  }
-  return data.data
+  const opts = method === 'GET' ? undefined : json(method, body)
+
+  return (await request(SITE_API, opts)).data
 }
 
 async function load() {
@@ -308,7 +301,7 @@ onMounted(() => {
       </section>
 
       <div class="ct-save">
-        <button class="btn primary" :disabled="saving || !dirty" @click="save">
+        <button v-if="can('contacts.edit')" class="btn primary" :disabled="saving || !dirty" @click="save">
           {{ saving ? 'Сохранение…' : 'Сохранить' }}
         </button>
         <button class="btn" :disabled="saving || !dirty" @click="load">Отменить изменения</button>

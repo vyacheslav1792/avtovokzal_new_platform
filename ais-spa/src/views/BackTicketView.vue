@@ -2,9 +2,12 @@
 // Админский возврат билета — перенос legacy ais/back_bilet.php.
 // Работает и как страница (/back-ticket?order_id=…&serial=…&number=…),
 // и в оверлее поверх отчёта «Продажи сайта» (props от ReportView).
-// Защитный код 123321 из legacy сознательно не перенесён (будет авторизация).
+// Защитный код 123321 из legacy сознательно не перенесён: его заменили
+// авторизация сотрудника и личный код подтверждения, который сервер
+// спрашивает перед возвратом денег (права back-ticket.refund/repair).
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { can } from '../auth'
 
 const props = defineProps({
   orderId: { type: String, default: '' },
@@ -201,7 +204,7 @@ onMounted(() => {
             Рекомендуется: <b>{{ info.recommended_percent }} %</b>
           </p>
           <p>Для подтверждения операции кликните выполнить возврат.</p>
-          <button class="btn primary" :disabled="confirming" @click="confirmRefund">
+          <button v-if="can('back-ticket.refund')" class="btn primary" :disabled="confirming" @click="confirmRefund">
             {{ confirming ? 'Выполняется…' : 'Выполнить возврат' }}
           </button>
         </section>
@@ -214,7 +217,7 @@ onMounted(() => {
             (удержано {{ info.refund.penalty_percent }}%).
             <template v-if="info.refund.bank_error"><br />Ошибка банка: {{ info.refund.bank_error }}</template>
           </p>
-          <button class="btn primary" :disabled="confirming" @click="repairMoney">
+          <button v-if="can('back-ticket.repair')" class="btn primary" :disabled="confirming" @click="repairMoney">
             {{ confirming ? 'Выполняется…' : 'Выполнить возврат по банку' }}
           </button>
         </section>
