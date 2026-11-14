@@ -41,6 +41,37 @@ export function isIosDevice(): boolean {
  * Значение выставляется после монтирования: при рендере на сервере режим
  * отображения неизвестен, и разметка разошлась бы с клиентской.
  */
+/**
+ * Спросить браузер, установлено ли уже это приложение.
+ *
+ * **Зачем:** на Android удаление ИКОНКИ с домашнего экрана не удаляет
+ * само приложение (WebAPK) — оно остаётся в системе, Chrome считает его
+ * установленным и на повторную попытку предлагает лишь ярлык. Снаружи
+ * это выглядит как «установка сломалась», поэтому в таком случае мы
+ * прячем свои предложения установить, а в инструкции объясняем, как
+ * удалить приложение по-настоящему.
+ *
+ * Работает за счёт `related_applications` в манифесте, где приложение
+ * указано само на себя; где API нет (Safari, десктоп) — тихо отвечаем
+ * «не установлено».
+ */
+export async function detectInstalledApp(): Promise<boolean> {
+  if (!import.meta.client) return false
+
+  const nav = navigator as Navigator & {
+    getInstalledRelatedApps?: () => Promise<unknown[]>
+  }
+
+  if (!nav.getInstalledRelatedApps) return false
+
+  try {
+    return (await nav.getInstalledRelatedApps()).length > 0
+  }
+  catch {
+    return false
+  }
+}
+
 export function useStandalone() {
   const standalone = useState<boolean>('pwa-standalone', () => false)
 

@@ -30,6 +30,12 @@ export default defineNuxtPlugin(() => {
     install.installed.value = true
   })
 
+  // Приложение могло быть установлено раньше — тогда предлагать установку
+  // незачем: браузер на такую просьбу всё равно сделает только ярлык.
+  detectInstalledApp().then((installed) => {
+    if (installed) install.installed.value = true
+  })
+
   if (import.meta.dev || !('serviceWorker' in navigator)) return
 
   async function registerWorker() {

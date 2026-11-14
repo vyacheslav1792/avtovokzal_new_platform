@@ -23,7 +23,7 @@
  * при активации по префиксу версии.
  */
 
-const VERSION = 'v2'
+const VERSION = 'v3'
 
 /** HTML страниц-оболочек: их отдаём, когда сети нет. */
 const SHELL_CACHE = `shell-${VERSION}`
@@ -55,12 +55,14 @@ const SHELL_FILES = [
   '/favicon.ico',
 ]
 
+/** Адрес манифеста — по нему браузер решает, КАК ставить приложение. */
+const MANIFEST_URL = '/manifest.webmanifest'
+
 function isAsset(url) {
   return url.pathname.startsWith('/_nuxt/')
     || url.pathname.startsWith('/icons/')
     || url.pathname.startsWith('/favicon')
     || url.pathname.startsWith('/img/')
-    || url.pathname === '/manifest.webmanifest'
 }
 
 /**
@@ -171,6 +173,32 @@ async function handleNavigation(request) {
   }
 }
 
+/**
+ * Манифест: сначала сеть, кэш — только как запасной вариант.
+ *
+ * **ЛОВУШКА, из-за которой это понадобилось:** манифест лежал среди
+ * статики и отдавался cache-first. Браузер при установке читал СТАРУЮ
+ * копию — с прежним `start_url` и прежними настройками, — и приложение
+ * ставилось не тем, чем стало после деплоя. Файл маленький, обновляется
+ * редко, но прочитан должен быть свежим.
+ */
+async function handleManifest(request) {
+  const shell = await caches.open(SHELL_CACHE)
+
+  try {
+    const response = await fetch(request, { cache: 'reload' })
+    if (response.ok) await shell.put(MANIFEST_URL, response.clone())
+
+    return response
+  }
+  catch {
+    const cached = await shell.match(MANIFEST_URL)
+    if (cached) return cached
+
+    throw new Error('manifest unavailable')
+  }
+}
+
 /** Статика: из кэша сразу, обновление — в фоне. */
 async function handleAsset(request) {
   const cache = await caches.open(ASSET_CACHE)
@@ -204,6 +232,11 @@ self.addEventListener('fetch', (event) => {
   // «динозавра» браузера.
   if (request.mode === 'navigate') {
     event.respondWith(handleNavigation(request))
+    return
+  }
+
+  if (url.pathname === MANIFEST_URL) {
+    event.respondWith(handleManifest(request))
     return
   }
 

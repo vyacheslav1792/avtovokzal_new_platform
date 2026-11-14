@@ -12,6 +12,10 @@
   "background_color": "#ffffff",
   "theme_color": "#28292e",
   "categories": ["travel", "navigation"],
+  "prefer_related_applications": false,
+  "related_applications": [
+    { "platform": "webapp", "url": "/manifest.webmanifest" }
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",
