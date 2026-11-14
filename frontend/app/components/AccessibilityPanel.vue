@@ -55,9 +55,13 @@ const BUTTON = 'px-3 py-1.5 border-2 cursor-pointer leading-none'
     class="a11y-panel w-full"
     aria-label="Настройки версии для слабовидящих"
   >
-    <UContainer class="py-3">
-      <div class="flex flex-wrap items-center gap-3">
-        <strong class="mr-auto">Версия для слабовидящих</strong>
+    <UContainer class="py-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Подпись полосы на телефоне скрыта: при крупном шрифте она
+             занимала отдельную строку, и шапка с настройками съедали треть
+             экрана. Что это за полоса, видно по кнопке «Обычная версия
+             сайта», а включил режим сам покупатель секунду назад. -->
+        <strong class="hidden sm:block mr-auto">Версия для слабовидящих</strong>
 
         <button
           type="button"
@@ -74,7 +78,7 @@ const BUTTON = 'px-3 py-1.5 border-2 cursor-pointer leading-none'
         </button>
       </div>
 
-      <div v-show="open" id="a11y-settings" class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div v-show="open" id="a11y-settings" class="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         <!-- Размер шрифта -->
         <div role="group" aria-labelledby="a11y-font-label" class="flex flex-wrap items-center gap-2">
           <span id="a11y-font-label" class="w-full md:w-auto md:mr-1">Размер шрифта:</span>

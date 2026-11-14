@@ -320,7 +320,7 @@ html.a11y footer *:focus-visible {
 }
 
 /* Кнопка остаётся кнопкой: рамка есть и у ghost-вариантов без фона. */
-html.a11y button,
+html.a11y button:not([role="checkbox"]):not([role="radio"]):not([role="switch"]),
 html.a11y [role="button"],
 html.a11y input[type="submit"],
 html.a11y input[type="button"] {
@@ -332,6 +332,19 @@ html.a11y input,
 html.a11y select,
 html.a11y textarea {
   border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+/*
+ * Тонкие разделители («или» между формой входа и кнопкой VK, `USeparator`)
+ * — это полоска высотой 1px, залитая цветом. Общий сброс красил её фоном
+ * страницы, и она пропадала вместе со смыслом «дальше другой способ входа».
+ */
+html.a11y [class*="h-px"],
+html.a11y [class*="w-px"],
+html.a11y hr,
+html.a11y [role="separator"] {
+  background-color: var(--a11y-fg) !important;
+  border-color: var(--a11y-fg) !important;
 }
 
 /* Отключённые элементы: прозрачность на цветных схемах читается плохо. */
@@ -415,6 +428,36 @@ html.a11y [class*="flex"]:not([class*="flex-col"]) {
   flex-wrap: wrap !important;
 }
 
+/*
+ * **Шапка — исключение из переноса.** Её ряд НЕ переносится: кнопка меню
+ * обязана оставаться в правом углу. С общим `flex-wrap` она уезжала на
+ * вторую строку, и шапка при крупном шрифте съедала треть экрана телефона.
+ * Вместо переноса ряда переносится НАЗВАНИЕ (на две строки), а логотип на
+ * узком экране прячется: он декоративный, рядом то же самое словами.
+ */
+html.a11y header > [class*="flex"]:not([class*="flex-col"]),
+html.a11y header a[class*="flex"]:not([class*="flex-col"]) {
+  flex-wrap: nowrap !important;
+}
+
+@media (max-width: 640px) {
+  html.a11y header img {
+    display: none !important;
+  }
+}
+
+/*
+ * Строка с галочкой или радиокнопкой тоже НЕ переносится: при переносе
+ * квадратик оставался один на своей строке, а подпись уезжала под него —
+ * связь между ними терялась. Переносится сама подпись, рядом с квадратиком.
+ */
+html.a11y [class*="flex"]:has(> [role="checkbox"]),
+html.a11y [class*="flex"]:has(> [role="radio"]),
+html.a11y [class*="flex"]:has(> * > [role="checkbox"]),
+html.a11y [class*="flex"]:has(> * > [role="radio"]) {
+  flex-wrap: nowrap !important;
+}
+
 /* Элемент ряда может сжиматься: без `min-width: 0` длинное слово внутри
    растягивает весь ряд и выдавливает соседей за край. */
 html.a11y [class*="flex"] > *,
@@ -445,10 +488,17 @@ html.a11y [class*="text-nowrap"] {
 
 /* Подпись кнопки переносится, высота — по содержимому. Иначе длинные
    подписи («Завершить оформление», «Отменить заказ») обрезались. */
-html.a11y button,
+/*
+ * **ЛОВУШКА: «высота по содержимому» ломает КВАДРАТНЫЕ контролы.** Чекбокс,
+ * радио и переключатель в теме Nuxt UI — это `<button role="checkbox">` с
+ * фиксированным `size-*`, а не `<input>`. `height: auto` схлопывал их в
+ * полоску 21×4px: галочку «Я даю согласие на обработку персональных данных»
+ * было не видно и не во что нажать. Их размеры в теме заданы в `rem`,
+ * поэтому с кеглем они растут сами — трогать не нужно, нужно не мешать.
+ */
+html.a11y button:not([role="checkbox"]):not([role="radio"]):not([role="switch"]),
 html.a11y [role="button"],
-html.a11y a[class*="inline-flex"],
-html.a11y button[class*="inline-flex"] {
+html.a11y a[class*="inline-flex"] {
   white-space: normal !important;
   height: auto !important;
   min-height: 0 !important;
@@ -458,6 +508,15 @@ html.a11y button[class*="inline-flex"] {
   /* Свой межстрочный интервал: общий (до 2.2) раздувал кнопки — кнопка
      с одной иконкой становилась 59px вместо 36px и наезжала на соседей. */
   line-height: 1.3 !important;
+}
+
+/* Квадратным контролам — только рамка потолще и запрет сжиматься в ряду. */
+html.a11y [role="checkbox"],
+html.a11y [role="radio"],
+html.a11y input[type="checkbox"],
+html.a11y input[type="radio"] {
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+  flex: none !important;
 }
 
 /*
@@ -483,6 +542,17 @@ html.a11y [class*="grid-cols"] {
   grid-template-columns: 1fr !important;
 }
 
+/*
+ * **ЛОВУШКА: одной колонки мало, пока жив `col-span-*`.** Элемент, занимающий
+ * две колонки, при единственной явной колонке заставляет сетку создать
+ * НЕЯВНУЮ вторую — и она получает размер `auto`. Так колонка настроек
+ * схлопывалась до 6px: образец размера шрифта не помещался в свою кнопку,
+ * хотя «одна колонка» вроде бы уже была задана.
+ */
+html.a11y [class*="col-span"] {
+  grid-column: auto !important;
+}
+
 html.a11y [class*="columns-"] {
   columns: 1 !important;
 }
@@ -503,14 +573,55 @@ html.a11y h1, html.a11y h2, html.a11y h3, html.a11y h4 {
   word-break: break-word !important;
 }
 
-/* Картинки и кадры не вылезают за свой блок. */
+/*
+ * Картинки не вылезают за свой блок. **Высоту НЕ задаём:** `height: auto`
+ * ломает картинки, которые растянуты по блоку (`absolute inset-0 w-full
+ * h-full object-cover` у плиток «Популярные направления») — снимок получал
+ * натуральную высоту, не влезал в плитку и обрезался произвольным куском.
+ */
 html.a11y img,
 html.a11y picture,
 html.a11y video,
 html.a11y iframe,
 html.a11y svg {
   max-width: 100% !important;
+}
+
+/*
+ * Плитка «Популярные направления» в этом режиме перевёрстана: снимок
+ * показывается ЦЕЛИКОМ в своих пропорциях, подпись — под ним, а не поверх.
+ * Плитка фиксированной высоты (`h-60 lg:h-75`) с `object-cover` показывала
+ * произвольный кусок снимка: в одну колонку и при крупном шрифте от
+ * вертикального фото оставалась полоса поперёк. Подпись поверх снимка в
+ * версии для слабовидящих тоже не годится — текст поверх фотографии.
+ */
+html.a11y .popular-route {
   height: auto !important;
+  border: var(--a11y-line-width) solid var(--a11y-fg) !important;
+}
+
+html.a11y .popular-route img {
+  position: static !important;
+  width: 100% !important;
+  height: auto !important;
+  object-fit: contain !important;
+}
+
+/*
+ * Градиент под подписью (пустая накладка) в такой раскладке лишний.
+ * Селектор обязан быть именно `div[class*="absolute"]`: у самой картинки
+ * классы `absolute inset-0 w-full h-full object-cover`, и правило без
+ * указания тега прятало СНИМОК вместо градиента.
+ */
+html.a11y .popular-route > div[class*="absolute"] {
+  display: none !important;
+}
+
+html.a11y .popular-route > span {
+  position: static !important;
+  display: block !important;
+  padding: 0.4em 0.6em !important;
+  border-top: var(--a11y-line-width) solid var(--a11y-fg) !important;
 }
 
 /* Таблицы: содержимое ячеек переносится, сама таблица не шире блока.
@@ -571,6 +682,34 @@ html.a11y .a11y-panel * {
 html.a11y .a11y-swatch {
   line-height: 1 !important;
   flex: none !important;
+}
+
+/*
+ * Кнопки панели не сжимаются. Общее `min-width: 0` (оно нужно, чтобы ряды
+ * страницы не распирало длинными словами) позволяло флексу ужать их уже
+ * собственной подписи: образец «А» крупного кегля переставал помещаться в
+ * свою кнопку. Не влезло в строку — пусть переносится на следующую.
+ */
+html.a11y .a11y-panel button {
+  flex: none !important;
+}
+
+/*
+ * Панель — исключение из «одной колонки»: это служебная полоса, а не текст
+ * для чтения, и в один столбец её семь групп настроек занимают пол-экрана.
+ * Колонки возвращаются теми же порогами, что заданы в разметке
+ * (`md:grid-cols-2 xl:grid-cols-3`); на телефоне колонка и так одна.
+ */
+@media (min-width: 768px) {
+  html.a11y #a11y-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  html.a11y #a11y-settings {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
 }
 
 /* Выбранное значение — инверсия: на схеме «белым на чёрном» оттенками фона

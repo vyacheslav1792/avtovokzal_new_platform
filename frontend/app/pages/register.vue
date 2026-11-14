@@ -132,7 +132,10 @@ async function submit() {
               />
             </UFormField>
 
-            <div class="flex items-center gap-3 pt-2">
+            <!-- `flex-wrap`: «Зарегистрироваться» и «Войти» в одну строку на
+                 экране 320px не помещались, и их ряд растягивал всю страницу
+                 на 3px шире экрана (появлялась горизонтальная прокрутка). -->
+            <div class="flex flex-wrap items-center gap-3 pt-2">
               <UButton type="submit" color="error" :loading="loading">
                 Зарегистрироваться
               </UButton>

@@ -194,7 +194,7 @@ const tileOverlay = {
             :key="p.title"
             :to="{ path: '/trips', query: { awtcod: p.from, from: p.fromName, to: p.to, all: 1 } }"
             :title="`Расписание и билеты по маршруту ${p.title}`"
-            class="relative rounded overflow-hidden h-60 lg:h-75 transition-all duration-100
+            class="popular-route relative rounded overflow-hidden h-60 lg:h-75 transition-all duration-100
                    hover:-translate-y-2.5 hover:shadow-[0_10px_20px_rgba(0,0,0,0.4)]"
           >
             <img :src="p.img" :alt="p.title" class="absolute inset-0 w-full h-full object-cover">
