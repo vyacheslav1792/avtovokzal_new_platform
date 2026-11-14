@@ -35,6 +35,22 @@ export function isIosDevice(): boolean {
     || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1)
 }
 
+/**
+ * Приложение запущено с домашнего экрана (а не открыто браузером).
+ *
+ * Значение выставляется после монтирования: при рендере на сервере режим
+ * отображения неизвестен, и разметка разошлась бы с клиентской.
+ */
+export function useStandalone() {
+  const standalone = useState<boolean>('pwa-standalone', () => false)
+
+  onMounted(() => {
+    standalone.value = isStandaloneApp()
+  })
+
+  return standalone
+}
+
 export function useInstallPrompt() {
   const prompt = useState<BeforeInstallPromptEvent | null>('pwa-install-prompt', () => null)
   const installed = useState<boolean>('pwa-installed', () => false)

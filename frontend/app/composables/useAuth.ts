@@ -162,6 +162,7 @@ export function useAuth() {
     // срабатывает и когда `/auth/me` не ответил из-за сети, и билеты
     // пропадали бы ровно тогда, когда они нужнее всего.
     await clearOfflineOrders()
+    clearOfflineShell()
   }
 
   async function updateProfile(payload: { phone: string, name?: string }) {

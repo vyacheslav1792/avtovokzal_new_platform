@@ -69,9 +69,11 @@ export default defineNuxtConfig({
     '/buy': { headers: { 'cache-control': 'no-store' } },
     '/buy/**': { headers: { 'cache-control': 'no-store' } },
     // Страницы, обязанные открываться БЕЗ СЕТИ (см. public/sw.js):
+    // `/app` — стартовый экран приложения (start_url манифеста).
     // оболочку целиком кладёт в кэш service worker, поэтому она не должна
     // зависеть ни от backend, ни от того, кто вошёл в кабинет — рендерим
     // их только в браузере. Билеты страница читает из IndexedDB.
+    '/app': { ssr: false },
     '/tickets': { ssr: false },
     '/offline': { ssr: false },
     // Service worker браузер перепроверяет сам, но прокси и CDN не должны

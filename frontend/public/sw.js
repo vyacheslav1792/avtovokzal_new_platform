@@ -23,7 +23,7 @@
  * при активации по префиксу версии.
  */
 
-const VERSION = 'v1'
+const VERSION = 'v2'
 
 /** HTML страниц-оболочек: их отдаём, когда сети нет. */
 const SHELL_CACHE = `shell-${VERSION}`
@@ -34,12 +34,18 @@ const ASSET_CACHE = `assets-${VERSION}`
 /**
  * Страницы, обязанные работать офлайн.
  *
- * Обе объявлены `ssr: false` в `nuxt.config.ts` — Nitro отдаёт для них
- * одну и ту же клиентскую оболочку, не зависящую ни от backend, ни от
- * того, кто вошёл. Кэшировать SSR-страницы кабинета нельзя: в их разметке
- * лежат персональные данные покупателя.
+ * `/app` (стартовый экран приложения), `/tickets` и `/offline` объявлены
+ * `ssr: false` в `nuxt.config.ts` — Nitro отдаёт для них клиентскую
+ * оболочку, не зависящую ни от backend, ни от того, кто вошёл.
+ *
+ * `/contacts` — исключение: страница **серверная** (её читают поисковики),
+ * и в кэш ложится готовая разметка с адресами и телефонами. Так контакты
+ * видны без сети вообще без запросов — данные уже внутри HTML. Страницы
+ * кабинета так кэшировать нельзя: там персональные данные покупателя. В
+ * разметке `/contacts` из личного есть только e-mail в шапке, поэтому при
+ * выходе из кабинета этот кэш стирается (`CLEAR_SHELL`).
  */
-const SHELL_PAGES = ['/tickets', '/offline']
+const SHELL_PAGES = ['/app', '/tickets', '/offline', '/contacts']
 
 /** Мелочь, без которой офлайн-страница выглядит сломанной. */
 const SHELL_FILES = [
@@ -116,6 +122,17 @@ self.addEventListener('message', (event) => {
 
   if (data.type === 'CACHE_SHELL') {
     event.waitUntil(cacheShell(SHELL_PAGES))
+    return
+  }
+
+  // Выход из кабинета: в кэше оболочек лежит серверная разметка
+  // `/contacts`, а в её шапке — e-mail вошедшего. Телефон может быть
+  // общим, поэтому стираем и собираем заново.
+  if (data.type === 'CLEAR_SHELL') {
+    event.waitUntil((async () => {
+      await caches.delete(SHELL_CACHE)
+      await cacheShell([...SHELL_PAGES, ...SHELL_FILES])
+    })())
   }
 })
 

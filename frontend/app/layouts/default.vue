@@ -10,6 +10,14 @@ const { user, isLoggedIn, logout } = useAuth()
 const route = useRoute()
 
 /*
+ * Приложение с домашнего экрана открывается на своём стартовом экране
+ * (`/app`), и логотип должен возвращать туда же: в браузере «домой» —
+ * это главная с поиском билетов, а в приложении — экран с разделами.
+ */
+const standalone = useStandalone()
+const homeLink = computed(() => (standalone.value ? '/app' : '/'))
+
+/*
  * Версия для людей с нарушениями зрения (ГОСТ Р 52872-2019): классы режима
  * на `<html>`. Единственная точка подключения — печатные формы идут с
  * `layout: false` и специального режима не знают.
@@ -97,7 +105,7 @@ async function signOut() {
 
     <header class="bg-neutral-900 text-white sticky top-0 z-40">
       <UContainer class="flex items-center gap-3 lg:gap-5 py-3">
-        <NuxtLink to="/" class="flex items-center gap-2 min-w-0">
+        <NuxtLink :to="homeLink" class="flex items-center gap-2 min-w-0">
           <img src="/img/logo.png" alt="Лого" class="h-8 sm:h-9 w-auto shrink-0">
           <span class="font-semibold truncate text-sm sm:text-base">АО «Орелавтотранс»</span>
         </NuxtLink>
@@ -215,6 +223,18 @@ async function signOut() {
         <USeparator />
 
         <div class="py-2">
+          <NuxtLink
+            v-if="standalone"
+            to="/app"
+            class="flex items-center gap-3 px-4 py-3 text-base transition-colors"
+            :class="isActive('/app')
+              ? 'text-primary font-medium bg-primary/10'
+              : 'text-default hover:bg-elevated'"
+          >
+            <UIcon name="i-lucide-layout-grid" class="size-5 shrink-0 text-dimmed" />
+            Главный экран
+          </NuxtLink>
+
           <!-- Купленные билеты лежат на устройстве и открываются без сети,
                поэтому пункт нужен и гостю: кабинета у него нет, а билет
                в автобусе показать надо. -->

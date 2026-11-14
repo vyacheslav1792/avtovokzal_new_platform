@@ -197,15 +197,30 @@ export async function warmOfflineShell(): Promise<void> {
 
   navigator.serviceWorker?.controller?.postMessage({ type: 'CACHE_SHELL' })
 
-  // Скрипт самой страницы грузится лениво — прогреваем его тем же способом,
-  // каким Nuxt подгружает маршруты заранее; service worker подхватит файл
-  // в кэш по дороге.
+  // Скрипты страниц грузятся лениво — прогреваем их тем же способом, каким
+  // Nuxt подгружает маршруты заранее; service worker подхватит файлы в кэш
+  // по дороге. `/app` — стартовый экран приложения, с него без сети и
+  // начинают.
   try {
-    await preloadRouteComponents('/tickets')
+    await Promise.all([
+      preloadRouteComponents('/tickets'),
+      preloadRouteComponents('/app'),
+    ])
   }
   catch {
     // Прогрев — приятное дополнение, а не условие работы.
   }
+}
+
+/**
+ * Забыть кэш оболочек: в нём лежит серверная разметка `/contacts`, а в её
+ * шапке — e-mail вошедшего покупателя. Вызывается при выходе из кабинета
+ * вместе с чисткой билетов.
+ */
+export function clearOfflineShell(): void {
+  if (!import.meta.client) return
+
+  navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_SHELL' })
 }
 
 /**
