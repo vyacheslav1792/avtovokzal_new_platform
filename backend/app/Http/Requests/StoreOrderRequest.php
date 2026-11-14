@@ -17,6 +17,19 @@ class StoreOrderRequest extends FormRequest
         return true;
     }
 
+    /**
+     * Самая ранняя дата рождения, которую примет станция.
+     *
+     * Вендорная процедура `KS_CONTROL_BIRTH_PAS` считает дату верной, когда
+     * `birth_day >= Current_Date - 100 лет` и `birth_day < Current_Date`.
+     * Проверяем это ДО оплаты: иначе отказ станции («Дата рождения …
+     * указана неверно») приходит на оформлении, когда деньги уже списаны.
+     */
+    public static function oldestBirthDate(): string
+    {
+        return now()->subYears(100)->toDateString();
+    }
+
     public function rules(): array
     {
         return [
@@ -44,7 +57,14 @@ class StoreOrderRequest extends FormRequest
             'passengers.*.last_name' => ['required', 'string', 'min:2', 'max:20', self::NAME_REGEX],
             'passengers.*.first_name' => ['required', 'string', 'min:2', 'max:14', self::NAME_REGEX],
             'passengers.*.middle_name' => ['nullable', 'string', 'max:14', self::NAME_REGEX],
-            'passengers.*.birth_date' => ['required', 'date', 'before:today', 'after:1900-01-01'],
+            // Границы — ровно как у вендорной процедуры KS_CONTROL_BIRTH_PAS:
+            // `birth_day >= today - 100 лет` И `birth_day < today`. Раньше
+            // стояло `after:1900-01-01`, и покупатель с датой вроде
+            // 12.12.1922 упирался в отказ станции УЖЕ ПОСЛЕ оплаты.
+            'passengers.*.birth_date' => [
+                'required', 'date', 'before:today',
+                'after_or_equal:'.self::oldestBirthDate(),
+            ],
             'passengers.*.gender' => ['sometimes', 'in:М,Ж'],
             'passengers.*.doc_type' => ['sometimes', 'integer'],
             'passengers.*.doc_series' => ['nullable', 'string', 'max:10'],
@@ -55,6 +75,10 @@ class StoreOrderRequest extends FormRequest
             // попадёт в кабинет и в следующий раз подставится сам.
             // Для гостя игнорируется — сохранять некуда.
             'passengers.*.save_to_profile' => ['sometimes', 'boolean'],
+            // Запись профиля, которую подставили в форму: правки уходят
+            // ИМЕННО В НЕЁ. Без правила ключ не доживает до `validated()`,
+            // и правка документа заводила бы в профиле вторую строку.
+            'passengers.*.saved_id' => ['sometimes', 'nullable', 'integer'],
         ];
     }
 
@@ -74,7 +98,7 @@ class StoreOrderRequest extends FormRequest
             'passengers.*.first_name.max' => 'Имя не помещается в билет — не более 14 символов.',
             'passengers.*.middle_name.max' => 'Отчество не помещается в билет — не более 14 символов.',
             'passengers.*.birth_date.before' => 'Дата рождения не может быть в будущем.',
-            'passengers.*.birth_date.after' => 'Проверьте дату рождения — она указана неверно.',
+            'passengers.*.birth_date.after_or_equal' => 'Проверьте дату рождения: станция оформляет билеты для пассажиров не старше 100 лет.',
             'passengers.*.birth_date.date' => 'Укажите корректную дату рождения.',
             'passengers.*.doc_number.min' => 'Номер документа слишком короткий.',
             'passengers.*.citizenship.exists' => 'Выберите гражданство из списка.',

@@ -19,7 +19,12 @@ import type { MaskaDetail } from 'maska'
 defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{
-  /** Не раньше этой даты (ISO); по умолчанию — 1900-01-01, как у backend. */
+  /**
+   * Не раньше этой даты (ISO). По умолчанию — 100 лет назад: ровно так
+   * считает вендорная процедура станции `KS_CONTROL_BIRTH_PAS`
+   * (`birth_day >= today - 100 лет`), и билет с более ранней датой она не
+   * оформит — отказ придёт уже после оплаты.
+   */
   min?: string
   /** Не позже этой даты (ISO); по умолчанию — вчера (дата рождения в прошлом). */
   max?: string
@@ -51,7 +56,7 @@ function ruToIso(ru: string): string {
 
   // Саму дату собираем из UTC-полей того же UTC-дня — здесь смещения нет.
   const iso = date.toISOString().slice(0, 10)
-  const min = props.min ?? '1900-01-01'
+  const min = props.min ?? siteDateYearsAgo(100)
   // Верхняя граница — вчера по времени автовокзала, а не по UTC.
   const max = props.max ?? siteDateShifted(-1)
 

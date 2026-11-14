@@ -32,3 +32,21 @@ export function siteDate(date: Date = new Date()): string {
 export function siteDateShifted(days: number): string {
   return siteDate(new Date(Date.now() + days * 86400_000))
 }
+
+/**
+ * Та же дата N лет назад — по календарю, а не «минус столько-то суток»
+ * (високосные годы сдвинули бы границу на день).
+ *
+ * 29 февраля в невисокосном году превращается в 28-е — так же округляет и
+ * `dateadd(Year, -N, …)` в Firebird, по которому станция считает предельный
+ * возраст пассажира.
+ */
+export function siteDateYearsAgo(years: number): string {
+  const [y, m, d] = siteDate().split('-').map(Number) as [number, number, number]
+  const year = y - years
+  // День месяца не всегда существует год в год — берём ближайший меньший.
+  const lastDayOfMonth = new Date(Date.UTC(year, m, 0)).getUTCDate()
+  const day = Math.min(d, lastDayOfMonth)
+
+  return `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}

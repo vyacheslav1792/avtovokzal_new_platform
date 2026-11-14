@@ -166,8 +166,12 @@ class OrderService
                     continue;
                 }
 
+                // saved_id — запись профиля, которую покупатель подставил в
+                // форму: правки уходят именно в неё, а не в новую строку.
+                $savedId = isset($passenger['saved_id']) ? (int) $passenger['saved_id'] : null;
+
                 filter_var($passenger['save_to_profile'] ?? false, FILTER_VALIDATE_BOOLEAN)
-                    ? $this->savedPassengers->remember($user, $data)
+                    ? $this->savedPassengers->remember($user, $data, $savedId ?: null)
                     : $this->savedPassengers->touchUsed($user, [$data]);
             }
         } catch (\Throwable $e) {

@@ -348,8 +348,9 @@ function fillFromSaved(index: number, id: number) {
     doc_type: saved.doc_type,
     doc_number: saved.document,
     citizenship: saved.citizenship,
-    // Он уже в профиле — сохранять повторно нечего.
-    save_to_profile: false,
+    // Правки уходят обратно в ЭТУ же запись профиля (saved_id), поэтому
+    // галочка включена: покупатель поправил данные — профиль обновится.
+    save_to_profile: true,
     saved_id: saved.id,
   })
 
@@ -358,10 +359,7 @@ function fillFromSaved(index: number, id: number) {
   }
 }
 
-/** Данные правились вручную — это уже другой пассажир, не запись профиля. */
-function detachFromSaved(passenger: PassengerForm) {
-  passenger.saved_id = null
-}
+
 
 const agree = ref(false)
 const submitting = ref(false)
@@ -480,6 +478,15 @@ function removePassenger(i: number) {
  * весь объект пассажира уходит в заказ.
  */
 const birthDateInvalid = ref<Record<number, boolean>>({})
+
+/**
+ * Одно сообщение на оба случая: такой даты нет (31.02) либо она вне границ
+ * станции. Границы задаёт вендорная процедура `KS_CONTROL_BIRTH_PAS`:
+ * пассажир не старше 100 лет и дата в прошлом — билет с другой датой она
+ * не оформит, и узнать об этом после оплаты уже поздно.
+ */
+const BIRTH_DATE_ERROR = 'Проверьте дату рождения: такой даты нет либо пассажир старше 100 лет '
+  + '— станция такие билеты не оформляет.'
 
 function priceFor(p: PassengerForm) {
   const t = trip.value
@@ -782,7 +789,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.last_name" placeholder="ИВАНОВ" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.last_name`)"
-            @input="clearError(`passengers.${i}.last_name`); detachFromSaved(p)"
+            @input="clearError(`passengers.${i}.last_name`)"
           />
         </UFormField>
         <UFormField
@@ -793,7 +800,7 @@ function formatDate(d: string) {
           <UInput
             v-model="p.first_name" placeholder="ИВАН" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.first_name`)"
-            @input="clearError(`passengers.${i}.first_name`); detachFromSaved(p)"
+            @input="clearError(`passengers.${i}.first_name`)"
           />
         </UFormField>
         <UFormField
@@ -804,14 +811,14 @@ function formatDate(d: string) {
           <UInput
             v-model="p.middle_name" placeholder="ИВАНОВИЧ" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.middle_name`)"
-            @input="clearError(`passengers.${i}.middle_name`); detachFromSaved(p)"
+            @input="clearError(`passengers.${i}.middle_name`)"
           />
         </UFormField>
 
         <UFormField
           label="Дата рождения" required
           :error="fieldError(`passengers.${i}.birth_date`)
-            || (birthDateInvalid[i] ? 'Проверьте дату рождения — такой даты не существует.' : undefined)"
+            || (birthDateInvalid[i] ? BIRTH_DATE_ERROR : undefined)"
           :data-error-field="fieldError(`passengers.${i}.birth_date`) ? '' : undefined"
         >
           <DateInput
@@ -819,7 +826,7 @@ function formatDate(d: string) {
             v-model:invalid="birthDateInvalid[i]"
             class="w-full"
             :highlight="!!fieldError(`passengers.${i}.birth_date`) || !!birthDateInvalid[i]"
-            @input="clearError(`passengers.${i}.birth_date`); detachFromSaved(p)"
+            @input="clearError(`passengers.${i}.birth_date`)"
           />
         </UFormField>
         <UFormField label="Пол">
@@ -875,20 +882,25 @@ function formatDate(d: string) {
             :placeholder="docPlaceholder(p.doc_type)"
             :inputmode="docMask(p.doc_type) ? 'numeric' : 'text'" class="w-full"
             :highlight="!!fieldError(`passengers.${i}.doc_number`)"
-            @input="clearError(`passengers.${i}.doc_number`); detachFromSaved(p)"
+            @input="clearError(`passengers.${i}.doc_number`)"
           />
         </UFormField>
       </div>
 
-      <!-- Новый пассажир: предлагаем запомнить его в кабинете. Уже
-           сохранённого (подставленного из профиля) не переспрашиваем. -->
+      <!--
+        Новый пассажир — предлагаем запомнить. Подставленный из профиля —
+        предлагаем обновить ИМЕННО ЕГО запись: покупатель правил конкретного
+        человека, и правка не должна заводить вторую строку в профиле.
+      -->
       <UCheckbox
-        v-if="isLoggedIn && !p.saved_id && passengerFieldsVisible(p)"
+        v-if="isLoggedIn && passengerFieldsVisible(p)"
         v-model="p.save_to_profile"
         class="mt-4"
         :disabled="locked"
-        label="Сохранить пассажира в профиль"
-        description="В следующий раз данные подставятся из кабинета — вводить их заново не придётся"
+        :label="p.saved_id ? 'Обновить данные этого пассажира в профиле' : 'Сохранить пассажира в профиль'"
+        :description="p.saved_id
+          ? 'Изменения сохранятся в той же записи профиля'
+          : 'В следующий раз данные подставятся из кабинета — вводить их заново не придётся'"
       />
 
       <template #footer>

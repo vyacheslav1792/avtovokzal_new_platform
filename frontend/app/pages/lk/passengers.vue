@@ -49,8 +49,12 @@ function emptyForm(): SavedPassengerPayload {
 
 const form = reactive<SavedPassengerPayload>(emptyForm())
 
-/** Дата рождения набрана целиком, но такой даты не существует (31.02 и т. п.). */
+/** Дата рождения набрана целиком, но она невозможна или вне границ станции. */
 const birthDateInvalid = ref(false)
+
+/** Тот же текст, что на форме покупки — правило одно (KS_CONTROL_BIRTH_PAS). */
+const BIRTH_DATE_ERROR = 'Проверьте дату рождения: такой даты нет либо пассажир старше 100 лет '
+  + '— станция такие билеты не оформляет.'
 
 function openCreate() {
   birthDateInvalid.value = false
@@ -222,7 +226,7 @@ function formatBirthDate(value: string): string {
           <UFormField
             label="Дата рождения" required
             :error="fieldErrors.birth_date
-              || (birthDateInvalid ? 'Проверьте дату рождения — такой даты не существует.' : undefined)"
+              || (birthDateInvalid ? BIRTH_DATE_ERROR : undefined)"
           >
             <DateInput
               v-model="form.birth_date"

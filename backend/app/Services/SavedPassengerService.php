@@ -81,11 +81,34 @@ class SavedPassengerService
      * OrderService (ФИО в верхнем регистре, документ разложен), поэтому
      * пишем как есть и отмечаем дату последней поездки.
      */
-    public function remember(User $user, array $passenger): void
+    public function remember(User $user, array $passenger, ?int $savedId = null): void
     {
-        $record = $user->savedPassengers()->firstOrNew([
-            'doc_type' => (int) ($passenger['doc_type'] ?? 21),
-            'doc_number' => (string) $passenger['doc_number'],
+        $docType = (int) ($passenger['doc_type'] ?? 21);
+        $docNumber = (string) $passenger['doc_number'];
+
+        // Покупатель подставил пассажира из профиля и поправил данные —
+        // правим ИМЕННО ЭТУ запись, даже если сменился документ. Иначе
+        // правка документа заводила вторую строку, а старая оставалась.
+        $record = $savedId ? $user->savedPassengers()->find($savedId) : null;
+
+        if ($record) {
+            $takenByOther = $user->savedPassengers()
+                ->where('doc_type', $docType)
+                ->where('doc_number', $docNumber)
+                ->whereKeyNot($record->getKey())
+                ->exists();
+
+            // Такой документ уже лежит отдельной записью: слить их молча
+            // нельзя — одна из двух исчезла бы. Обновляем ту, что по
+            // документу, а выбранную оставляем как была.
+            if ($takenByOther) {
+                $record = null;
+            }
+        }
+
+        $record ??= $user->savedPassengers()->firstOrNew([
+            'doc_type' => $docType,
+            'doc_number' => $docNumber,
         ]);
 
         $record->fill([
@@ -94,6 +117,8 @@ class SavedPassengerService
             'middle_name' => ($passenger['middle_name'] ?? '') ?: null,
             'birth_date' => $passenger['birth_date'],
             'gender' => $passenger['gender'] ?? 'М',
+            'doc_type' => $docType,
+            'doc_number' => $docNumber,
             'doc_series' => ($passenger['doc_series'] ?? '') ?: null,
             'citizenship' => (int) ($passenger['citizenship'] ?? PassengerDocument::RUSSIA),
             'last_used_at' => now(),

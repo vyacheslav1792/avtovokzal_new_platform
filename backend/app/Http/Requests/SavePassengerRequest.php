@@ -29,7 +29,12 @@ class SavePassengerRequest extends FormRequest
             'last_name' => ['required', 'string', 'min:2', 'max:20', self::NAME_REGEX],
             'first_name' => ['required', 'string', 'min:2', 'max:14', self::NAME_REGEX],
             'middle_name' => ['nullable', 'string', 'max:14', self::NAME_REGEX],
-            'birth_date' => ['required', 'date', 'before:today', 'after:1900-01-01'],
+            // Те же границы, что и при покупке (KS_CONTROL_BIRTH_PAS):
+            // в профиль нельзя положить дату, с которой билет не оформится.
+            'birth_date' => [
+                'required', 'date', 'before:today',
+                'after_or_equal:'.StoreOrderRequest::oldestBirthDate(),
+            ],
             'gender' => ['sometimes', 'in:М,Ж'],
             'doc_type' => ['sometimes', 'integer'],
             'doc_series' => ['nullable', 'string', 'max:10'],
@@ -49,7 +54,7 @@ class SavePassengerRequest extends FormRequest
             'first_name.max' => 'Имя не помещается в билет — не более 14 символов.',
             'middle_name.max' => 'Отчество не помещается в билет — не более 14 символов.',
             'birth_date.before' => 'Дата рождения не может быть в будущем.',
-            'birth_date.after' => 'Проверьте дату рождения — она указана неверно.',
+            'birth_date.after_or_equal' => 'Проверьте дату рождения: станция оформляет билеты для пассажиров не старше 100 лет.',
             'birth_date.date' => 'Укажите корректную дату рождения.',
             'doc_number.min' => 'Номер документа слишком короткий.',
             'citizenship.exists' => 'Выберите гражданство из списка.',
