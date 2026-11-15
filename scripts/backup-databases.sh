@@ -85,6 +85,10 @@ log "Упаковка в $archive…"
 (cd "$work" && zip -q -9 "$archive" manifest.txt ./*.sql)
 zip -T "$archive" > /dev/null || die "архив не прошёл проверку целостности"
 
+# В дампах лежат персональные данные покупателей (ФИО, документы, почта) —
+# читать архив должен только root.
+chmod 600 "$archive"
+
 log "Готово: $archive ($(du -h "$archive" | cut -f1))"
 
 # Ротация: оставляем KEEP последних архивов.

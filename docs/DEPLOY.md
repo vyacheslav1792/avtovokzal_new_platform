@@ -166,34 +166,60 @@ docker compose exec app php artisan up
 в АИС: **Настройки → Продажа билетов на сайте**. Сайт при этом работает
 целиком, покупатель видит объявление и предложение купить в кассе.
 
-## Бэкап баз данных
+## Бэкап
 
-Суточный бэкап четырёх баз PostgreSQL — **сайт `avtovokzal`, АИС `ais`,
-API продаж `sales`, KKM API `kkm`** — плюс роли сервера
-(`pg_dumpall --globals-only`).
+Всё лежит в `/mnt/raid1/backups/` **тремя отдельными архивами**, у каждого
+своя ротация в **10 последних копий**:
+
+| архив | что внутри | когда | размер (16.11.2026) |
+|---|---|---|---|
+| `avtovokzal-db-ГГГГ-ММ-ДД_ЧЧММ.zip` | дампы баз `avtovokzal`, `ais`, `sales`, `kkm` + роли сервера, `manifest.txt` | 02:00 | 281 МБ (1,4 ГБ дампов) |
+| `avtovokzal-files-…zip` | файлы проекта: код и **`.env` всех приложений** | 02:15 | 2,3 МБ (906 файлов) |
+| `avtovokzal-uploads-…zip` | загрузки сайта `data/uploads` (картинки и PDF страниц) | 02:15 | 9,0 МБ (18 файлов) |
+
+Почему тремя: у них разный ритм изменений и разная цена восстановления, а
+разбирать 280-мегабайтный архив ради одной картинки неудобно.
 
 | что | как |
 |---|---|
-| скрипт | `/usr/local/bin/backupAvtovokzalDb.sh` (копия в репозитории — `scripts/backup-databases.sh`) |
-| расписание | systemd-таймер `avtovokzal-db-backup.timer`, **02:00 по времени сервера** (MSK), `Persistent=true` |
-| куда | `/mnt/raid1/backups/avtovokzal-db-ГГГГ-ММ-ДД_ЧЧММ.zip` |
-| сколько хранится | **10 последних копий**, старые удаляются сразу после упаковки |
-| журнал | `journalctl -u avtovokzal-db-backup.service` |
-
-Один прогон — один zip со всеми дампами: `manifest.txt` (время, версия
-сервера, размеры), `globals.sql`, `avtovokzal.sql`, `ais.sql`, `sales.sql`,
-`kkm.sql`. Первый прогон 16.11.2026: 1,4 ГБ дампов → **281 МБ** архива,
-около минуты (из них 55 с — упаковка).
+| скрипты | `/usr/local/bin/backupAvtovokzalDb.sh`, `…Files.sh`, `…Uploads.sh` (копии в репозитории — `scripts/backup-*.sh`) |
+| таймеры | `avtovokzal-db-backup.timer` (02:00) и `avtovokzal-files-backup.timer` (02:15, запускает код и загрузки подряд), оба `Persistent=true` |
+| журналы | `journalctl -u avtovokzal-db-backup.service`, `journalctl -u avtovokzal-files-backup.service` |
 
 ```bash
-systemctl start avtovokzal-db-backup.service     # снять бэкап сейчас
-systemctl list-timers avtovokzal-db-backup.timer # когда следующий
+systemctl start avtovokzal-db-backup.service      # снять бэкап баз сейчас
+systemctl start avtovokzal-files-backup.service   # файлы + загрузки сейчас
+systemctl list-timers 'avtovokzal-*'              # когда следующие
 ```
 
 Параметры переопределяются окружением: `BACKUP_DIR`, `KEEP`, `DATABASES`,
-`PROJECT_DIR` — этим же удобно проверять ротацию, не трогая боевой каталог.
+`PROJECT_DIR`, `UPLOADS_DIR` — этим же удобно проверять ротацию, не трогая
+боевой каталог (проверено: при `KEEP=2` третий прогон удалил самую старую
+копию).
 
-Восстановление (пример для базы сайта):
+**Чего в архиве кода НЕТ — появится при деплое или лежит в другом архиве:**
+`.git` (история на GitHub), `vendor/` и `node_modules/`, сборки фронтов
+(`.output`, `.nuxt`, `dist`, `public/build`), кэши Laravel
+(`bootstrap/cache`, `storage/framework/*`), журналы `storage/logs`,
+файлы БД `data/postgres`, загрузки `data/uploads` (свой архив) и
+Firebird-копии legacy в `databases/` (7+ ГБ исходников переноса, не
+меняются).
+
+**Права:** архивы баз и кода — `chmod 600` (внутри персональные данные
+покупателей и пароли шлюза, почты, баз). Архив загрузок остаётся
+читаемым — это файлы, и так опубликованные на сайте.
+
+Проверки внутри скриптов, которые стоит сохранить при правках: дамп
+сверяется по завершающей строке самого `pg_dump` (при обрыве он оставляет
+обрезанный файл, а код возврата теряется в конвейере), архивы проходят
+`zip -T`, в архиве кода проверяется наличие `.env` и `docker-compose.yml`,
+в архиве загрузок — что файлов больше нуля (пустой каталог на боевом
+сервере означает «примонтировано не то», и такой «бэкап» прикрыл бы
+потерю). Параллельные прогоны закрыты `flock`.
+
+### Восстановление
+
+Пример для базы сайта:
 
 ```bash
 unzip -p /mnt/raid1/backups/avtovokzal-db-*.zip avtovokzal.sql > /tmp/avtovokzal.sql
@@ -205,10 +231,13 @@ docker compose exec -T db psql -U avtovokzal -d avtovokzal_restore < /tmp/avtovo
 пользователя; роли при чистой установке сервера восстанавливаются из
 `globals.sql`.
 
-**Чего в бэкапе НЕТ (осознанно):** Firebird-копий legacy в
-`./databases` (`site.fdb`, `ais.fdb`, `buster.fdb` — это исходники переноса,
-они не меняются и лежат бэкапами у заказчика), загрузок
-`./data/uploads` и самого кода (он в git).
+Код и окружение:
+
+```bash
+unzip -d /data/avtovokzal_new_platform /mnt/raid1/backups/avtovokzal-files-*.zip
+unzip -d /data/avtovokzal_new_platform /mnt/raid1/backups/avtovokzal-uploads-*.zip
+# дальше обычный деплой: он поднимет vendor, node_modules и сборки фронтов
+```
 
 **Ловушка:** `.env` проекта **нельзя** подключать в скрипт через
 `. ./.env` — там есть `UID`, а в bash это переменная только для чтения, и
