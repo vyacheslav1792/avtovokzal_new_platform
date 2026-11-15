@@ -30,4 +30,28 @@ class Ticket extends Model
     {
         return $this->belongsTo(Order::class);
     }
+
+    /**
+     * Багажные бланки билета как [{serial, number}, …].
+     *
+     * На станции это самостоятельные билеты категории 9, поэтому и при
+     * возврате они аннулируются отдельными номерами — отсюда общий разбор
+     * на оба возврата (по коду и из АИС).
+     *
+     * @return array<int, array{serial: string, number: string}>
+     */
+    public function baggageBlanks(): array
+    {
+        $blanks = [];
+
+        foreach ((array) ($this->baggage_tickets ?? []) as $bag) {
+            if (! is_array($bag) || empty($bag['serial']) || empty($bag['number'])) {
+                continue;
+            }
+
+            $blanks[] = ['serial' => (string) $bag['serial'], 'number' => (string) $bag['number']];
+        }
+
+        return $blanks;
+    }
 }

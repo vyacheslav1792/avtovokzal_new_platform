@@ -72,7 +72,7 @@ class RefundService
 
         // Сорванный/отменённый рейс возвращается без удержаний (legacy-правило).
         $penalty = $canceledTrip ? 0 : (int) round((float) ($preview['penalties'][0] ?? 0));
-        $amount = $this->refundAmount($ticket, $penalty);
+        $amount = $this->refundAmount($order, $ticket, $penalty);
 
         $payload = [
             'order_id' => $order->id,
@@ -137,7 +137,7 @@ class RefundService
             'place' => (int) $ticket['place'],
             'penalty_percent' => $payload['penalty'],
             'ticket_price' => (float) $ticket['price'],
-            'baggage_price' => (int) ($ticket['baggage'] ?? 0) * (float) ($ticket['price_bag'] ?? 0),
+            'baggage_price' => $this->baggageToRefund($order, $ticket) * (float) ($ticket['price_bag'] ?? 0),
             'amount' => $payload['amount'],
             'status' => Refund::STATUS_REFUNDED,
         ]);
@@ -237,16 +237,43 @@ class RefundService
         return (int) ($trip['CANCELED'] ?? 0) === 1 || (int) ($trip['DISRUPT'] ?? 0) === 1;
     }
 
+    /**
+     * Аннулирование на станции: билет И ЕГО БАГАЖНЫЕ КВИТАНЦИИ.
+     *
+     * Багаж — самостоятельные бланки категории 9, и KS_ANN_TICKET_FROM_AW
+     * аннулирует ровно то, что ей передали. Legacy передавал их вместе с
+     * билетом (ключ `BAGAJ` каждого билета в `ORDERS.BILETS` дописывался в
+     * `I_N_TICKET` в `tickets_back` у `ais/api/api2.php`), и сумма возврата
+     * у нас, как у legacy, считается с багажом — иначе деньги за багаж
+     * возвращаются, а в ведомости станции он остаётся проданным.
+     *
+     * Квитанции, возвращённые отдельно через АИС, пропускаем: на станции
+     * они уже аннулированы.
+     */
     private function stationRefund(Order $order, Ticket $ticket, bool $preview): array
     {
+        $refundedBaggage = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_BAGGAGE)
+            ->get()
+            ->map(fn (Refund $r) => $r->serial.'/'.$r->number)
+            ->all();
+
+        $blanks = [[
+            'serial' => (string) $ticket['serial'],
+            'number' => (string) $ticket['number'],
+        ]];
+
+        foreach ($ticket->baggageBlanks() as $bag) {
+            if (! in_array($bag['serial'].'/'.$bag['number'], $refundedBaggage, true)) {
+                $blanks[] = $bag;
+            }
+        }
+
         return $this->salesApi->refund([
             'awtcod' => $order->awtcod,
             'operation' => 1,
             'preview' => $preview,
-            'tickets' => [[
-                'serial' => (string) $ticket['serial'],
-                'number' => (string) $ticket['number'],
-            ]],
+            'tickets' => $blanks,
         ])['data'];
     }
 
@@ -254,11 +281,27 @@ class RefundService
      * Сумма к возврату: (билет + багаж) минус процент удержаний,
      * с округлением вниз до копеек (формула legacy backbycode.php).
      */
-    private function refundAmount(Ticket $ticket, int $penalty): float
+    private function refundAmount(Order $order, Ticket $ticket, int $penalty): float
     {
         $gross = (float) $ticket['price']
-            + (int) ($ticket['baggage'] ?? 0) * (float) ($ticket['price_bag'] ?? 0);
+            + $this->baggageToRefund($order, $ticket) * (float) ($ticket['price_bag'] ?? 0);
 
         return floor($gross * (1 - $penalty / 100) * 100) / 100;
+    }
+
+    /**
+     * Сколько багажных мест билета ещё не возвращено отдельно (возврат
+     * одного багажа делается из АИС). В legacy такого возврата не было,
+     * и без этой поправки деньги за уже возвращённую квитанцию ушли бы
+     * покупателю второй раз.
+     */
+    private function baggageToRefund(Order $order, Ticket $ticket): int
+    {
+        $refunded = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_BAGGAGE)
+            ->whereIn('number', array_column($ticket->baggageBlanks(), 'number'))
+            ->count();
+
+        return max(0, (int) ($ticket['baggage'] ?? 0) - $refunded);
     }
 }
