@@ -127,6 +127,46 @@ services:
       db:
         condition: service_healthy
 
+  # Обработчик очередей backend: фискальные чеки и письма покупателям.
+  #
+  # Раньше его запускали руками (`queue:work --stop-when-empty`), и на
+  # проде это стоило чеков: заказ оформлялся, задача ложилась в `jobs` и
+  # висела там, пока кто-нибудь не вспомнит (ловилось 15.11.2026 —
+  # у четырёх оплаченных заказов не было фискального признака).
+  # Чек по 54-ФЗ обязан уйти сам, поэтому воркер — обычный сервис.
+  #
+  # `--max-time=3600` — перезапуск раз в час: Laravel-воркер держит код в
+  # памяти, и после выкладки он иначе продолжал бы работать по старому.
+  queue:
+    build:
+      context: ./docker/php
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: avtovokzal-queue
+    working_dir: /var/www/html
+    restart: unless-stopped
+    command: php artisan queue:work --queue=receipts,emails --sleep=3 --tries=3 --max-time=3600
+    volumes:
+      - ./backend:/var/www/html
+      - ./shared:/var/www/shared:ro
+      - ./data/uploads:/var/www/uploads
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/zz-app.ini:ro
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Тот же публичный адрес, что у app: письма и PDF билетов собираются
+      # здесь же (см. ловушку про перекрытие backend/.env у сервиса app).
+      FRONTEND_URL: "${SITE_URL:-http://127.0.0.1:3000}"
+      TZ: Europe/Moscow
+    depends_on:
+      db:
+        condition: service_healthy
+
   web:
     image: nginx:1.27-alpine
     ports:
