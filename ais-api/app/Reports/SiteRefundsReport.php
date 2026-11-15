@@ -301,13 +301,16 @@ class SiteRefundsReport implements Report
             'fp' => $r['fiscal_sign']
                 ? ['text' => $r['fiscal_sign'],
                     'url' => 'https://receipt.taxcom.ru/v01/show?fp='.$r['fiscal_sign'].'&s='.number_format((float) $r['amount'], 2, '.', '')]
-                : ['text' => 'нет', 'url' => ''],
+                : ['text' => $this->isBlankMark($r) ? '—' : 'нет', 'url' => ''],
             'email' => $r['email'],
             'phone' => $r['phone'],
             // Подсветка одна на все отчёты сайта: деньги покупателю не
             // отданы — красный (отказ банка это он же), нет фискального
             // чека — оранжевый, всё в порядке — сиреневый «возвращено».
             '_class' => match (true) {
+                // Отметка об аннулировании бланка — ни денег, ни чека по ней
+                // быть не должно, подсвечивать нечего.
+                $this->isBlankMark($r) => '',
                 ! $r['money_refunded_at'] => 'row-red',
                 ! $r['fiscal_sign'] => 'row-orange',
                 default => 'row-blue',
@@ -328,10 +331,27 @@ class SiteRefundsReport implements Report
     /** @param  array<string, mixed>  $r */
     private function statusLabel(array $r): string
     {
+        if ($this->isBlankMark($r)) {
+            return 'бланк аннулирован, деньги возвращены с билетом';
+        }
+
         return match ($r['status']) {
             'money_refunded' => 'деньги возвращены',
             'bank_failed' => 'банк отказал — вернёт бухгалтерия',
             default => 'ожидает возврата денег',
         };
+    }
+
+    /**
+     * Строка-ОТМЕТКА, а не возврат: бланк на станции аннулирован, деньги по
+     * нему не проходили (ушли раньше в составе билета). Такие пишет
+     * `refunds:annul-baggage` — у них нулевая сумма и нет чека, и спрашивать
+     * с них чек не за что.
+     *
+     * @param  array<string, mixed>  $r
+     */
+    private function isBlankMark(array $r): bool
+    {
+        return (float) $r['amount'] <= 0;
     }
 }

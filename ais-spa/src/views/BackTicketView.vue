@@ -211,6 +211,17 @@ onMounted(() => {
     <div v-if="error" class="alert">{{ error }}</div>
 
     <template v-if="info">
+      <!--
+        Ссылка «Бланк» из отчёта возвратов может вести на БАГАЖНУЮ квитанцию:
+        карточка открывает билет, которому она принадлежит, и говорит об этом,
+        иначе выглядит как «показали не то, что просили».
+      -->
+      <div v-if="info.opened_by_baggage" class="alert warn">
+        Открыто по багажной квитанции {{ info.opened_by_baggage.serial }}
+        {{ info.opened_by_baggage.number }} — ниже карточка её билета
+        {{ info.ticket.serial }} {{ info.ticket.number }}.
+      </div>
+
       <!-- Сверка со шлюзом (legacy: «Информация об оплате из сбербанка») -->
       <section class="bt-block">
         <h3>Информация об оплате из сбербанка</h3>

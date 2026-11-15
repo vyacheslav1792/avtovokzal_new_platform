@@ -604,6 +604,13 @@ class SiteSalesReport implements Report
             }
 
             $out['count']++;
+
+            // Отметка об аннулировании бланка (сумма 0): деньги по ней не
+            // проходили и чека быть не должно — это не недочёт.
+            if ((float) $refund->amount <= 0) {
+                continue;
+            }
+
             $out['pending'] += $refund->money_refunded_at ? 0 : 1;
             $out['no_receipt'] += $refund->fiscal_sign ? 0 : 1;
         }

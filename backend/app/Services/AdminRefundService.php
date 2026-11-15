@@ -80,6 +80,11 @@ class AdminRefundService
 
         $ticket = $this->findTicket($order, $serial, $number);
         $result['ticket'] = $this->ticketInfo($ticket);
+        // Открыли по номеру багажной квитанции — карточка принадлежит её
+        // билету, и об этом надо сказать прямо.
+        $result['opened_by_baggage'] = (string) $ticket->number !== $number
+            ? ['serial' => $serial, 'number' => $number]
+            : null;
         // Багажные квитанции билета: их можно вернуть отдельно, не трогая
         // сам билет (на станции это самостоятельные бланки).
         $result['baggage'] = $this->baggageInfo($order, $ticket);
@@ -297,11 +302,27 @@ class AdminRefundService
             fn (Ticket $t) => (string) $t->serial === $serial && (string) $t->number === $number,
         );
 
-        if (! $ticket) {
-            throw ValidationException::withMessages(['ticket' => 'Нет билетов с такими номерами в заказе']);
+        if ($ticket) {
+            return $ticket;
         }
 
-        return $ticket;
+        /*
+         * Пришли по номеру БАГАЖНОЙ квитанции — так ведёт ссылка «Бланк» из
+         * отчёта «Возвраты сайта», где у возврата багажа свои номера.
+         * Показываем карточку билета, которому эта квитанция принадлежит,
+         * вместо «Нет билетов с такими номерами в заказе».
+         */
+        $byBaggage = $order->tickets->first(
+            fn (Ticket $t) => collect($t->baggageBlanks())->contains(
+                fn (array $b) => $b['serial'] === $serial && $b['number'] === $number,
+            ),
+        );
+
+        if ($byBaggage) {
+            return $byBaggage;
+        }
+
+        throw ValidationException::withMessages(['ticket' => 'Нет билетов с такими номерами в заказе']);
     }
 
     /**
