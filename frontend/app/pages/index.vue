@@ -135,6 +135,21 @@ const tileOverlay = {
           Покупка билетов на официальном сайте автовокзала Орёл
         </h1>
 
+        <!--
+          Баннер НАД формой поиска — ровно там, где он стоял в legacy:
+          `include('vidjets/top.php')` в url/index.php идёт до блока
+          покупки. Содержимое правится в АИС, раздел «Блоки сайта».
+
+          Коробка по содержимому (`w-fit`, потолок 20rem — как 320px у
+          самого виджета в legacy), а НЕ во всю ширину: растянутая на
+          896px полоса с картинкой 200px выглядела как пустая плашка
+          поперёк картинки главной.
+        -->
+        <SiteBlock
+          name="home_hero"
+          class="w-fit max-w-80 mx-auto mb-5 bg-default/95 rounded-lg px-4 py-3 text-center shadow-lg"
+        />
+
         <UCard class="max-w-4xl mx-auto shadow-xl">
           <div class="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] items-end">
             <UFormField label="Откуда">
@@ -168,20 +183,6 @@ const tileOverlay = {
           </div>
         </UCard>
 
-        <!--
-          Баннер под формой поиска — перенос legacy vidjets/top.php (баннер
-          и ссылки на билеты до мест проведения мероприятий): правится в
-          АИС, раздел «Блоки сайта».
-
-          Коробка по содержимому (`w-fit`, потолок 20rem — как 320px у
-          legacy `vidjets/top.php`), а НЕ во всю ширину: растянутая на
-          896px полоса с картинкой 200px выглядела как пустая плашка
-          поперёк картинки главной.
-        -->
-        <SiteBlock
-          name="home_hero"
-          class="w-fit max-w-80 mx-auto mt-4 bg-default/95 rounded-lg px-4 py-3 text-center shadow-lg"
-        />
       </UContainer>
     </section>
 
