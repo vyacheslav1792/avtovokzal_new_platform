@@ -148,3 +148,16 @@ export async function fetchSpamRules() {
 export async function saveSpamRules(rules) {
   return (await req(`${API}/admin/spam-rules`, json('PUT', { rules }))).data
 }
+
+/* Админский возврат билета (страница /back-ticket) */
+
+/**
+ * Одно действие возврата: inspect | confirm | baggage | penalty | repair.
+ * Ходит через общий слой запросов, поэтому код подтверждения (возврат денег
+ * и починка зависшего возврата помечены `confirm` в каталоге прав)
+ * спрашивается окном, а не превращается в ошибку «Действие требует
+ * подтверждения кодом.».
+ */
+export async function refundAction(action, payload) {
+  return (await req(`${API}/admin/refunds/${action}`, json('POST', payload))).data
+}

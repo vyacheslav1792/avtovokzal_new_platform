@@ -8,6 +8,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { can } from '../auth'
+import { refundAction } from '../siteApi'
 
 const props = defineProps({
   orderId: { type: String, default: '' },
@@ -28,31 +29,20 @@ const done = ref(null)       // результат confirm/repair
 const percent = ref(-1)      // -1 = «Не выбран» (как в legacy)
 const confirming = ref(false)
 
-const SITE_API = '/site-api/v1/admin/refunds'
-
-async function req(url, body) {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  let data = null
-  try { data = await r.json() } catch (e) { /* не JSON */ }
-  if (!r.ok || !data || data.success === false) {
-    // Laravel validation: {message, errors: {поле: [тексты]}}
-    const msg = data && data.errors
-      ? Object.values(data.errors).flat().join(' ')
-      : (data && (data.message || data.error)) || `Ошибка запроса (HTTP ${r.status})`
-    throw new Error(msg)
-  }
-  return data.data
-}
+/*
+ * Запросы идут через общий слой (siteApi → http.js), а не своим fetch:
+ * возврат денег и починка зависшего возврата помечены в каталоге прав как
+ * опасные, сервер отвечает `need_confirm`, и код подтверждения спрашивает
+ * окно. Со своим fetch это было ошибкой «Действие требует подтверждения
+ * кодом.» — кнопка просто не работала.
+ */
+const req = refundAction
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    info.value = await req(`${SITE_API}/inspect`, {
+    info.value = await req('inspect', {
       order_id: orderId.value,
       serial: serial.value || null,
       number: number.value || null,
@@ -73,7 +63,7 @@ async function confirmRefund() {
   confirming.value = true
   error.value = ''
   try {
-    done.value = await req(`${SITE_API}/confirm`, {
+    done.value = await req('confirm', {
       order_id: orderId.value,
       serial: serial.value,
       number: number.value,
@@ -104,7 +94,7 @@ async function refundBaggage() {
   confirming.value = true
   error.value = ''
   try {
-    done.value = await req(`${SITE_API}/baggage`, {
+    done.value = await req('baggage', {
       order_id: orderId.value,
       serial: serial.value,
       number: number.value,
@@ -132,7 +122,7 @@ async function refundPenalty(refund) {
   confirming.value = true
   error.value = ''
   try {
-    done.value = await req(`${SITE_API}/penalty`, {
+    done.value = await req('penalty', {
       order_id: orderId.value,
       refund_id: refund.id,
     })
@@ -156,7 +146,7 @@ async function repairMoney() {
   confirming.value = true
   error.value = ''
   try {
-    done.value = await req(`${SITE_API}/repair`, {
+    done.value = await req('repair', {
       order_id: orderId.value,
       serial: serial.value,
       number: number.value,
