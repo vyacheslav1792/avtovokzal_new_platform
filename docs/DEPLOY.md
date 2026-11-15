@@ -166,6 +166,56 @@ docker compose exec app php artisan up
 в АИС: **Настройки → Продажа билетов на сайте**. Сайт при этом работает
 целиком, покупатель видит объявление и предложение купить в кассе.
 
+## Бэкап баз данных
+
+Суточный бэкап четырёх баз PostgreSQL — **сайт `avtovokzal`, АИС `ais`,
+API продаж `sales`, KKM API `kkm`** — плюс роли сервера
+(`pg_dumpall --globals-only`).
+
+| что | как |
+|---|---|
+| скрипт | `/usr/local/bin/backupAvtovokzalDb.sh` (копия в репозитории — `scripts/backup-databases.sh`) |
+| расписание | systemd-таймер `avtovokzal-db-backup.timer`, **02:00 по времени сервера** (MSK), `Persistent=true` |
+| куда | `/mnt/raid1/backups/avtovokzal-db-ГГГГ-ММ-ДД_ЧЧММ.zip` |
+| сколько хранится | **10 последних копий**, старые удаляются сразу после упаковки |
+| журнал | `journalctl -u avtovokzal-db-backup.service` |
+
+Один прогон — один zip со всеми дампами: `manifest.txt` (время, версия
+сервера, размеры), `globals.sql`, `avtovokzal.sql`, `ais.sql`, `sales.sql`,
+`kkm.sql`. Первый прогон 16.11.2026: 1,4 ГБ дампов → **281 МБ** архива,
+около минуты (из них 55 с — упаковка).
+
+```bash
+systemctl start avtovokzal-db-backup.service     # снять бэкап сейчас
+systemctl list-timers avtovokzal-db-backup.timer # когда следующий
+```
+
+Параметры переопределяются окружением: `BACKUP_DIR`, `KEEP`, `DATABASES`,
+`PROJECT_DIR` — этим же удобно проверять ротацию, не трогая боевой каталог.
+
+Восстановление (пример для базы сайта):
+
+```bash
+unzip -p /mnt/raid1/backups/avtovokzal-db-*.zip avtovokzal.sql > /tmp/avtovokzal.sql
+docker compose exec -T db psql -U avtovokzal -d postgres -c 'create database avtovokzal_restore'
+docker compose exec -T db psql -U avtovokzal -d avtovokzal_restore < /tmp/avtovokzal.sql
+```
+
+Дампы сняты с `--no-owner --no-privileges`, поэтому заливаются под текущего
+пользователя; роли при чистой установке сервера восстанавливаются из
+`globals.sql`.
+
+**Чего в бэкапе НЕТ (осознанно):** Firebird-копий legacy в
+`./databases` (`site.fdb`, `ais.fdb`, `buster.fdb` — это исходники переноса,
+они не меняются и лежат бэкапами у заказчика), загрузок
+`./data/uploads` и самого кода (он в git).
+
+**Ловушка:** `.env` проекта **нельзя** подключать в скрипт через
+`. ./.env` — там есть `UID`, а в bash это переменная только для чтения, и
+скрипт падает с «переменная только для чтения». Имя пользователя БД
+скрипт спрашивает у самого контейнера (`docker compose exec db printenv
+POSTGRES_USER`), пароль не нужен — внутри контейнера подключение локальное.
+
 ## Разовые команды после деплоя
 
 Сид содержимого блоков сайта («виджеты» из legacy) — **один раз** после

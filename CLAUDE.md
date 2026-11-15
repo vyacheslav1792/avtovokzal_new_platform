@@ -1461,6 +1461,16 @@ http://127.0.0.1:5893, виртуальная ККТ NumDevice=1 (эмулято
 - **Таймзоны:** Firebird и PHP должны быть в **+3** (`TZ=Europe/Moscow`), иначе payconfirm
   падает на сверке времени резерва.
 
+## Бэкап баз
+
+Суточный бэкап четырёх баз Postgres (`avtovokzal`, `ais`, `sales`, `kkm`) +
+роли сервера — **systemd-таймер на проде в 02:00 МСК**, один zip-архив на
+прогон в `/mnt/raid1/backups/`, хранятся 10 последних копий. Скрипт —
+`scripts/backup-databases.sh` (на сервере
+`/usr/local/bin/backupAvtovokzalDb.sh`), подробности и порядок
+восстановления — в [docs/DEPLOY.md](docs/DEPLOY.md). Firebird-копии legacy,
+загрузки и код в бэкап не входят.
+
 ## Базы
 
 - **PostgreSQL** (`db`) — наши данные (`site`, `ais` после переноса), `./data/postgres`.
