@@ -20,10 +20,16 @@
 
 | Домен | Назначение | Куда проксируется |
 |---|---|---|
-| `site.orelavtotrans.ru` | Сайт | `/` → frontend (3000), `/api/v1/` → web (8088) |
+| `автовокзал57.рф` (`xn--57-6kcaja9axlzb9b.xn--p1ai`) | **Сайт (основной адрес)** | `/` → frontend (3000), `/api/v1/` → web (8088) |
+| `site.orelavtotrans.ru` | Сайт (прежний адрес, работает) | то же самое |
 | `ais.orelavtotrans.ru` | Админка/отчёты АИС | `/` → ais_spa (3001), `/api/` → ais_web (8086), `/site-api/` → web (8088) |
 | `deploy.orelavtotrans.ru` | Панель деплоя | `/` → контроллер (8099), `/agent` → php-fpm (исполнитель) |
-| `автовокзал57.рф` (`xn--57-…`) | **Боевой legacy-сайт** | целиком на отдельный сервер `192.168.2.5` — здесь только TLS и реверс-прокси |
+
+**15.11.2026 домен `автовокзал57.рф` отдан новой платформе.** До этого он
+целиком проксировался на старый сервер `192.168.2.5` (прежний конфиг
+сохранён как `…conf.legacy-proxy.bak`). Станционная система старого сайта
+(`/stations/**`) по-прежнему живёт там и проксируется уже самим Nuxt —
+см. CLAUDE.md и PLAN.md §9.
 
 Конфиги vhost'ов — `/etc/nginx/sites-available/*.orelavtotrans.ru.conf`
 (в репозитории проекта не хранятся — это серверная инфраструктура).
@@ -86,7 +92,7 @@ docker compose restart scheduler   # если менялся docker/ofelia/confi
 `--color-green-500` вместо новой фирменной палитры. Поэтому `restart` фронтов
 дописан и в деплой-скрипт (бэкап `updateAvtovokzalFromGit.sh.bak_20261114`).
 Проверять результат деплоя стоит по самой выдаче
-(`curl https://site.orelavtotrans.ru/_nuxt/entry.*.css`), а не по строке «Готово»
+(`curl https://автовокзал57.рф/_nuxt/entry.*.css`), а не по строке «Готово»
 в логе.
 
 **Та же ловушка у планировщика.** ofelia читает `docker/ofelia/config.ini`
@@ -273,8 +279,14 @@ Postgres (`data/postgres`, PGDATA uid 999) и Firebird (`databases/*.fdb`)
 рабочей копии:
 
 ```
-SITE_URL=https://site.orelavtotrans.ru
+SITE_URL=https://автовокзал57.рф
 ```
+
+Адрес пишется **кириллицей**: он попадает в билет (ссылка возврата по коду)
+и в SEO-разметку, а punycode там выглядит как подделка. Исключение —
+адреса, которые внешняя система сверяет байт в байт: `SBERBANK_RETURN_URL`
+и `VK_REDIRECT_URI` задаются в `backend/.env` **в punycode**
+(`https://xn--57-6kcaja9axlzb9b.xn--p1ai/...`).
 
 Compose раздаёт его сервисам: `FRONTEND_URL` (backend — ссылки писем, адрес
 возврата платёжного шлюза, `redirect_uri` VK), `SITE_FRONTEND_URL` (ais-api —
@@ -301,7 +313,7 @@ Compose раздаёт его сервисам: `FRONTEND_URL` (backend — сс
 SBERBANK_API_URI=https://3dsec-payments.yookassa.ru      # ТОЛЬКО схема+хост
 SBERBANK_USERNAME=<shopId>
 SBERBANK_PASSWORD=<секрет>
-SBERBANK_RETURN_URL=https://site.orelavtotrans.ru/payment/result
+SBERBANK_RETURN_URL=https://xn--57-6kcaja9axlzb9b.xn--p1ai/payment/result   # punycode
 ```
 
 **Ловушка `SBERBANK_API_URI` — без пути.** SDK

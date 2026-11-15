@@ -43,6 +43,13 @@ docker compose down           # остановить (данные Postgres в .
 ```
 
 **Публичный адрес сайта — одна переменная `SITE_URL` в корневом `.env`.**
+На проде это **`https://автовокзал57.рф`** (домен отдан новой платформе
+15.11.2026; `site.orelavtotrans.ru` продолжает работать). Адрес пишется
+кириллицей — он попадает в билет (ссылка возврата по коду) и в SEO-разметку,
+а punycode там читается как подделка. **Исключение — адреса, которые внешняя
+система сверяет байт в байт:** `SBERBANK_RETURN_URL` и `VK_REDIRECT_URI` в
+`backend/.env` задаются в punycode (`https://xn--57-6kcaja9axlzb9b.xn--p1ai/…`),
+иначе шлюз и VK адрес не примут.
 Compose раздаёт её сервисам (`docker-compose.yml`): `FRONTEND_URL` у `app`,
 `SITE_FRONTEND_URL` у `ais_app`, `NUXT_PUBLIC_SITE_URL` у `frontend`,
 `VITE_SITE_URL` у `ais_spa`; в проде то же значение идёт и в

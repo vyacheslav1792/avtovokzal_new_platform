@@ -18,7 +18,7 @@
 
 Кнопки скачивания в личном кабинете и после оплаты формируют ссылку
 `<NUXT_PUBLIC_API_BASE>/api/v1/orders/<order_id>/pdf`.
-В продакшене `NUXT_PUBLIC_API_BASE=https://site.orelavtotrans.ru` задаётся
+В продакшене `NUXT_PUBLIC_API_BASE=https://автовокзал57.рф` задаётся
 в `docker-compose.prod.yml`. Этот адрес доступен браузеру покупателя.
 После изменения runtime-переменной нужно пересоздать контейнер `frontend`:
 
