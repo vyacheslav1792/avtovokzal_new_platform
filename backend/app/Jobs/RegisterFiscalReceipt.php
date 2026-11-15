@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Order;
-use App\Services\KkmApiClient;
+use App\Services\FiscalReceiptService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -13,7 +13,11 @@ use Illuminate\Queue\SerializesModels;
 /**
  * Фискальный чек покупки через KKM API (сервис-прослойка к KkmServer).
  *
- * Ставится в очередь `receipts` при успешном оформлении заказа.
+ * Это ВТОРОЙ заход: при оформлении чек сначала пробуют пробить сразу
+ * (FiscalReceiptService::registerNow, ожидание 5 секунд) — чтобы
+ * фискальный признак попал в билет, который покупатель открывает тут же.
+ * В очередь джоб попадает, только если быстро не получилось.
+ *
  * Ключ идемпотентности sale:{uuid} — повторный запуск джобы (retry,
  * дубль в очереди) не пробьёт второй чек.
  */
@@ -27,50 +31,18 @@ class RegisterFiscalReceipt implements ShouldQueue
 
     public function __construct(public readonly string $orderId) {}
 
-    public function handle(KkmApiClient $kkm): void
+    public function handle(FiscalReceiptService $receipts): void
     {
         $order = Order::findOrFail($this->orderId);
 
-        // Позиции чека: билет / багаж по каждому пассажиру.
-        $items = [];
-        foreach ($order->tickets ?? [] as $ticket) {
-            $tariff = $ticket['type'] === 'Д' ? 'дет.' : 'полн.';
-            $items[] = [
-                'name' => sprintf(
-                    'Билет %s-%s %s %s м. %s %s',
-                    $order->from_name,
-                    $order->to_name,
-                    $order->date_start->format('d.m.Y'),
-                    substr((string) $order->time_start, 0, 5),
-                    $ticket['place'],
-                    $tariff,
-                ),
-                'price' => (float) $ticket['price'],
-            ];
-
-            $bagCount = (int) ($ticket['baggage'] ?? 0);
-            if ($bagCount > 0 && (float) ($ticket['price_bag'] ?? 0) > 0) {
-                $items[] = [
-                    'name' => sprintf(
-                        'Багаж %s-%s %s %s',
-                        $order->from_name,
-                        $order->to_name,
-                        $order->date_start->format('d.m.Y'),
-                        substr((string) $order->time_start, 0, 5),
-                    ),
-                    'price' => (float) $ticket['price_bag'],
-                    'quantity' => $bagCount,
-                ];
-            }
+        // Чек мог уже пробиться синхронно при оформлении — тогда делать
+        // нечего (ключ идемпотентности тот же, второй чек всё равно не
+        // пройдёт, но и дёргать ККТ незачем).
+        if ($order->fiscal_sign) {
+            return;
         }
 
-        $receipt = $kkm->registerReceipt(
-            'sale:'.$order->id,
-            'sale',
-            $order->email,
-            $items,
-            (float) $order->total_price,
-        );
+        $receipt = $receipts->send($order);
 
         if ($receipt['status'] === 'pending') {
             $this->release($this->backoff); // ККТ ещё пробивает — спросим позже

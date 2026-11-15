@@ -13,6 +13,9 @@ class KkmApiClient
 {
     /**
      * @param  array[]  $items  [{name, price, quantity?}]
+     * @param  int|null  $timeout  сколько ждать ответ; null — таймаут сервиса.
+     *                             Короткий нужен первой, синхронной попытке
+     *                             при оформлении: покупатель ждёт билет.
      * @return array data чека: status, check_number, fiscal_sign, …
      */
     public function registerReceipt(
@@ -21,10 +24,23 @@ class KkmApiClient
         string $email,
         array $items,
         float $electronicPayment,
+        ?int $timeout = null,
     ): array {
-        $response = Http::baseUrl(config('services.kkm_api.url'))
+        $request = Http::baseUrl(config('services.kkm_api.url'))
             ->withToken(config('services.kkm_api.token'))
-            ->timeout(config('services.kkm_api.timeout'))
+            ->timeout($timeout ?? config('services.kkm_api.timeout'));
+
+        /*
+         * У синхронной попытки ограничиваем и УСТАНОВКУ соединения: без
+         * этого недоступный сервис съедал вдвое больше времени, чем общий
+         * таймаут (DNS резолвится отдельно для IPv4 и IPv6 — 5 с ожидания
+         * превращались в 10, и покупатель столько же ждал билет).
+         */
+        if ($timeout !== null) {
+            $request = $request->connectTimeout(max(1, (int) ceil($timeout / 3)));
+        }
+
+        $response = $request
             ->acceptJson()
             ->post('receipts', [
                 'external_id' => $externalId,

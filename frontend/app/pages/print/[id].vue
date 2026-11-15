@@ -42,8 +42,15 @@ function baggageUnits(t: PrintTicket): BaggageTicket[] {
   return Array.from({ length: t.baggage }, () => ({ serial: t.serial, number: t.number }))
 }
 
-const receiptUrl = computed(() => order.value
-  ? `https://receipt.taxcom.ru/v01/show?fp=${order.value.fiscal_sign ?? ''}&s=${order.value.total_price.toFixed(2)}`
+/*
+ * Ссылка на электронный чек — ТОЛЬКО когда фискальный признак уже есть.
+ * Чек пробивается при оформлении синхронно (5 секунд), но ККТ может быть
+ * занята, и тогда он уходит в очередь. Пустой `fp` в ссылке ведёт в
+ * никуда, а на билете это выглядит как обман — поэтому строки просто нет,
+ * пока признак не появится (страницу достаточно открыть заново).
+ */
+const receiptUrl = computed(() => order.value?.fiscal_sign
+  ? `https://receipt.taxcom.ru/v01/show?fp=${order.value.fiscal_sign}&s=${order.value.total_price.toFixed(2)}`
   : '')
 
 // Ссылка попадает в билет и на печать, поэтому адрес — публичный из конфига,
@@ -124,7 +131,9 @@ function printPage() {
             <!-- В legacy print.php здесь опечатка «для для» — исправлена. -->
             Код для возврата билета: {{ order.back_code }}{{ t.number }}<br>
             Возврат билета (URL): <a target="_blank" :href="backUrl(t)">{{ backUrl(t) }}</a><br>
-            Электронный чек(URL): <a target="_blank" :href="receiptUrl">{{ receiptUrl }}</a>
+            <template v-if="receiptUrl">
+              Электронный чек(URL): <a target="_blank" :href="receiptUrl">{{ receiptUrl }}</a>
+            </template>
           </div>
 
           <!-- Багажные квитанции -->

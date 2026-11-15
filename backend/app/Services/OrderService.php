@@ -21,6 +21,7 @@ class OrderService
         private readonly SalesApiClient $salesApi,
         private readonly PaymentGateway $payments,
         private readonly SavedPassengerService $savedPassengers,
+        private readonly FiscalReceiptService $receipts,
     ) {}
 
     /**
@@ -497,8 +498,18 @@ class OrderService
             ]);
         });
 
-        // Поток чека и письма — в очередь; обработчик пока не запускаем.
-        RegisterFiscalReceipt::dispatch($order->id)->onQueue('receipts');
+        /*
+         * Чек пробуем пробить СРАЗУ и с коротким ожиданием (5 секунд):
+         * покупатель открывает билет в ту же секунду, и фискальный признак
+         * должен быть уже в нём — иначе ссылка «Электронный чек» ведёт в
+         * никуда. Не успели (ККТ занята, смена закрывается, сервис лёг) —
+         * чек уходит в очередь, а в билете ссылки на чек просто нет, пока
+         * признак не появится.
+         */
+        if (! $this->receipts->registerNow($order->refresh())) {
+            RegisterFiscalReceipt::dispatch($order->id)->onQueue('receipts');
+        }
+
         SendPurchaseEmail::dispatch($order->id)->onQueue('emails');
 
         if ($this->isFirstPurchaseOfGuest($order)) {
