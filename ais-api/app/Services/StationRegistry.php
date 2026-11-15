@@ -3,15 +3,21 @@
 namespace App\Services;
 
 /**
- * Реестр станций — общий конфиг shared/stations.php монорепозитория
- * (тот же, что у sales-api; в legacy $AWT дублировался трижды).
+ * Реестр станций. Источник — справочник в БД (таблица `stations`,
+ * правится в АИС); пока он пуст, работает прежний файл
+ * shared/stations.php — см. StationCatalog.
+ *
+ * Отключённых станций (`is_active = false`) здесь нет вовсе: для отчётов
+ * и сервисов такой станции не существует.
  */
 class StationRegistry
 {
+    public function __construct(private readonly StationCatalog $catalog) {}
+
     /** @return array<string, array> все станции */
     public function all(): array
     {
-        return config('stations.list');
+        return $this->catalog->entries();
     }
 
     public function name(int|string $awtcod): string
@@ -20,7 +26,7 @@ class StationRegistry
             return 'Все';
         }
 
-        return config('stations.list')[(string) $awtcod]['name'] ?? (string) $awtcod;
+        return $this->all()[(string) $awtcod]['name'] ?? (string) $awtcod;
     }
 
     /**
@@ -35,7 +41,7 @@ class StationRegistry
             return $this->all();
         }
 
-        $station = config('stations.list')[$stan] ?? null;
+        $station = $this->all()[$stan] ?? null;
 
         return $station ? [$stan => $station] : [];
     }

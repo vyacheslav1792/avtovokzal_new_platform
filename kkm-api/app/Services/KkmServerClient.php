@@ -7,9 +7,16 @@ use Illuminate\Support\Facades\Http;
 /**
  * Низкоуровневый клиент KkmServer (https://kkmserver.ru/KkmServer):
  * все команды идут в POST /Execute одним JSON.
+ *
+ * Адрес, устройство и кассир берутся из справочника АИС (KkmSettings), а
+ * не напрямую из config/kkm.php: настройки ККМ правятся в АИС, и
+ * переключение варианта не должно требовать правки файла и пересоздания
+ * контейнера.
  */
 class KkmServerClient
 {
+    public function __construct(private readonly KkmSettings $settings) {}
+
     /** Статусы KkmServer. */
     public const STATUS_OK = 0;
 
@@ -23,9 +30,9 @@ class KkmServerClient
 
     public function execute(array $command): array
     {
-        $response = Http::baseUrl(config('kkm.url'))
-            ->withBasicAuth(config('kkm.user'), config('kkm.password'))
-            ->timeout(config('kkm.command_timeout') + 15)
+        $response = Http::baseUrl($this->settings->url())
+            ->withBasicAuth($this->settings->user(), $this->settings->password())
+            ->timeout($this->settings->commandTimeout() + 15)
             ->acceptJson()
             ->post('/Execute', $command);
 
@@ -70,13 +77,13 @@ class KkmServerClient
 
         return $this->execute([
             'Command' => 'RegisterCheck',
-            'NumDevice' => config('kkm.num_device'),
+            'NumDevice' => $this->settings->numDevice(),
             'IdCommand' => $idCommand,
             'IsFiscalCheck' => true,
             'TypeCheck' => $typeCheck,
             'NotPrint' => true,
-            'Timeout' => config('kkm.command_timeout'),
-            'CashierName' => config('kkm.cashier_name'),
+            'Timeout' => $this->settings->commandTimeout(),
+            'CashierName' => $this->settings->cashierName(),
             'ClientAddress' => $email,
             'CheckStrings' => $checkStrings,
             'ElectronicPayment' => round($electronicPayment, 2),
@@ -97,7 +104,7 @@ class KkmServerClient
     {
         return $this->execute([
             'Command' => 'GetDataKKT',
-            'NumDevice' => config('kkm.num_device'),
+            'NumDevice' => $this->settings->numDevice(),
         ]);
     }
 
@@ -106,11 +113,11 @@ class KkmServerClient
     {
         return $this->execute([
             'Command' => 'CloseShift',
-            'NumDevice' => config('kkm.num_device'),
+            'NumDevice' => $this->settings->numDevice(),
             'IdCommand' => $idCommand,
-            'CashierName' => config('kkm.cashier_name'),
+            'CashierName' => $this->settings->cashierName(),
             'NotPrint' => true,
-            'Timeout' => config('kkm.command_timeout'),
+            'Timeout' => $this->settings->commandTimeout(),
         ]);
     }
 }

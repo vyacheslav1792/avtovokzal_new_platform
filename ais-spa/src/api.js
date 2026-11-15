@@ -66,6 +66,60 @@ export function runReport(slug, filters) {
   return request(`${API}/reports/${encodeURIComponent(slug)}/run`, json('POST', filters))
 }
 
+/* Справочник автостанций: подключения к базам BUSTER и выключатели.
+   До 15.11.2026 это был файл (shared/stations.php), а в legacy — массив
+   $AWT прямо в коде, причём в трёх местах. */
+
+export function fetchStations() {
+  return request(`${API}/stations`)
+}
+
+export function saveStation(awtcod, station) {
+  return request(`${API}/stations/${awtcod}`, json('PUT', station))
+}
+
+export function createStation(station) {
+  return request(`${API}/stations`, json('POST', station))
+}
+
+export function deleteStation(awtcod) {
+  return request(`${API}/stations/${awtcod}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+/** Быстрое переключение варианта подключения станции. */
+export function switchStationProfile(awtcod, slot) {
+  return request(`${API}/stations/${awtcod}/profile`, json('POST', { slot }))
+}
+
+/** Проверка связи с базой станции (slot — по умолчанию действующий). */
+export function testStation(awtcod, slot) {
+  return request(`${API}/stations/${awtcod}/test`, json('POST', slot ? { slot } : {}))
+}
+
+/** Разовый перенос станций из файла конфигурации в справочник. */
+export function importStationsFromFile() {
+  return request(`${API}/stations/import-file`, json('POST', {}))
+}
+
+/* Фискальный сервер (KkmServer): варианты подключения и переключение. */
+
+export function fetchKkmServers() {
+  return request(`${API}/kkm-servers`)
+}
+
+export function saveKkmServers(servers) {
+  return request(`${API}/kkm-servers`, json('PUT', { servers }))
+}
+
+/** slot = null выключает фискализацию целиком. */
+export function activateKkmServer(slot) {
+  return request(`${API}/kkm-servers/activate`, json('POST', { slot }))
+}
+
+export function testKkmServer(slot) {
+  return request(`${API}/kkm-servers/test`, json('POST', { slot }))
+}
+
 /* Сотрудники */
 
 export function fetchEmployees() {

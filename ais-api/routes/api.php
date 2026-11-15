@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\KkmServerController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\StationController;
 use Illuminate\Support\Facades\Route;
 
 // Контракт отчётов совместим с legacy apiv2 (SPA-рендер отчётов), но, в
@@ -34,6 +36,38 @@ Route::prefix('v1')->group(function () {
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/{slug}/meta', [ReportController::class, 'meta'])->name('reports.meta');
         Route::post('reports/{slug}/run', [ReportController::class, 'run'])->name('reports.run');
+
+        /*
+         * Справочник станций: что раньше правили в файле (а в legacy —
+         * прямо в коде, в трёх местах). Переключение варианта подключения
+         * и правка требуют кода подтверждения: ошибка здесь останавливает
+         * продажу по станции.
+         */
+        Route::get('stations', [StationController::class, 'index'])
+            ->middleware('employee.can:stations.view');
+        Route::post('stations', [StationController::class, 'store'])
+            ->middleware('employee.can:stations.edit');
+        Route::put('stations/{awtcod}', [StationController::class, 'update'])
+            ->whereNumber('awtcod')->middleware('employee.can:stations.edit');
+        Route::delete('stations/{awtcod}', [StationController::class, 'destroy'])
+            ->whereNumber('awtcod')->middleware('employee.can:stations.edit');
+        Route::post('stations/{awtcod}/profile', [StationController::class, 'switchProfile'])
+            ->whereNumber('awtcod')->middleware('employee.can:stations.edit');
+        Route::post('stations/import-file', [StationController::class, 'importFromFile'])
+            ->middleware('employee.can:stations.edit');
+        // Проверка связи ничего не меняет — отдельное право попроще.
+        Route::post('stations/{awtcod}/test', [StationController::class, 'test'])
+            ->whereNumber('awtcod')->middleware('employee.can:stations.test');
+
+        // Настройки KkmServer (фискальные чеки).
+        Route::get('kkm-servers', [KkmServerController::class, 'index'])
+            ->middleware('employee.can:kkm.view');
+        Route::put('kkm-servers', [KkmServerController::class, 'save'])
+            ->middleware('employee.can:kkm.edit');
+        Route::post('kkm-servers/activate', [KkmServerController::class, 'activate'])
+            ->middleware('employee.can:kkm.edit');
+        Route::post('kkm-servers/test', [KkmServerController::class, 'test'])
+            ->middleware('employee.can:kkm.test');
 
         // Сотрудники и роли. Опасные операции (сброс секретов, удаление)
         // требуют кода подтверждения — это задано в каталоге прав

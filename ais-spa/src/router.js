@@ -6,6 +6,7 @@ import DataSyncView from './views/DataSyncView.vue'
 import EmployeesView from './views/EmployeesView.vue'
 import FeedbackView from './views/FeedbackView.vue'
 import HomeView from './views/HomeView.vue'
+import KkmView from './views/KkmView.vue'
 import MenuView from './views/MenuView.vue'
 import NewsEditView from './views/NewsEditView.vue'
 import NewsListView from './views/NewsListView.vue'
@@ -16,6 +17,7 @@ import ReportView from './views/ReportView.vue'
 import RolesView from './views/RolesView.vue'
 import SettingsView from './views/SettingsView.vue'
 import SpamRulesView from './views/SpamRulesView.vue'
+import StationsView from './views/StationsView.vue'
 
 // Маршрутизация без # (history mode): / — список отчётов, /<slug> — отчёт.
 // Админские страницы объявляем ДО catch-all, иначе их съест ReportView:
@@ -24,6 +26,8 @@ import SpamRulesView from './views/SpamRulesView.vue'
 // /pages и /menu — страницы и меню сайта (legacy url/<slug>.php + index.php),
 // /news — новости и объявления, /blocks — блоки сайта (legacy vidjets/*.php),
 // /settings — выключатели продажи и возврата билетов,
+// /stations — автостанции и подключения к их базам (в legacy — массив $AWT
+//   в коде, в трёх местах), /kkm — настройки фискального сервера,
 // /sync — немедленное обновление расписания и пунктов назначения,
 // /feedback и /spam-rules — обращения с сайта и антиспам-словарь
 // (legacy url/contact.php: письмо на почту и словарь в исходнике),
@@ -43,6 +47,8 @@ const routes = [
   { path: '/news/:id', component: NewsEditView, props: true },
   { path: '/blocks', component: BlocksView },
   { path: '/settings', component: SettingsView },
+  { path: '/stations', component: StationsView },
+  { path: '/kkm', component: KkmView },
   { path: '/sync', component: DataSyncView },
   { path: '/menu', component: MenuView },
   { path: '/feedback', component: FeedbackView },

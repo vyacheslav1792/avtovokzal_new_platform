@@ -1,0 +1,940 @@
+{
+  "_comment": "Станции прода: снято с боевого ais/api/config.php 15.11.2026 ($AWT — VPN, $ALT_IP — локальные адреса, закомментированный блок — туннели zebedee; у туннелей хост 127.0.0.1 заменён на сервер старого сайта 192.168.2.5, иначе с нашего сервера они недостижимы). Загружается командой `php artisan stations:import`.",
+  "stations": [
+    {
+      "awtcod": 5701,
+      "name": "Орел АВ",
+      "buh": "ORL",
+      "buh_st": "АВ Орел",
+      "buh_ksr": "кассир Орел",
+      "stationkey": "orel_3434354erjewhrg",
+      "inlist": 1,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.50",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "192.168.2.5",
+          "db_port": 3081,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3081,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5705,
+      "name": "Ливны АС",
+      "buh": "LIV",
+      "buh_st": "АС Ливны",
+      "buh_ksr": "Кассир Ливны",
+      "stationkey": "livn_hfghgfh54erjewhrg",
+      "inlist": 2,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43205,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "192.168.2.5",
+          "db_port": 3061,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3061,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5706,
+      "name": "Мценск АС",
+      "buh": "MTS",
+      "buh_st": "Остановочный пункт  Мценск",
+      "buh_ksr": "Кассир Мценск",
+      "stationkey": "mcensk_224hfjfghgdfgdfg",
+      "inlist": 3,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43206,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.250",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3078,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5707,
+      "name": "Кромы АС",
+      "buh": "KRO",
+      "buh_st": "Остановочный пункт  Кромы",
+      "buh_ksr": "Кассир Кромы",
+      "stationkey": "krom_hfghgfh54erjewhrg",
+      "inlist": 4,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43207,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.254",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3063,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5712,
+      "name": "Болхов КП",
+      "buh": "BOL",
+      "buh_st": "КП Болхов",
+      "buh_ksr": "Кассир Болхов",
+      "stationkey": "bolhov_dfhrgffgfg",
+      "inlist": 5,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43212,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.25.33",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3076,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5715,
+      "name": "Дмитровск КП",
+      "buh": "DMI",
+      "buh_st": "КП Дмитровск",
+      "buh_ksr": "Кассир Дмитровск",
+      "stationkey": "dmitr_fgfdgdfg",
+      "inlist": 6,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43215,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.30",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3071,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5714,
+      "name": "Верховье КП",
+      "buh": "VER",
+      "buh_st": "КП Верховье",
+      "buh_ksr": "Кассир Верховье",
+      "stationkey": "verch_dgfgdfgdfgfdg",
+      "inlist": 7,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43214,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.34",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3075,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5720,
+      "name": "Тросна КП",
+      "buh": "TRO",
+      "buh_st": "КП Тросна",
+      "buh_ksr": "Кассир Тросна",
+      "stationkey": "trosn_guyth54erjfgrg",
+      "inlist": 8,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43220,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.10",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3065,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5721,
+      "name": "Новосиль КП",
+      "buh": "NOV",
+      "buh_st": "КП Новосиль",
+      "buh_ksr": "Кассир Новосиль",
+      "stationkey": "novosil_fgfdgdfgd",
+      "inlist": 9,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.54",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3080,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5718,
+      "name": "Нарышкино КП",
+      "buh": "NAR",
+      "buh_st": "КП Нарышкино",
+      "buh_ksr": "Кассир Нарышкино",
+      "stationkey": "nar_fgfdgdfsdfsdf",
+      "inlist": 10,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43218,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.50",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3070,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5713,
+      "name": "Хомутово КП",
+      "buh": "XOM",
+      "buh_st": "КП Хомутово",
+      "buh_ksr": "Кассир Хомутово",
+      "stationkey": "homut_434hfghgfdfh54erjewhrg",
+      "inlist": 11,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43213,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "192.168.4.97",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3062,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5708,
+      "name": "Колпны КП",
+      "buh": "KOL",
+      "buh_st": "КП Колпны",
+      "buh_ksr": "Кассир Колпны",
+      "stationkey": "kolp_hgjghjgf54erjewhrg",
+      "inlist": 12,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43208,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.46",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3064,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5719,
+      "name": "Долгое КП",
+      "buh": "DOL",
+      "buh_st": "КП Долгое",
+      "buh_ksr": "Кассир Долгое",
+      "stationkey": "dolg_qwqwetjgdgzxdsf44",
+      "inlist": 13,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43219,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.38",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3072,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5717,
+      "name": "Малоархангельск КП",
+      "buh": "MAL",
+      "buh_st": "КП М-Архангельск",
+      "buh_ksr": "Кассир М-Архангельск",
+      "stationkey": "maloarh_fhfdhfdhfdsdfs",
+      "inlist": 14,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43217,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.42",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3074,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5716,
+      "name": "Залегощь КП",
+      "buh": "ZAL",
+      "buh_st": "КП Залегощь",
+      "buh_ksr": "Кассир Залегощь",
+      "stationkey": "zaleg_gfhfghgfhf",
+      "inlist": 15,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43216,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.6",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3067,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5722,
+      "name": "Красная Заря КП",
+      "buh": "KRZ",
+      "buh_st": "КП Красная Заря",
+      "buh_ksr": "Кассир Красная Заря",
+      "stationkey": "krasnzar_45jkljdf45",
+      "inlist": 16,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43222,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.18",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.4.250",
+          "db_port": 43222,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5724,
+      "name": "Шаблыкино КП",
+      "buh": "SHA",
+      "buh_st": "КП Шаблыкино",
+      "buh_ksr": "Кассир Шаблыкино",
+      "stationkey": "shabl_pooipuiret1234",
+      "inlist": 17,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43224,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.58",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3077,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5703,
+      "name": "Дросково КП",
+      "buh": "DRO",
+      "buh_st": "КП Дросково",
+      "buh_ksr": "Кассир Дросково",
+      "stationkey": "drosk_sadsadadsasd",
+      "inlist": 18,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 3,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.53",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.54",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3079,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5711,
+      "name": "Знаменское КП",
+      "buh": "ZNA",
+      "buh_st": "КП Знаменское",
+      "buh_ksr": "Кассир Знаменское",
+      "stationkey": "znamenskoe_fgfdgsdfg",
+      "inlist": 19,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43211,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.2",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3073,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5723,
+      "name": "Сосково КП",
+      "buh": "SOS",
+      "buh_st": "КП Сосково",
+      "buh_ksr": "Кассир Сосково",
+      "stationkey": "sosk_jhkdfgdfgdfgdf",
+      "inlist": 20,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43223,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.62",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3066,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    },
+    {
+      "awtcod": 5702,
+      "name": "Змиевка КП",
+      "buh": "ZME",
+      "buh_st": "КП Змиевка",
+      "buh_ksr": "Кассир Змиевка",
+      "stationkey": "zmievk_fdgfdgfdg",
+      "inlist": 21,
+      "is_active": true,
+      "sales_enabled": false,
+      "refunds_enabled": false,
+      "active_profile": 1,
+      "profiles": [
+        {
+          "slot": 1,
+          "label": "Через VPN",
+          "db_host": "192.168.4.250",
+          "db_port": 43211,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $AWT боевого ais/api/config.php (VPN ГОСТ/IPSEC)"
+        },
+        {
+          "slot": 2,
+          "label": "Локальный IP",
+          "db_host": "10.1.102.14",
+          "db_port": 3050,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Адрес из $ALT_IP (локальные/публичные адреса провайдера)"
+        },
+        {
+          "slot": 3,
+          "label": "Туннель на сервере сайта",
+          "db_host": "192.168.2.5",
+          "db_port": 3068,
+          "db_name": "buster",
+          "db_user": "SYSDBA",
+          "db_password": "1",
+          "notes": "Туннель zebedee на сервере старого сайта (в legacy это был 127.0.0.1)"
+        }
+      ]
+    }
+  ]
+}

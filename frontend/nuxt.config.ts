@@ -85,6 +85,15 @@ export default defineNuxtConfig({
   runtimeConfig: {
     // SSR внутри docker-сети ходит в backend напрямую (сервис web).
     apiBaseServer: 'http://web',
+    /*
+     * Станционная система (`/stations/**`) на новую платформу ещё НЕ
+     * перенесена и живёт на старом сайте — запросы к ней проксируются
+     * туда как есть (server/routes/stations). Пусто = прокси выключен.
+     * На проде: LEGACY_SITE_PROXY=http://192.168.2.5,
+     * LEGACY_SITE_HOST=xn--57-6kcaja9axlzb9b.xn--p1ai (автовокзал57.рф).
+     */
+    legacySiteProxy: '',
+    legacySiteHost: '',
     public: {
       // Адрес высокоуровневого API avtovokzal57 (backend), НЕ API продаж.
       apiBase: 'http://127.0.0.1:8088',

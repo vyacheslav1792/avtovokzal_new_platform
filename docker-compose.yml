@@ -157,6 +157,10 @@ services:
       DB_DATABASE: sales
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Справочник станций живёт в БД АИС и правится в АИС (таблица
+      # `stations`); sales-api читает его прямым запросом — см.
+      # App\Services\Buster\StationCatalog.
+      AIS_DB_DATABASE: ais
       TZ: Europe/Moscow
     depends_on:
       db:
@@ -197,6 +201,11 @@ services:
       # Ссылки «печать билета» в отчётах — тот же SITE_URL (см. сервис app).
       SITE_FRONTEND_URL: "${SITE_URL:-http://127.0.0.1:3000}"
       TZ: Europe/Moscow
+    # KkmServer стоит на ХОСТ-машине (не в docker), а АИС проверяет связь
+    # с ККТ кнопкой на странице «Фискальный сервер» — без host-gateway
+    # host.docker.internal из этого контейнера не резолвится.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -231,6 +240,8 @@ services:
       DB_DATABASE: kkm
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Настройки KkmServer правятся в АИС (таблица `kkm_servers` в БД ais).
+      AIS_DB_DATABASE: ais
       TZ: Europe/Moscow
     extra_hosts:
       # KkmServer установлен на хост-машине (не в docker), порт 5893
@@ -336,6 +347,13 @@ services:
       # бывает, поэтому на локальном контуре она просто выключена
       # (серверный ключ — CAPTCHA_SERVER_KEY в backend/.env).
       NUXT_PUBLIC_CAPTCHA_KEY: "${CAPTCHA_CLIENT_KEY:-}"
+      # Станционная система (`/stations/**`) на новую платформу ещё НЕ
+      # перенесена: запросы к ней проксируются на старый сайт как есть
+      # (server/routes/stations). Домен автовокзал57.рф уже указывает на
+      # этот сервер, поэтому без прокси станции получали бы 404.
+      # Пусто = прокси выключен (локальный контур).
+      NUXT_LEGACY_SITE_PROXY: "${LEGACY_SITE_PROXY:-}"
+      NUXT_LEGACY_SITE_HOST: "${LEGACY_SITE_HOST:-}"
       # Версия сайта для людей с нарушениями зрения (ГОСТ Р 52872-2019):
       # кнопка в шапке + панель настроек. `ACCESSIBILITY_VERSION=0` в корневом
       # .env убирает кнопку и всю версию целиком.

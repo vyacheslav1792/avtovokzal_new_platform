@@ -5,12 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Reservation;
 use App\Services\Buster\GatewayFactory;
+use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReservationController extends Controller
 {
-    public function __construct(private readonly GatewayFactory $gateways) {}
+    public function __construct(
+        private readonly GatewayFactory $gateways,
+        private readonly StationRegistry $stations,
+    ) {}
 
     /**
      * Зарезервировать места (бронь ~24 мин): POST /api/v1/reservations
@@ -28,6 +32,11 @@ class ReservationController extends Controller
             'places.*' => ['integer', 'min:1', 'max:200'],
             'seat_count' => ['required_without:places', 'integer', 'min:1', 'max:20'],
         ]);
+
+        // Продажа по станции может быть выключена в АИС — проверяем до
+        // брони: место, занятое под заказ, который не оформить, никому
+        // не нужно.
+        $this->stations->assertSalesEnabled($data['awtcod']);
 
         $agent = $request->attributes->get('agent');
         $gateway = $this->gateways->forStation($data['awtcod'], $agent);

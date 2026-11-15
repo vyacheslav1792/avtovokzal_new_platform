@@ -107,6 +107,30 @@ return [
             'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
         ],
 
+        /*
+         * База АИС: оттуда читаются настройки KkmServer
+         * (таблица `kkm_servers`, правится сотрудником в АИС). Прямым
+         * соединением, а не по сети у ais-api: лишний вызов на каждый чек
+         * не нужен — так же поступает backend с правами сотрудников.
+         *
+         * Пояс — как у приложения: вместе с настройками читаются даты
+         * проверки связи.
+         */
+        'ais' => [
+            'driver' => 'pgsql',
+            'host' => env('AIS_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('AIS_DB_PORT', env('DB_PORT', '5432')),
+            'database' => env('AIS_DB_DATABASE', 'ais'),
+            'username' => env('AIS_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('AIS_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

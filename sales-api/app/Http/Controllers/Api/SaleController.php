@@ -6,12 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\Reservation;
 use App\Models\TicketSale;
 use App\Services\Buster\GatewayFactory;
+use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SaleController extends Controller
 {
-    public function __construct(private readonly GatewayFactory $gateways) {}
+    public function __construct(
+        private readonly GatewayFactory $gateways,
+        private readonly StationRegistry $stations,
+    ) {}
 
     /**
      * Оформить (продать) зарезервированные места: POST /api/v1/sales
@@ -79,6 +83,11 @@ class SaleController extends Controller
                 'id_time_places' => $data['id_time_places'],
             ];
         }
+
+        // Выключатель продажи по станции (АИС). Проверяем и здесь, а не
+        // только при брони: оформить можно и по явному id_time_places,
+        // без нашего резерва.
+        $this->stations->assertSalesEnabled($trip['awtcod']);
 
         $gateway = $this->gateways->forStation($trip['awtcod'], $agent);
 

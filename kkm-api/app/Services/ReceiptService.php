@@ -15,7 +15,10 @@ use Illuminate\Support\Str;
  */
 class ReceiptService
 {
-    public function __construct(private readonly KkmServerClient $kkm) {}
+    public function __construct(
+        private readonly KkmServerClient $kkm,
+        private readonly KkmSettings $settings,
+    ) {}
 
     public function register(array $data, string $clientId): Receipt
     {
@@ -50,7 +53,7 @@ class ReceiptService
                 'external_id' => $data['external_id'],
                 'type' => $data['type'],
                 'id_command' => (string) Str::uuid(),
-                'num_device' => config('kkm.num_device'),
+                'num_device' => $this->settings->numDevice(),
                 'email' => $data['email'],
                 'items' => $data['items'],
                 'electronic_payment' => $data['electronic_payment'],

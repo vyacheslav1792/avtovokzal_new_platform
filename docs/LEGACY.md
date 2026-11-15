@@ -116,6 +116,19 @@ $this->connection = odbc_connect($dbm, $user, $password);
   `sbrf_returnUrl`, `sbrf_dynamicCallbackUrl`. Логика оплаты — в `inc/sbrf_help.php` (класс `sbrf_api`).
 - **Клиент API продаж** — класс `tds_api` в `inc/api_help.php`. Метод `query()` шлёт POST через
   `file_get_contents` (НЕ curl) на `$CONFIG['awt_api_url']` (= `http://192.168.2.5/api/api2.php`).
+- **`stations/` — станционная система, НЕ ПЕРЕНЕСЕНА.** Рабочий инструмент
+  самих станций: диспетчерские экраны (`disp.php`, `disp2.php`), ведомости
+  (`showved.php`), операционные отчёты (`op_report.php`, `op_report_2.php`),
+  печатные формы (`printform*.php`), план (`plan.php`), журнал `log.txt`
+  (пишется до сих пор). Вход — по `?stationkey=…` из `$AWT` (без ключа
+  раздел отдаёт редирект, а не контент).
+  **Сейчас раздел проксируется с нового сайта на старый** (`/stations/**`
+  → `LEGACY_SITE_PROXY`, см. CLAUDE.md и PLAN.md §9), поэтому адреса у
+  станций не менялись. **Старый сервер нельзя выключать, пока это не
+  перенесено.** Домен `автовокзал57.рф` уже указывает на новый сервер, а
+  `.htaccess` старого сайта переадресовывал всё на этот домен — в него
+  добавлено исключение по заголовку `X-Proxy-From: avtovokzal-new-platform`
+  (15.11.2026, бэкап рядом: `.htaccess.bak_20261115`).
 
 ---
 
