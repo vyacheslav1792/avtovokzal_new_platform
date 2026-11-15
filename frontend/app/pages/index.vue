@@ -168,12 +168,19 @@ const tileOverlay = {
           </div>
         </UCard>
 
-        <!-- Баннер под формой поиска — перенос legacy vidjets/top.php
-             (баннер и ссылки на билеты до мест проведения мероприятий):
-             правится в АИС, раздел «Блоки сайта». -->
+        <!--
+          Баннер под формой поиска — перенос legacy vidjets/top.php (баннер
+          и ссылки на билеты до мест проведения мероприятий): правится в
+          АИС, раздел «Блоки сайта».
+
+          Коробка по содержимому (`w-fit`, потолок 20rem — как 320px у
+          legacy `vidjets/top.php`), а НЕ во всю ширину: растянутая на
+          896px полоса с картинкой 200px выглядела как пустая плашка
+          поперёк картинки главной.
+        -->
         <SiteBlock
           name="home_hero"
-          class="max-w-4xl mx-auto mt-4 bg-default/95 rounded-lg px-4 py-3 text-center"
+          class="w-fit max-w-80 mx-auto mt-4 bg-default/95 rounded-lg px-4 py-3 text-center shadow-lg"
         />
       </UContainer>
     </section>
@@ -185,12 +192,12 @@ const tileOverlay = {
         были вбиты в avtovokzal57/url/index.php и vidjets/news.php: правка
         текста означала выкладку кода на боевой сервер.
       -->
-      <SiteBlock name="home_top" />
-      <SiteBlock name="home_welcome" />
+      <SiteBlock name="home_top" class="site-appeal" />
+      <SiteBlock name="home_welcome" class="site-welcome" />
 
       <LatestNews />
 
-      <SiteBlock name="home_memos" />
+      <SiteBlock name="home_memos" class="site-notices" />
 
       <!--
         Плитки направлений — геометрия legacy (`.popular-routes-list-item`
