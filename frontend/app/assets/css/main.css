@@ -95,3 +95,89 @@
 .site-notices > p:last-child {
   margin-bottom: 0;
 }
+
+/*
+ * Классы оформления ДЛЯ СОДЕРЖИМОГО из админки. Их можно поставить руками
+ * в HTML-режиме редактора (страницы, новости, блоки) — это единственный
+ * способ оформить абзац, не вписывая в текст инлайновые стили, которые
+ * потом не перекрасит ни тёмная тема, ни версия для слабовидящих.
+ *
+ * Набор сознательно короткий: вводный абзац, врезка и карточка партнёра.
+ * Всё остальное — обычные теги.
+ */
+
+/* Вводный абзац: первая фраза блока, крупнее и по центру */
+.site-html .lead {
+  font-size: 1.25rem;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+/* Врезка: важное условие, которое нельзя пропустить глазами */
+.site-html .note {
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-info);
+  border-radius: 0.5rem;
+  background: var(--ui-bg-elevated);
+  padding: 0.8rem 1rem;
+}
+
+/* Карточка партнёра: картинка слева, подпись справа, вся карточка — ссылка */
+.site-html .partner {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: fit-content;
+  max-width: 30rem;
+  margin-inline: auto;
+  padding: 0.6rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.75rem;
+  background: var(--ui-bg-elevated);
+  color: var(--ui-text);
+  text-align: left;
+  text-decoration: none;
+}
+
+.site-html .partner:hover {
+  border-color: var(--ui-primary);
+}
+
+.site-html .partner img {
+  flex: none;
+  width: 120px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+
+.site-html .partner b {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.site-html .partner small {
+  display: block;
+  color: var(--ui-text-muted);
+}
+
+/*
+ * На телефоне карточка занимает всю ширину, а не ширину содержимого:
+ * `fit-content` оставлял тексту узкую колонку, и подпись рассыпалась на
+ * пять строк по одному слову. Картинка заодно мельче — иначе от 328px
+ * экрана на текст остаётся меньше половины.
+ */
+@media (max-width: 480px) {
+  .site-html .partner {
+    width: auto;
+    gap: 0.7rem;
+    padding: 0.5rem;
+  }
+
+  .site-html .partner img {
+    width: 96px;
+    height: 72px;
+  }
+}
