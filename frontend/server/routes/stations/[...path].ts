@@ -9,10 +9,11 @@
  * **Это временно** — раздел надо перенести; см. PLAN.md («Станционная
  * система») и docs/LEGACY.md.
  *
- * Адрес источника — `LEGACY_SITE_PROXY` (`runtimeConfig.legacySiteProxy`),
- * имя виртуального хоста — `LEGACY_SITE_HOST`: старый сайт отвечает по
- * доменному имени, и обращение по одному IP без Host отдало бы чужой
- * виртуальный хост. Пустой адрес = прокси выключен (локальный контур).
+ * Адрес источника — `LEGACY_SITE_PROXY` (`runtimeConfig.legacySiteProxy`):
+ * это ДОМЕННОЕ имя старого сайта, а не его IP. Так совпадают Host, SNI и
+ * сертификат; сам домен указывает на старый сервер через `extra_hosts`
+ * контейнера (в DNS он уже ведёт на НОВЫЙ сервер, и обращение по имени
+ * вернулось бы к нам же). Пустой адрес = прокси выключен.
  */
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
@@ -37,9 +38,6 @@ export default defineEventHandler(async (event) => {
 
   return proxyRequest(event, target, {
     headers: {
-      // Старый сайт различает виртуальные хосты по Host; без него
-      // 192.168.2.5 отдаст не тот сайт.
-      host: config.legacySiteHost as string,
       /*
        * По этому заголовку .htaccess старого сайта НЕ переадресует нас на
        * https://автовокзал57.рф: домен уже указывает на новый сервер, и

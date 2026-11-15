@@ -18,7 +18,6 @@ export default defineEventHandler(async (event) => {
 
   return proxyRequest(event, `${base}/stations/${query}`, {
     headers: {
-      host: config.legacySiteHost as string,
       // См. соседний [...path].ts: без этого заголовка старый сайт
       // переадресует запрос на домен, который ведёт сюда же.
       'x-proxy-from': 'avtovokzal-new-platform',
