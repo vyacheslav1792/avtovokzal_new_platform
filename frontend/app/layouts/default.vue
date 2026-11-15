@@ -111,14 +111,30 @@ async function signOut() {
           идёт по пробелу после «АО»), а логотип и кегль там мельче — так
           полное название помещается даже на 320px.
         -->
-        <NuxtLink :to="homeLink" class="flex items-center gap-2 min-w-0">
-          <img src="/img/logo.png" alt="Лого" class="h-7 sm:h-9 w-auto shrink-0">
-          <span class="font-semibold text-xs leading-tight sm:text-base sm:leading-normal">
+        <NuxtLink :to="homeLink" class="flex items-center gap-2 min-w-0 sm:shrink-0">
+          <img src="/img/logo.png" alt="Лого" class="h-7 w-auto shrink-0">
+          <!--
+            На узком экране название переносится на вторую строку (по пробелу
+            после «АО») и кегль там мельче — иначе оно не влезает и его
+            приходилось бы обрезать многоточием. От `sm` места хватает, и
+            перенос запрещён: иначе «АО» и «Орелавтотранс» встают в две
+            строки, а меню наезжает на вторую.
+          -->
+          <span
+            class="font-semibold text-xs leading-tight
+                   sm:text-base sm:leading-normal sm:whitespace-nowrap"
+          >
             АО «Орелавтотранс»
           </span>
         </NuxtLink>
 
-        <nav class="hidden lg:flex items-center gap-4 ml-auto text-sm">
+        <!--
+          Полное меню показываем только от `xl`. На 1024–1279px пять пунктов,
+          кнопка «Для слабовидящих» и «Личный кабинет» в строку не влезали:
+          ряд переполнялся, появлялась горизонтальная прокрутка всей страницы,
+          а название наезжало на меню. Ниже `xl` — кнопка меню.
+        -->
+        <nav class="hidden xl:flex items-center gap-3 2xl:gap-4 ml-auto text-sm">
           <template v-for="entry in menu?.header ?? []" :key="entry.title">
             <UDropdownMenu
               v-if="isMenuGroup(entry)"
@@ -145,8 +161,15 @@ async function signOut() {
           </template>
         </nav>
 
-        <div class="hidden lg:flex items-center gap-1">
-          <AccessibilityToggle label />
+        <div class="hidden xl:flex items-center gap-1">
+          <!--
+            Только значок: подпись «Для слабовидящих» занимает ~150px, и
+            вместе с пятью пунктами меню и кабинетом ряд выходил за
+            контейнер (он ограничен 1280px) даже на широком экране.
+            У кнопки есть aria-label и подсказка, а текстом тот же пункт
+            стоит в меню — требование ГОСТ Р 52872-2019 выполнено.
+          -->
+          <AccessibilityToggle />
           <UDropdownMenu v-if="isLoggedIn" :items="accountItems">
             <UButton
               color="neutral"
@@ -171,7 +194,7 @@ async function signOut() {
           </UButton>
         </div>
 
-        <div class="lg:hidden ml-auto flex items-center shrink-0">
+        <div class="xl:hidden ml-auto flex items-center shrink-0">
           <AccessibilityToggle />
           <UButton
             class="shrink-0 text-neutral-200 hover:text-white"
@@ -195,6 +218,10 @@ async function signOut() {
     >
       <template #body>
         <nav class="py-2">
+          <!-- Версия для слабовидящих — текстом: в шапке на неё остался
+               только значок, а ГОСТ Р 52872-2019 требует понятной ссылки
+               с любой страницы. -->
+          <AccessibilityMenuItem />
           <template v-for="entry in menu?.header ?? []" :key="entry.title">
             <!-- Раздел шапки («Пассажирам») в панели раскрыт: в legacy
                  мобильное меню тоже было плоским списком ссылок. -->
