@@ -3,6 +3,7 @@
 // билет + квитанция на каждое место багажа. Без шапки и подвала сайта.
 // Состав полей печатной формы описан один раз — теми же типами
 // пользуется офлайн-хранилище билетов (PWA, `useOfflineTickets`).
+import { setResponseStatus } from 'h3'
 import type {
   OfflineBaggageTicket as BaggageTicket,
   OfflineOrderData as PrintData,
@@ -20,6 +21,25 @@ const { data, error } = await useAsyncData(`print-${route.params.id}`, () =>
   api<{ success: boolean, data: PrintData }>(`/orders/${route.params.id}/print`))
 
 const order = computed(() => data.value?.data ?? null)
+
+/*
+ * Нет данных — страница отвечает 404, а не 200.
+ *
+ * По этому же адресу gotenberg рендерит PDF билетов для письма: при 200 он
+ * считал страницу с текстом «Информация по заказу не найдена» нормальной и
+ * отдавал её как «билет», а в журнале оставалось `"pdf":true`. Ловилось на
+ * проде 15.11.2026 — покупатель получил письмо с PDF, в котором ошибка.
+ * С 404 gotenberg падает сам (failOnHttpStatusCodes по умолчанию), и
+ * письмо уходит без вложения — это видно в логе.
+ *
+ * `setResponseStatus` импортируется из h3 явно: в `app/` он не
+ * автоимпортируется.
+ */
+const event = useRequestEvent()
+
+if (import.meta.server && error.value && event) {
+  setResponseStatus(event, 404)
+}
 
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
 const DAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']

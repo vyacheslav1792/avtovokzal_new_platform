@@ -9,7 +9,9 @@ use App\Models\Order;
 use App\Models\User;
 use App\Support\PassengerName;
 use App\Support\Phone;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -431,12 +433,58 @@ class OrderService
         return $order->refresh();
     }
 
+    /**
+     * Коды, при которых оформление НЕ считается провалившимся: продажа по
+     * этому резерву либо уже идёт, либо уже прошла. Статус заказа в таких
+     * случаях не трогаем — его выставит тот запрос, который оформляет.
+     */
+    private const CONFLICT_CODES = ['already_sold', 'concurrent_sale', 'sale_in_progress'];
+
+    /**
+     * Дооформление оплаченного заказа.
+     *
+     * Всё тело — под блокировкой на заказ: страница результата способна
+     * прислать два `confirm` в одну секунду (ловилось на проде 15.11.2026),
+     * и тогда оба проходили проверку статуса и оба шли в KS_SALE_PLACES по
+     * одному резерву. Один билет продавал, второй получал дедлок Firebird —
+     * и его catch записывал заказу `failed` ПОВЕРХ уже оформленного:
+     * покупатель видел ошибку, а билет, чек и код возврата у него были.
+     * Под блокировкой второй запрос дожидается первого и видит `completed`.
+     */
     public function confirm(string $sberOrderId): Order
     {
         $order = Order::where('sber_order_id', $sberOrderId)->firstOrFail();
 
         if ($order->status === Order::STATUS_COMPLETED) {
             return $order; // идемпотентность: повторный заход на страницу
+        }
+
+        $lock = Cache::lock('order-confirm:'.$order->id, 180);
+
+        try {
+            // Ждём, а не отказываем: обычно это второй запрос той же
+            // страницы, и ему нужен результат первого.
+            $lock->block(30);
+        } catch (LockTimeoutException) {
+            throw new SalesApiException(
+                'Оформление заказа уже выполняется, подождите',
+                'confirm_in_progress',
+            );
+        }
+
+        try {
+            return $this->confirmLocked($order->refresh(), $sberOrderId);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function confirmLocked(Order $order, string $sberOrderId): Order
+    {
+        // Статус мог измениться, пока ждали блокировку, — заказ оформил
+        // предыдущий запрос.
+        if ($order->status === Order::STATUS_COMPLETED) {
+            return $order;
         }
 
         if (! in_array($order->status, [Order::STATUS_PAYMENT_REGISTERED, Order::STATUS_PAID], true)) {
@@ -456,10 +504,25 @@ class OrderService
                 'tickets' => $order->passengers,
             ])['data'];
         } catch (SalesApiException $e) {
-            $order->update([
-                'status' => Order::STATUS_FAILED,
-                'status_reason' => $e->getMessage(),
-            ]);
+            // Конфликт одновременной продажи — не повод портить заказ:
+            // билеты оформляет другой запрос.
+            if (! in_array($e->errorCode, self::CONFLICT_CODES, true)) {
+                // Условный UPDATE: если заказ всё же успели оформить,
+                // `completed` не затираем (страховка к блокировке).
+                Order::whereKey($order->id)
+                    ->where('status', '!=', Order::STATUS_COMPLETED)
+                    ->update([
+                        'status' => Order::STATUS_FAILED,
+                        'status_reason' => $e->getMessage(),
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                Log::warning('Оформление заказа уже идёт в другом запросе', [
+                    'order_id' => $order->id,
+                    'error_code' => $e->errorCode,
+                ]);
+            }
+
             throw $e;
         }
 

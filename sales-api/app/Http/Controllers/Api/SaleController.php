@@ -7,8 +7,10 @@ use App\Models\Reservation;
 use App\Models\TicketSale;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class SaleController extends Controller
 {
@@ -51,6 +53,47 @@ class SaleController extends Controller
 
         $agent = $request->attributes->get('agent');
 
+        /*
+         * Один резерв оформляется строго по одному разу за раз.
+         *
+         * Статус `sold` ставится ПОСЛЕ успешной продажи, поэтому два
+         * запроса, пришедшие в одну секунду, оба видели `reserved` и оба
+         * шли в KS_SALE_PLACES по одному месту — Firebird отвечал дедлоком
+         * (ловилось на проде 15.11.2026). Блокировка выстраивает их в
+         * очередь: второй дождётся первого и получит честный `already_sold`.
+         */
+        if (empty($data['reservation_id'])) {
+            return $this->sell($data, $agent);
+        }
+
+        $lock = Cache::lock('sale:'.$data['reservation_id'], 180);
+
+        try {
+            $lock->block(30);
+        } catch (LockTimeoutException) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Оформление по этому резерву уже выполняется',
+                'error_code' => 'sale_in_progress',
+            ], 409);
+        }
+
+        try {
+            return $this->sell($data, $agent);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Собственно продажа. Вынесена из store(), чтобы блокировка по резерву
+     * охватывала и проверку статуса, и обращение к станции.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $agent
+     */
+    private function sell(array $data, array $agent): JsonResponse
+    {
         $reservation = null;
         if (! empty($data['reservation_id'])) {
             $reservation = Reservation::where('id', $data['reservation_id'])

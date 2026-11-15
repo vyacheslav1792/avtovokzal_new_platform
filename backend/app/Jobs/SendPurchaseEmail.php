@@ -45,9 +45,23 @@ class SendPurchaseEmail implements ShouldQueue
             return;
         }
 
-        // Вложение необязательно: ссылка на билеты в письме есть всегда, и
+        // Вложение необязательно: список билетов в письме есть всегда, и
         // недоступный Gotenberg не повод оставить покупателя без письма.
         $pdf = null;
+
+        // Печатная форма живёт только у оформленного заказа. Без этой
+        // проверки рендерилась страница «Информация по заказу не найдена»
+        // и уходила покупателю под именем «Билеты …pdf».
+        if ($order->status !== Order::STATUS_COMPLETED || $order->tickets->isEmpty()) {
+            Log::warning('Письмо о покупке уходит без PDF: заказ не оформлен', [
+                'order_id' => $order->id,
+                'status' => $order->status,
+            ]);
+
+            Mail::to($order->email)->send(new PurchaseMail($order, null));
+
+            return;
+        }
 
         try {
             $pdf = $renderer->fromUrl(

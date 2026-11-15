@@ -393,7 +393,7 @@ SQL;
      * идут AGENT_CODE и AGENT_WRK_CODE), поэтому чужие места ею не освободить.
      *
      * @param  int[]  $places  номера мест
-     * @return int  сколько мест удалось освободить
+     * @return int сколько мест удалось освободить
      */
     public function releaseReservation(
         int $awtcod,
@@ -582,10 +582,41 @@ SQL;
             $this->db->commit();
         } catch (\Throwable $e) {
             $this->db->rollBack();
-            throw $e;
+
+            throw $this->translateConflict($e);
         }
 
         return ['tickets' => $result, 'raw' => $row];
+    }
+
+    /**
+     * Дедлок Firebird при одновременной продаже одного и того же места —
+     * это «продажа уже идёт», а не сбой базы.
+     *
+     * Ловилось на проде 15.11.2026: страница результата прислала два
+     * `orders/confirm` в одну секунду, второй KS_SALE_PLACES получил
+     * `-913 deadlock … At procedure 'KSR_SALONINFO_IU'`, а backend принял
+     * безликий «Server Error» за настоящую неудачу оформления и записал
+     * заказу `failed` ПОВЕРХ уже оформленного. С отдельным кодом вызывающая
+     * сторона такую ошибку отличает и заказ не портит.
+     */
+    private function translateConflict(\Throwable $e): \Throwable
+    {
+        $text = $e->getMessage();
+
+        if (str_contains($text, '-913')
+            || str_contains($text, '40001')
+            || stripos($text, 'deadlock') !== false
+            || stripos($text, 'concurrent update') !== false
+            || stripos($text, 'lock conflict') !== false
+        ) {
+            return new BusterException(
+                'Оформление этих мест уже выполняется, повторите запрос',
+                'concurrent_sale',
+            );
+        }
+
+        return $e;
     }
 
     /**
