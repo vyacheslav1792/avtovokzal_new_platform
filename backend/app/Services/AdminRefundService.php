@@ -166,11 +166,30 @@ class AdminRefundService
      * Починка зависшего возврата: билет аннулирован, а деньги в банк не ушли
      * (legacy-ветка «Не прошёл возврат денег по банку»).
      */
-    public function repairMoney(string $orderId, string $serial, string $number): array
+    public function repairMoney(string $orderId, ?string $serial, ?string $number, ?string $refundId = null): array
     {
         $order = $this->findOrder($orderId);
-        $ticket = $this->findTicket($order, $serial, $number);
-        $refund = $this->findRefund($order, $ticket);
+
+        /*
+         * Чинить приходится не только возврат билета: зависнуть может и
+         * возврат удержания, и возврат багажа (у них свои обращения к
+         * шлюзу). Поэтому строку можно указать прямо — кнопка в списке
+         * возвратов заказа так и делает.
+         */
+        if ($refundId !== null) {
+            $refund = Refund::where('order_id', $order->id)->find($refundId);
+
+            if (! $refund) {
+                throw ValidationException::withMessages(['refund' => 'Возврат не найден в этом заказе']);
+            }
+        } else {
+            if ($serial === null || $number === null) {
+                throw ValidationException::withMessages(['ticket' => 'Не передан номер билета к возврату']);
+            }
+
+            $ticket = $this->findTicket($order, $serial, $number);
+            $refund = $this->findRefund($order, $ticket);
+        }
 
         if (! $refund) {
             throw ValidationException::withMessages(['ticket' => 'Возврат этого билета не найден']);
@@ -208,6 +227,20 @@ class AdminRefundService
             $refund->update([
                 'status' => Refund::STATUS_BANK_FAILED,
                 'bank_error' => $e->getMessage(),
+            ]);
+
+            // Текст в `bank_error` короткий («Системная ошибка.»), а причина
+            // отказа видна только в ответе шлюза — без лога разбираться
+            // потом не по чему.
+            Log::warning('Шлюз отказал в возврате платежа', [
+                'order_id' => $order->id,
+                'refund_id' => $refund->id,
+                'refund_kind' => $refund->kind,
+                'amount' => (float) $refund->amount,
+                'sber_order_id' => $order->sber_order_id,
+                'exception' => $e::class,
+                'code' => $e->getCode(),
+                'message' => $e->getMessage(),
             ]);
 
             return 'Не удалось вернуть платёж. Он будет возвращён в ближайшее время бухгалтерией';
@@ -486,6 +519,14 @@ class AdminRefundService
             throw ValidationException::withMessages(['refund' => 'По этому возврату удержания не было']);
         }
 
+        // Отметка об аннулировании бланка (сумма 0): деньги по ней не
+        // проходили, возвращать нечего.
+        if ((float) $parent->amount <= 0) {
+            throw ValidationException::withMessages([
+                'refund' => 'Это отметка об аннулировании бланка, деньги по ней не возвращались',
+            ]);
+        }
+
         if (Refund::where('parent_refund_id', $parent->id)->exists()) {
             throw ValidationException::withMessages(['refund' => 'Удержание по этому возврату уже возвращено']);
         }
@@ -546,6 +587,9 @@ class AdminRefundService
                 'penalty_returnable' => $r->kind !== Refund::KIND_PENALTY
                     && $withheld > 0
                     && ! $penaltyReturned->has($r->id),
+                // Деньги по строке не ушли, а сумма есть — можно повторить
+                // обращение к шлюзу (кнопка «Вернуть по банку» в списке).
+                'money_repairable' => $r->money_refunded_at === null && (float) $r->amount > 0,
                 'penalty_returned' => $penaltyReturned->has($r->id),
             ];
         })->all();

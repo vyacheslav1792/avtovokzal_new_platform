@@ -98,19 +98,27 @@ class AdminRefundController extends Controller
         )]);
     }
 
-    /** Повторить зависший возврат денег по банку. */
+    /**
+     * Повторить зависший возврат денег по банку.
+     *
+     * Либо по номеру билета (как legacy), либо по `refund_id` — зависнуть
+     * может и возврат удержания, и возврат багажа, у них свои обращения к
+     * шлюзу и своего номера билета у багажной квитанции нет.
+     */
     public function repair(Request $request): JsonResponse
     {
         $data = $request->validate([
             'order_id' => ['required', 'string', 'max:36'],
-            'serial' => ['required', 'string', 'max:20'],
-            'number' => ['required', 'string', 'max:20'],
+            'refund_id' => ['sometimes', 'uuid'],
+            'serial' => ['required_without:refund_id', 'nullable', 'string', 'max:20'],
+            'number' => ['required_without:refund_id', 'nullable', 'string', 'max:20'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->repairMoney(
             $data['order_id'],
-            $data['serial'],
-            $data['number'],
+            $data['serial'] ?? null,
+            $data['number'] ?? null,
+            $data['refund_id'] ?? null,
         )]);
     }
 }

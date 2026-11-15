@@ -159,6 +159,33 @@ async function repairMoney() {
   }
 }
 
+/*
+ * Починка возврата денег по КОНКРЕТНОЙ строке из списка возвратов:
+ * зависнуть может не только возврат билета, но и возврат удержания или
+ * багажа — у них свои обращения к шлюзу, и номера билета у багажной
+ * квитанции нет, поэтому строку указываем по id.
+ */
+async function repairRefund(refund) {
+  if (!window.confirm(
+    `Повторить возврат ${money(refund.amount)} руб. по банку (${refund.kind_label} ${refund.serial} ${refund.number})?`,
+  )) return
+
+  confirming.value = true
+  error.value = ''
+  try {
+    done.value = await req('repair', {
+      order_id: orderId.value,
+      refund_id: refund.id,
+    })
+    done.value.repaired = true
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
 function money(v) {
   const n = Number(v)
   return isFinite(n) ? n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v
@@ -384,7 +411,13 @@ onMounted(() => {
                 </td>
                 <td class="fm-num">
                   <button
-                    v-if="r.penalty_returnable && can('back-ticket.refund')"
+                    v-if="r.money_repairable && can('back-ticket.repair')"
+                    class="btn small" :disabled="confirming" @click="repairRefund(r)"
+                  >
+                    Вернуть по банку
+                  </button>
+                  <button
+                    v-else-if="r.penalty_returnable && can('back-ticket.refund')"
                     class="btn small" :disabled="confirming" @click="refundPenalty(r)"
                   >
                     Вернуть удержание
