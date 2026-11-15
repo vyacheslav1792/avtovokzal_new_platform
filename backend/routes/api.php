@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminContactController;
+use App\Http\Controllers\Api\AdminDataSyncController;
 use App\Http\Controllers\Api\AdminFeedbackController;
 use App\Http\Controllers\Api\AdminMenuController;
 use App\Http\Controllers\Api\AdminNewsController;
@@ -178,6 +179,15 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:news.edit');
     Route::delete('admin/news/{news}', [AdminNewsController::class, 'destroy'])
         ->middleware('ais.can:news.delete');
+
+    // Немедленное обновление данных, которые сайт держит у себя
+    // (в legacy кнопка перезаписи расписания была в getrasp.php).
+    Route::get('admin/sync', [AdminDataSyncController::class, 'index'])
+        ->middleware('ais.can:data-sync.view');
+    Route::post('admin/sync/schedules', [AdminDataSyncController::class, 'syncSchedules'])
+        ->middleware('ais.can:data-sync.run');
+    Route::post('admin/sync/destinations', [AdminDataSyncController::class, 'syncDestinations'])
+        ->middleware('ais.can:data-sync.run');
 
     Route::get('admin/settings', [AdminSettingController::class, 'index'])
         ->middleware('ais.can:settings.view');

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Citizenship;
+use App\Services\DestinationService;
 use App\Services\SalesApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,7 +12,10 @@ use Illuminate\Http\Request;
 /** Справочные данные для фронта: станции, направления, рейсы, места. */
 class CatalogController extends Controller
 {
-    public function __construct(private readonly SalesApiClient $salesApi) {}
+    public function __construct(
+        private readonly SalesApiClient $salesApi,
+        private readonly DestinationService $destinations,
+    ) {}
 
     public function stations(): JsonResponse
     {
@@ -45,9 +49,16 @@ class CatalogController extends Controller
         ]]);
     }
 
+    /**
+     * Пункты назначения станции (список «Куда»). Берутся из своей таблицы,
+     * а не из базы продаж на каждый запрос: KS_STATIONS отдаёт две сотни
+     * строк, а список меняется от случая к случаю. Обновляет команда
+     * `destinations:sync` (ofelia, 07:00 и 10:00 МСК) и кнопка в АИС;
+     * станции, которой в таблице ещё нет, список читается живьём.
+     */
     public function destinations(int $awtcod): JsonResponse
     {
-        return response()->json($this->salesApi->destinations($awtcod));
+        return response()->json($this->destinations->forStation($awtcod));
     }
 
     /**

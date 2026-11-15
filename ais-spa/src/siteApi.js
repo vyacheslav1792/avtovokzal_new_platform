@@ -75,6 +75,16 @@ export async function saveSettings(settings) {
   return (await req(`${API}/admin/settings`, json('PUT', { settings }))).data
 }
 
+/* Обновление данных сайта: расписание и пункты назначения */
+
+export async function fetchSyncStatus() {
+  return (await req(`${API}/admin/sync`)).data
+}
+
+export async function runSync(what, awtcod = null) {
+  return (await req(`${API}/admin/sync/${what}`, json('POST', awtcod ? { awtcod } : {}))).data
+}
+
 /* Меню сайта */
 
 export async function fetchMenu() {

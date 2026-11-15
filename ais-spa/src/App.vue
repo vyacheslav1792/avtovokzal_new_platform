@@ -93,9 +93,10 @@ watch(isAuthenticated, (yes) => {
 
           <!-- Выключатели сайта стоят отдельным разделом: это не содержимое,
                а то, работает ли продажа билетов. -->
-          <template v-if="can('settings.view')">
+          <template v-if="canAny('settings.view', 'data-sync.view')">
             <div class="nav-group-title">Настройки</div>
-            <router-link class="nav-item" to="/settings">Настройки сайта</router-link>
+            <router-link v-if="can('settings.view')" class="nav-item" to="/settings">Настройки сайта</router-link>
+            <router-link v-if="can('data-sync.view')" class="nav-item" to="/sync">Обновление данных</router-link>
           </template>
 
           <template v-if="canAny('employees.view', 'roles.view')">

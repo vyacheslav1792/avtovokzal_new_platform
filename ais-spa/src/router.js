@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import BackTicketView from './views/BackTicketView.vue'
 import BlocksView from './views/BlocksView.vue'
 import ContactsView from './views/ContactsView.vue'
+import DataSyncView from './views/DataSyncView.vue'
 import EmployeesView from './views/EmployeesView.vue'
 import FeedbackView from './views/FeedbackView.vue'
 import HomeView from './views/HomeView.vue'
@@ -23,6 +24,7 @@ import SpamRulesView from './views/SpamRulesView.vue'
 // /pages и /menu — страницы и меню сайта (legacy url/<slug>.php + index.php),
 // /news — новости и объявления, /blocks — блоки сайта (legacy vidjets/*.php),
 // /settings — выключатели продажи и возврата билетов,
+// /sync — немедленное обновление расписания и пунктов назначения,
 // /feedback и /spam-rules — обращения с сайта и антиспам-словарь
 // (legacy url/contact.php: письмо на почту и словарь в исходнике),
 // /employees, /roles и /profile — сотрудники, роли и свой профиль
@@ -41,6 +43,7 @@ const routes = [
   { path: '/news/:id', component: NewsEditView, props: true },
   { path: '/blocks', component: BlocksView },
   { path: '/settings', component: SettingsView },
+  { path: '/sync', component: DataSyncView },
   { path: '/menu', component: MenuView },
   { path: '/feedback', component: FeedbackView },
   { path: '/spam-rules', component: SpamRulesView },

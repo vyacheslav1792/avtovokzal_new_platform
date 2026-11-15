@@ -359,3 +359,10 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
 .setting-switch { gap: 10px; }
 .setting-title { font-weight: 600; }
 .setting-hint { margin: 8px 0 0; max-width: 680px; }
+
+/* ── Обновление данных сайта ──────────────────────────────────────────── */
+
+.sync-actions { align-items: flex-end; gap: 12px; margin: 12px 0; }
+/* Давно не обновлявшиеся данные видно сразу: это и есть повод нажать кнопку */
+.sync-stale { color: #8a6d3b; background: var(--warn-bg); }
+.sync-error { color: #a4343a; font-size: 12px; }

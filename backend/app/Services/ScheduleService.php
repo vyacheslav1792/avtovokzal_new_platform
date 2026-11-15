@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\StationSchedule;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -50,7 +51,15 @@ class ScheduleService
                     'slug' => StationSchedule::slug($response['awtname'] ?: $name),
                     'routes' => $response['data'],
                     'routes_count' => count($response['data']),
-                    'generated_at' => $response['generated_at'] ?? now(),
+                    // ЛОВУШКА ПОЯСА: API продаж живёт в UTC и отдаёт время
+                    // со смещением (+00:00), а Eloquent пишет дату строкой
+                    // БЕЗ смещения — сессия Postgres в Europe/Moscow примет
+                    // её за московскую, и «актуально на» уедет на 3 часа
+                    // назад (а для прогона после полуночи — и на сутки).
+                    // Поэтому приводим к поясу приложения явно.
+                    'generated_at' => isset($response['generated_at'])
+                        ? Carbon::parse($response['generated_at'])->timezone(config('app.timezone'))
+                        : now(),
                     'synced_at' => now(),
                     'sync_error' => null,
                 ],
@@ -83,6 +92,28 @@ class ScheduleService
                 'slug' => $s->slug,
                 'routes_count' => (int) $s->routes_count,
                 'generated_at' => $s->generated_at?->timezone(config('app.timezone'))->format('d.m.Y'),
+            ])
+            ->all();
+    }
+
+    /**
+     * Состояние расписаний для админки: когда снято, когда обновлялось и
+     * с какой ошибкой. Отличается от stations() тем, что сотруднику важны
+     * именно отметки обновления, а сайту — маршруты.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function status(): array
+    {
+        return StationSchedule::orderBy('station_name')
+            ->get()
+            ->map(fn (StationSchedule $s) => [
+                'awtcod' => (int) $s->awtcod,
+                'name' => $s->station_name,
+                'count' => (int) $s->routes_count,
+                'generated_at' => $s->generated_at?->toIso8601String(),
+                'synced_at' => $s->synced_at?->toIso8601String(),
+                'sync_error' => $s->sync_error,
             ])
             ->all();
     }
