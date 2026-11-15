@@ -177,7 +177,7 @@ watch(() => route.fullPath, closePanel)
               aria-label="Назад"
               @click="closePanel"
             />
-            <span class="font-medium truncate">{{ title || placeholder }}</span>
+            <span class="font-medium">{{ title || placeholder }}</span>
           </div>
           <UInput
             v-if="searchable"

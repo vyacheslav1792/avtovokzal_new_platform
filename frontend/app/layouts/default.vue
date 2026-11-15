@@ -105,9 +105,17 @@ async function signOut() {
 
     <header class="bg-neutral-900 text-white sticky top-0 z-40">
       <UContainer class="flex items-center gap-3 lg:gap-5 py-3">
+        <!--
+          Название НЕ обрезаем многоточием: «АО «Орелавтотр…»» выглядит как
+          поломка. На узком экране оно переносится на вторую строку (перенос
+          идёт по пробелу после «АО»), а логотип и кегль там мельче — так
+          полное название помещается даже на 320px.
+        -->
         <NuxtLink :to="homeLink" class="flex items-center gap-2 min-w-0">
-          <img src="/img/logo.png" alt="Лого" class="h-8 sm:h-9 w-auto shrink-0">
-          <span class="font-semibold truncate text-sm sm:text-base">АО «Орелавтотранс»</span>
+          <img src="/img/logo.png" alt="Лого" class="h-7 sm:h-9 w-auto shrink-0">
+          <span class="font-semibold text-xs leading-tight sm:text-base sm:leading-normal">
+            АО «Орелавтотранс»
+          </span>
         </NuxtLink>
 
         <nav class="hidden lg:flex items-center gap-4 ml-auto text-sm">
@@ -147,7 +155,8 @@ async function signOut() {
               trailing-icon="i-lucide-chevron-down"
               class="text-neutral-200 hover:text-white"
             >
-              <span class="max-w-40 truncate">{{ userLabel(user) }}</span>
+              <!-- Длинный адрес переносим, а не прячем за многоточием. -->
+              <span class="max-w-60 text-left break-all whitespace-normal">{{ userLabel(user) }}</span>
             </UButton>
           </UDropdownMenu>
           <UButton
@@ -252,7 +261,7 @@ async function signOut() {
           <InstallAppButton />
 
           <template v-if="isLoggedIn">
-            <div class="px-4 py-2 text-sm text-muted truncate">
+            <div class="px-4 py-2 text-sm text-muted break-all">
               {{ userLabel(user) }}
             </div>
             <NuxtLink

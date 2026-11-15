@@ -345,12 +345,13 @@ useSeoMeta({
           </div>
 
           <div class="flex-1 min-w-0">
-            <div class="font-medium truncate">Рейс: {{ trip.trip_name }}–{{ trip.direction_name }}</div>
+            <!-- Название маршрута не обрезаем: по нему пассажир и узнаёт рейс. -->
+            <div class="font-medium">Рейс: {{ trip.trip_name }}–{{ trip.direction_name }}</div>
             <div class="text-sm text-muted">
               Отправление {{ formatDate(trip.date_start) }}<template v-if="arrivesAt">,
                 прибытие {{ formatDateTime(arrivesAt) }}</template>
             </div>
-            <div class="text-sm text-muted truncate">
+            <div class="text-sm text-muted">
               <!-- Марку автобуса не показываем: она в базе станции
                    зачастую не совпадает с тем, что реально выйдет на рейс,
                    и только вводит пассажира в заблуждение. -->
