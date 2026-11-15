@@ -163,6 +163,12 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:back-ticket.inspect');
     Route::post('admin/refunds/confirm', [AdminRefundController::class, 'confirm'])
         ->middleware('ais.can:back-ticket.refund');
+    // Возврат только багажа и возврат удержания — те же права, что у
+    // возврата билета: операция с деньгами покупателя.
+    Route::post('admin/refunds/baggage', [AdminRefundController::class, 'confirmBaggage'])
+        ->middleware('ais.can:back-ticket.refund');
+    Route::post('admin/refunds/penalty', [AdminRefundController::class, 'confirmPenalty'])
+        ->middleware('ais.can:back-ticket.refund');
     Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair'])
         ->middleware('ais.can:back-ticket.repair');
 

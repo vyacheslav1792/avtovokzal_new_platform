@@ -86,6 +86,72 @@ async function confirmRefund() {
   }
 }
 
+/*
+ * Возврат ТОЛЬКО багажа: билет остаётся действующим, на станции
+ * аннулируются отдельные багажные бланки. Мест выбирается столько,
+ * сколько реально осталось невозвращённых квитанций.
+ */
+const baggageCount = ref(1)
+const baggagePercent = ref(-1)
+
+async function refundBaggage() {
+  if (baggagePercent.value < 0) {
+    error.value = 'Не выбран процент удержаний по багажу!'
+    return
+  }
+  if (!window.confirm(`Вернуть ${baggageCount.value} мест(а) багажа? Билет останется действующим.`)) return
+
+  confirming.value = true
+  error.value = ''
+  try {
+    done.value = await req(`${SITE_API}/baggage`, {
+      order_id: orderId.value,
+      serial: serial.value,
+      number: number.value,
+      count: baggageCount.value,
+      percent: baggagePercent.value,
+    })
+    done.value.baggage = true
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/*
+ * Возврат удержания: станция о нём не знает — ведомость удержание уже
+ * посчитала. Мы лишь отдаём покупателю удержанные деньги.
+ */
+async function refundPenalty(refund) {
+  if (!window.confirm(
+    `Вернуть покупателю удержание ${refund.withheld} руб. по возврату ${refund.serial} ${refund.number}?`,
+  )) return
+
+  confirming.value = true
+  error.value = ''
+  try {
+    done.value = await req(`${SITE_API}/penalty`, {
+      order_id: orderId.value,
+      refund_id: refund.id,
+    })
+    done.value.penalty = true
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/** Сумма к возврату за выбранное число мест при выбранном проценте. */
+const baggageAmount = computed(() => {
+  const variant = (info.value?.baggage?.variants ?? []).find((v) => v.percent === baggagePercent.value)
+
+  return variant ? variant.amounts[baggageCount.value - 1] : null
+})
+
 async function repairMoney() {
   confirming.value = true
   error.value = ''
@@ -164,6 +230,17 @@ onMounted(() => {
         <template v-if="done.repaired">
           <p><b>Возврат денег по банку выполнен.</b> Сумма: {{ money(done.amount) }} руб.</p>
         </template>
+        <template v-else-if="done.baggage">
+          <p>
+            <b>Багаж возвращён: {{ done.count }} мест(а).</b> Билет остаётся действующим.
+          </p>
+          <p>Сумма: {{ money(done.amount) }} руб.</p>
+        </template>
+        <template v-else-if="done.penalty">
+          <p><b>Удержание возвращено покупателю.</b></p>
+          <p>Сумма: {{ money(done.amount) }} руб. (было удержано {{ done.parent_percent }}%).</p>
+          <p class="muted">На автостанции такой возврат не фиксируется — ведомость уже закрыта.</p>
+        </template>
         <template v-else>
           <p>
             Билеты от <b>{{ info.order.from_name }} до {{ info.order.to_name }}</b>
@@ -238,6 +315,82 @@ onMounted(() => {
             Возврат от {{ info.refund.refunded_at }} на {{ money(info.refund.amount) }} руб.
             (удержано {{ info.refund.penalty_percent }}%), ФП чека возврата: {{ info.refund.fiscal_sign }}.
           </p>
+        </section>
+
+        <!--
+          Возврат ТОЛЬКО багажа: отдельные бланки на станции, билет при этом
+          продолжает действовать. Показываем, пока есть невозвращённые места.
+        -->
+        <section v-if="info.baggage && info.baggage.available > 0" class="bt-block">
+          <h3>Возврат багажа</h3>
+          <p>
+            Багажных мест по билету: {{ info.baggage.items.length }},
+            из них можно вернуть: <b>{{ info.baggage.available }}</b>
+            по {{ money(info.baggage.price) }} руб.
+          </p>
+          <p>
+            Вернуть мест:
+            <select v-model.number="baggageCount">
+              <option v-for="n in info.baggage.available" :key="n" :value="n">{{ n }}</option>
+            </select>
+            &nbsp; Процент удержаний:
+            <select v-model.number="baggagePercent">
+              <option :value="-1">Не выбран</option>
+              <option v-for="v in info.baggage.variants" :key="v.percent" :value="v.percent">
+                {{ v.percent }}%
+              </option>
+            </select>
+            <template v-if="baggageAmount !== null">
+              &nbsp; к возврату <b>{{ money(baggageAmount) }} руб.</b>
+            </template>
+          </p>
+          <button
+            v-if="can('back-ticket.refund')" class="btn primary"
+            :disabled="confirming" @click="refundBaggage"
+          >
+            {{ confirming ? 'Выполняется…' : 'Вернуть багаж' }}
+          </button>
+          <p class="muted">Билет остаётся действующим — возвращаются только багажные квитанции.</p>
+        </section>
+
+        <!-- Все возвраты заказа и возврат удержания по ним -->
+        <section v-if="info.refunds && info.refunds.length" class="bt-block">
+          <h3>Возвраты по заказу</h3>
+          <table class="pages-table">
+            <thead>
+              <tr>
+                <th>Когда</th>
+                <th>Что вернули</th>
+                <th>Бланк</th>
+                <th class="fm-num">Сумма</th>
+                <th class="fm-num">Удержано</th>
+                <th>Состояние</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in info.refunds" :key="r.id">
+                <td>{{ r.created_at }}</td>
+                <td>{{ r.kind_label }}</td>
+                <td>{{ r.serial }} {{ r.number }}</td>
+                <td class="fm-num">{{ money(r.amount) }}</td>
+                <td class="fm-num">{{ r.withheld > 0 ? money(r.withheld) : '—' }}</td>
+                <td>
+                  <span v-if="r.money_refunded" class="badge-on">деньги возвращены</span>
+                  <span v-else class="badge-off">{{ r.status === 'bank_failed' ? 'банк отказал' : 'ожидает банк' }}</span>
+                </td>
+                <td class="fm-num">
+                  <button
+                    v-if="r.penalty_returnable && can('back-ticket.refund')"
+                    class="btn small" :disabled="confirming" @click="refundPenalty(r)"
+                  >
+                    Вернуть удержание
+                  </button>
+                  <span v-else-if="r.penalty_returned" class="muted">удержание возвращено</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </section>
       </template>
     </template>

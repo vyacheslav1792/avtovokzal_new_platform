@@ -65,6 +65,9 @@ class AdminRefundService
             'order' => $this->orderInfo($order),
             'bank' => $this->bankInfo($order),
             'passengers' => $this->passengersInfo($order),
+            // Все возвраты заказа: по ним видно, что уже вернули и где
+            // осталось неотданное покупателю удержание.
+            'refunds' => $this->orderRefunds($order),
         ];
 
         // Как legacy: без номера билета показываем только информацию по заказу.
@@ -77,6 +80,9 @@ class AdminRefundService
 
         $ticket = $this->findTicket($order, $serial, $number);
         $result['ticket'] = $this->ticketInfo($ticket);
+        // Багажные квитанции билета: их можно вернуть отдельно, не трогая
+        // сам билет (на станции это самостоятельные бланки).
+        $result['baggage'] = $this->baggageInfo($order, $ticket);
 
         $refund = $this->findRefund($order, $ticket);
 
@@ -282,6 +288,263 @@ class AdminRefundService
             'message' => 'Билет уже возвращён успешно ранее. Платёж возвращён, фискальный чек есть',
             'refund' => $this->refundInfo($refund),
         ];
+    }
+
+    /**
+     * Багажные квитанции билета и их состояние.
+     *
+     * Квитанции мы знаем из своей продажи (`tickets.baggage_tickets`), а не
+     * из базы станции: там связь квитанции с билетом (MAIN_N_TICKET) не
+     * заполняется, и искать их пришлось бы по пассажиру и рейсу.
+     *
+     * @return array<string, mixed>
+     */
+    private function baggageInfo(Order $order, Ticket $ticket): array
+    {
+        $returned = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_BAGGAGE)
+            ->get()
+            ->keyBy(fn (Refund $r) => $r->serial.'/'.$r->number);
+
+        $items = [];
+
+        foreach ($this->baggageTickets($ticket) as $bag) {
+            $key = $bag['serial'].'/'.$bag['number'];
+            $refund = $returned->get($key);
+
+            $items[] = [
+                'serial' => $bag['serial'],
+                'number' => $bag['number'],
+                'price' => (float) $ticket->price_bag,
+                'refunded' => $refund !== null,
+                'refunded_at' => $refund?->created_at?->format('d.m.Y H:i'),
+                'refunded_amount' => $refund ? (float) $refund->amount : null,
+            ];
+        }
+
+        $available = array_values(array_filter($items, fn (array $i) => ! $i['refunded']));
+
+        return [
+            'items' => $items,
+            'price' => (float) $ticket->price_bag,
+            // Сколько мест ещё можно вернуть и на какую сумму при каждом
+            // проценте удержания — чтобы админ выбирал, а не считал.
+            'available' => count($available),
+            'variants' => $available === [] ? [] : array_map(fn (int $p) => [
+                'percent' => $p,
+                'amounts' => array_map(
+                    fn (int $count) => $this->baggageAmount($ticket, $count, $p),
+                    range(1, count($available)),
+                ),
+            ], self::PERCENTS),
+        ];
+    }
+
+    /**
+     * Вернуть ТОЛЬКО багаж: билет остаётся действующим, на станции
+     * аннулируются отдельные багажные бланки (категория 9).
+     */
+    public function confirmBaggage(string $orderId, string $serial, string $number, int $count, int $percent): array
+    {
+        if (! in_array($percent, self::PERCENTS, true)) {
+            throw ValidationException::withMessages(['percent' => 'Не выбран процент удержаний!']);
+        }
+
+        $order = $this->findOrder($orderId);
+        $ticket = $this->findTicket($order, $serial, $number);
+
+        $returned = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_BAGGAGE)
+            ->pluck('number', 'serial')
+            ->toArray();
+
+        $available = array_values(array_filter(
+            $this->baggageTickets($ticket),
+            fn (array $b) => ! Refund::where('order_id', $order->id)
+                ->where('kind', Refund::KIND_BAGGAGE)
+                ->where('serial', $b['serial'])
+                ->where('number', $b['number'])
+                ->exists(),
+        ));
+
+        if ($count < 1 || $count > count($available)) {
+            throw ValidationException::withMessages([
+                'count' => 'Столько мест багажа вернуть нельзя: доступно '.count($available),
+            ]);
+        }
+
+        $selected = array_slice($available, 0, $count);
+
+        // Аннулирование багажных бланков на станции — одним обращением.
+        $result = $this->salesApi->refund([
+            'awtcod' => $order->awtcod,
+            'operation' => 1,
+            'preview' => false,
+            'admin_mode' => true,
+            'tickets' => array_map(
+                fn (array $b) => ['serial' => $b['serial'], 'number' => $b['number']],
+                $selected,
+            ),
+        ])['data'];
+
+        if ((float) ($result['total_refund'] ?? 0) <= 0) {
+            throw new SalesApiException('Не удалось вернуть багаж, ошибка API автовокзала', 'refund_failed');
+        }
+
+        // Строка возврата на КАЖДУЮ квитанцию: так в истории видно, какие
+        // именно бланки вернули, и повторный возврат той же невозможен.
+        $amountPerBag = $this->baggageAmount($ticket, 1, $percent);
+        $bankErrors = [];
+
+        foreach ($selected as $bag) {
+            $refund = Refund::create([
+                'order_id' => $order->id,
+                'kind' => Refund::KIND_BAGGAGE,
+                'baggage_count' => 1,
+                'serial' => $bag['serial'],
+                'number' => $bag['number'],
+                'place' => (int) $ticket->place,
+                'penalty_percent' => $percent,
+                'ticket_price' => 0,
+                'baggage_price' => (float) $ticket->price_bag,
+                'amount' => $amountPerBag,
+                'status' => Refund::STATUS_REFUNDED,
+                'legacy' => ['ticket_serial' => $ticket->serial, 'ticket_number' => $ticket->number],
+            ]);
+
+            if ($error = $this->refundMoney($refund, $order)) {
+                $bankErrors[] = $error;
+            }
+        }
+
+        $order->touch();
+
+        return [
+            'count' => $count,
+            'amount' => round($amountPerBag * $count, 2),
+            'trip_name' => $result['trip_name'] ?: $order->trip_name,
+            'datetime_start' => $result['datetime_start'] ?? null,
+            'bank_error' => $bankErrors[0] ?? null,
+        ];
+    }
+
+    /**
+     * Вернуть покупателю УДЕРЖАНИЕ по уже сделанному возврату.
+     *
+     * На станции такого возврата нет: ведомость удержание уже посчитала и
+     * закрыла. Здесь только деньги — например, когда возврат задержался по
+     * нашей вине и обещали вернуть удержание.
+     */
+    public function confirmPenalty(string $orderId, string $refundId): array
+    {
+        $order = $this->findOrder($orderId);
+
+        $parent = Refund::where('order_id', $order->id)->find($refundId);
+
+        if (! $parent) {
+            throw ValidationException::withMessages(['refund' => 'Возврат не найден в этом заказе']);
+        }
+
+        if ($parent->kind === Refund::KIND_PENALTY) {
+            throw ValidationException::withMessages(['refund' => 'Это сам возврат удержания']);
+        }
+
+        $withheld = $parent->withheld();
+
+        if ($withheld <= 0) {
+            throw ValidationException::withMessages(['refund' => 'По этому возврату удержания не было']);
+        }
+
+        if (Refund::where('parent_refund_id', $parent->id)->exists()) {
+            throw ValidationException::withMessages(['refund' => 'Удержание по этому возврату уже возвращено']);
+        }
+
+        $refund = Refund::create([
+            'order_id' => $order->id,
+            'kind' => Refund::KIND_PENALTY,
+            'parent_refund_id' => $parent->id,
+            'serial' => $parent->serial,
+            'number' => $parent->number,
+            'place' => $parent->place,
+            'penalty_percent' => 0,
+            'ticket_price' => 0,
+            'baggage_price' => 0,
+            'amount' => $withheld,
+            'status' => Refund::STATUS_REFUNDED,
+            'legacy' => ['parent_percent' => $parent->penalty_percent],
+        ]);
+
+        $bankError = $this->refundMoney($refund, $order);
+        $order->touch();
+
+        return [
+            'amount' => $withheld,
+            'parent_percent' => (int) $parent->penalty_percent,
+            'bank_error' => $bankError,
+        ];
+    }
+
+    /**
+     * Возвраты заказа — для списка в карточке и кнопки «вернуть удержание».
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function orderRefunds(Order $order): array
+    {
+        $refunds = Refund::where('order_id', $order->id)->orderBy('created_at')->get();
+        $penaltyReturned = $refunds->whereNotNull('parent_refund_id')->keyBy('parent_refund_id');
+
+        return $refunds->map(function (Refund $r) use ($penaltyReturned) {
+            $withheld = $r->withheld();
+
+            return [
+                'id' => $r->id,
+                'kind' => $r->kind,
+                'kind_label' => $r->kindLabel(),
+                'serial' => $r->serial,
+                'number' => $r->number,
+                'place' => $r->place,
+                'percent' => (int) $r->penalty_percent,
+                'amount' => (float) $r->amount,
+                'withheld' => $withheld,
+                'status' => $r->status,
+                'money_refunded' => $r->money_refunded_at !== null,
+                'fiscal_sign' => $r->fiscal_sign,
+                'created_at' => $r->created_at?->format('d.m.Y H:i'),
+                // Удержание можно вернуть один раз и только там, где оно было.
+                'penalty_returnable' => $r->kind !== Refund::KIND_PENALTY
+                    && $withheld > 0
+                    && ! $penaltyReturned->has($r->id),
+                'penalty_returned' => $penaltyReturned->has($r->id),
+            ];
+        })->all();
+    }
+
+    /** Квитанции билета из нашей продажи: [{serial, number}, …]. */
+    private function baggageTickets(Ticket $ticket): array
+    {
+        $bags = [];
+
+        foreach ((array) ($ticket->baggage_tickets ?? []) as $bag) {
+            if (! is_array($bag) || empty($bag['serial']) || empty($bag['number'])) {
+                continue;
+            }
+
+            $bags[] = ['serial' => (string) $bag['serial'], 'number' => (string) $bag['number']];
+        }
+
+        return $bags;
+    }
+
+    /** Сумма возврата за N мест багажа с удержанием — формула как у билета. */
+    private function baggageAmount(Ticket $ticket, int $count, int $percent): float
+    {
+        $gross = $count * (float) $ticket->price_bag;
+
+        return round(
+            (float) number_format($gross, 2, '.', '') * (float) number_format(1 - $percent / 100, 2, '.', ''),
+            2,
+        );
     }
 
     private function orderInfo(Order $order): array

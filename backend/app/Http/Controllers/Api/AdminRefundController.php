@@ -56,6 +56,48 @@ class AdminRefundController extends Controller
         )]);
     }
 
+    /**
+     * Вернуть только багаж: билет остаётся действующим.
+     * На станции аннулируются отдельные багажные бланки (категория 9).
+     */
+    public function confirmBaggage(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+            'serial' => ['required', 'string', 'max:20'],
+            'number' => ['required', 'string', 'max:20'],
+            'count' => ['required', 'integer', 'min:1', 'max:5'],
+            'percent' => ['required', 'integer'],
+        ], [
+            'count.required' => 'Укажите, сколько мест багажа вернуть.',
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->refunds->confirmBaggage(
+            $data['order_id'],
+            $data['serial'],
+            $data['number'],
+            (int) $data['count'],
+            (int) $data['percent'],
+        )]);
+    }
+
+    /**
+     * Вернуть покупателю удержание по уже сделанному возврату.
+     * Станция об этом возврате не знает — только деньги и наша запись.
+     */
+    public function confirmPenalty(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+            'refund_id' => ['required', 'uuid'],
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->refunds->confirmPenalty(
+            $data['order_id'],
+            $data['refund_id'],
+        )]);
+    }
+
     /** Повторить зависший возврат денег по банку. */
     public function repair(Request $request): JsonResponse
     {
