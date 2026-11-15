@@ -145,15 +145,53 @@ table.dt thead th:hover { background: #e2e8f2; }
 table.dt tbody tr:nth-child(odd) td { background: var(--row-odd); }
 table.dt tbody tr:nth-child(even) td { background: var(--row-even); }
 
-/* Подсветка статуса строки (_class из отчёта) — после zebra, чтобы победить её */
+/*
+ * Подсветка статуса строки (_class из отчёта) — после zebra, чтобы победить её.
+ * Фон пастельный (на 13px шрифте чистый red/orange legacy съедал текст), а
+ * заметность даёт цветная полоса слева: её видно при прокрутке вбок, когда
+ * столбец со статусом уже ушёл за край.
+ */
 table.dt tbody tr.row-green td { background: #e9ffe9; }
 table.dt tbody tr.row-yellow td { background: #fff7cf; }
 table.dt tbody tr.row-orange td { background: #ffe3c2; }
 table.dt tbody tr.row-red td { background: #ffd6d6; }
 table.dt tbody tr.row-blue td { background: #dcdcff; }
-table.dt tbody tr.row-gray td { background: #e8e8e8; color: #666; }
+table.dt tbody tr.row-gray td { background: #e8e8e8; }
 
-table.dt tbody tr:hover td { background: #eaf1ff; }
+table.dt tbody tr[class*="row-"] td:first-child { border-left-width: 4px; }
+table.dt tbody tr.row-green td:first-child { border-left-color: #3f9142; }
+table.dt tbody tr.row-yellow td:first-child { border-left-color: #c79a00; }
+table.dt tbody tr.row-orange td:first-child { border-left-color: #d9730d; }
+table.dt tbody tr.row-red td:first-child { border-left-color: #c62828; }
+table.dt tbody tr.row-blue td:first-child { border-left-color: #4a4ad1; }
+table.dt tbody tr.row-gray td:first-child { border-left-color: #8a8a8a; }
+
+/*
+ * Наведение НЕ меняет фон: иначе подсветка пропадала именно у той строки,
+ * которую разглядывают (правило hover шло после row-* с той же
+ * специфичностью). Полупрозрачная заливка кладётся поверх своего цвета.
+ */
+table.dt tbody tr:hover td { box-shadow: inset 0 0 0 9999px rgba(37, 99, 235, .07); }
+
+/* Легенда подсветки = фильтр по цветам (кликом) */
+.dt-legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 8px; }
+.dt-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; color: inherit;
+}
+.dt-chip:hover { border-color: var(--accent); }
+.dt-chip.off { opacity: .45; text-decoration: line-through; }
+.dt-chip-dot { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, .25); }
+.dt-chip-count { color: var(--muted); }
+.dt-chip.off .dt-chip-count { color: inherit; }
+.dt-chip.row-green .dt-chip-dot { background: #e9ffe9; border-color: #3f9142; }
+.dt-chip.row-yellow .dt-chip-dot { background: #fff7cf; border-color: #c79a00; }
+.dt-chip.row-orange .dt-chip-dot { background: #ffe3c2; border-color: #d9730d; }
+.dt-chip.row-red .dt-chip-dot { background: #ffd6d6; border-color: #c62828; }
+.dt-chip.row-blue .dt-chip-dot { background: #dcdcff; border-color: #4a4ad1; }
+.dt-chip.row-gray .dt-chip-dot { background: #e8e8e8; border-color: #8a8a8a; }
+.dt-chip.row-plain .dt-chip-dot { background: #fff; }
 
 /* Итоги закреплены снизу */
 table.dt tfoot td { background: #e7edf6; font-weight: 700; position: sticky; bottom: 0; z-index: 2; border-top: 2px solid var(--line-strong); }
@@ -366,3 +404,31 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
 /* Давно не обновлявшиеся данные видно сразу: это и есть повод нажать кнопку */
 .sync-stale { color: #8a6d3b; background: var(--warn-bg); }
 .sync-error { color: #a4343a; font-size: 12px; }
+
+/* ── Печать отчёта ────────────────────────────────────────────────────── */
+/*
+ * В legacy отчёты печатались (`.nonprint`, `.break` в ais/in.php), и цвет
+ * строки на бумаге был частью отчёта. Браузер по умолчанию фоны не печатает —
+ * поэтому print-color-adjust, а sticky-шапка и прокрутка на печати мешают.
+ */
+@media print {
+  .dt-filters, .dt-toolbar, .dt-legend, aside, .burger, .nav-err { display: none !important; }
+
+  .layout, .content { display: block; padding: 0; margin: 0; }
+
+  .dt-scroll { max-height: none; overflow: visible; border: 0; }
+
+  table.dt { font-size: 10px; white-space: normal; }
+  table.dt thead { display: table-header-group; }
+  table.dt thead th { position: static; }
+  table.dt tfoot td { position: static; }
+
+  table.dt tbody tr:hover td { box-shadow: none; }
+
+  /* Фон строк обязателен: по нему и читают отчёт */
+  table.dt tbody td, table.dt thead th, table.dt tfoot td,
+  .dt-chip, .dt-chip-dot {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

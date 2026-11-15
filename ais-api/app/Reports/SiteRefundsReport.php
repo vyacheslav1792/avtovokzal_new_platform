@@ -250,7 +250,9 @@ class SiteRefundsReport implements Report
 
         krsort($byDate);
 
-        return array_map(fn (array $d) => $d + ['_class' => $d['pending'] > 0 ? 'row-yellow' : ''], array_values($byDate));
+        // В сводной красным помечаем дни, где остались неотданные деньги —
+        // тот же смысл, что у красной строки в журнале.
+        return array_map(fn (array $d) => $d + ['_class' => $d['pending'] > 0 ? 'row-red' : ''], array_values($byDate));
     }
 
     /** @param  array<int, array<string, mixed>>  $rows */
@@ -302,11 +304,13 @@ class SiteRefundsReport implements Report
                 : ['text' => 'нет', 'url' => ''],
             'email' => $r['email'],
             'phone' => $r['phone'],
-            // Подсветка: деньги не ушли — красный, банк отказал — оранжевый.
+            // Подсветка одна на все отчёты сайта: деньги покупателю не
+            // отданы — красный (отказ банка это он же), нет фискального
+            // чека — оранжевый, всё в порядке — сиреневый «возвращено».
             '_class' => match (true) {
-                $r['status'] === 'bank_failed' => 'row-orange',
                 ! $r['money_refunded_at'] => 'row-red',
-                default => '',
+                ! $r['fiscal_sign'] => 'row-orange',
+                default => 'row-blue',
             },
         ];
     }

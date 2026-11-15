@@ -3,6 +3,7 @@
 namespace App\Reports;
 
 use App\Services\StationRegistry;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -23,12 +24,18 @@ class SiteSalesReport implements Report
     /** Границы суток отчёта — по стене Москвы (created_at хранится в timestamptz). */
     private const TZ = 'Europe/Moscow';
 
-    private const STATUS_MAP = [
-        'pending' => ['Создан, не оплачен', 'row-gray'],
-        'payment_registered' => ['Ожидает оплаты', 'row-yellow'],
-        'paid' => ['Оплачен, оформление не завершено', 'row-red'],
-        'failed' => ['Ошибка оформления', 'row-red'],
-        'cancelled' => ['Отменён', 'row-gray'],
+    /**
+     * Подписи статусов заказа. Цвет строки задаётся НЕ статусом, а тем, у
+     * кого деньги (`rowClass`): legacy красил «не оплатил» серым, а красным —
+     * только случай «оплата не отменена», то есть деньги у нас без билета.
+     */
+    private const STATUS_LABELS = [
+        'pending' => 'Создан, не оплачен',
+        'payment_registered' => 'Ожидает оплаты',
+        'paid' => 'Оплачен, оформление не завершено',
+        'failed' => 'Платёж не состоялся',
+        // failed с заполненным paid_at — совсем другое дело, см. orderStatus().
+        'cancelled' => 'Отменён',
     ];
 
     private const COLS_DAILY = [
@@ -65,6 +72,9 @@ class SiteSalesReport implements Report
         ['key' => 'refund_amount', 'title' => 'Сумма возврата', 'type' => 'money'],
         ['key' => 'refund_fp', 'title' => 'ФП возврата', 'type' => 'link'],
         ['key' => 'money_back_at', 'title' => 'Возврат денег', 'type' => 'date'],
+        // Возврат удержания: у него номера ТОГО ЖЕ билета, поэтому в журнале
+        // он не отдельная строка, а своя колонка — иначе билет дублировался.
+        ['key' => 'penalty_back', 'title' => 'Возврат удержания', 'type' => 'money'],
         ['key' => 'email', 'title' => 'Почта', 'type' => 'string'],
         ['key' => 'phone', 'title' => 'Телефон', 'type' => 'string'],
         ['key' => 'ip', 'title' => 'IP', 'type' => 'string'],
@@ -274,24 +284,33 @@ class SiteSalesReport implements Report
             ? 'o.date_start, o.time_start, o.created_at'
             : 'o.created_at desc';
 
+        // ВАЖНО: join только возврата САМОГО билета (kind='ticket'). У возврата
+        // удержания номера того же билета, и без фильтра билет попадал в
+        // журнал дважды; возвраты багажа идут номерами своих бланков и
+        // подтягиваются отдельно ($baggageRefunds).
         $tickets = $db->select(
-            "select o.id, o.sber_order_id, o.created_at, o.from_name, o.to_name, o.trip_name,
+            "select o.id, o.sber_order_id, o.created_at, o.paid_at, o.from_name, o.to_name, o.trip_name,
                     o.date_start, o.time_start, o.back_code,
                     o.status, o.status_reason, o.fiscal_sign, o.total_price, o.email, o.phone, o.ip,
                     t.serial, t.number, t.place, t.type, t.price, t.baggage, t.price_bag,
+                    t.baggage_tickets,
                     t.last_name, t.first_name, t.middle_name,
                     r.id as refund_id, r.amount as refund_amount, r.status as refund_status,
                     r.fiscal_sign as refund_fp, r.created_at as refund_at, r.money_refunded_at
              from orders o
              join tickets t on t.order_id = o.id
-             left join refunds r on r.order_id = o.id and r.serial = t.serial and r.number = t.number
+             left join refunds r on r.order_id = o.id and r.kind = 'ticket'
+                  and r.serial = t.serial and r.number = t.number
              where $where
              order by $order, t.position",
             $bind,
         );
 
+        $baggageRefunds = $this->baggageRefunds($db, $where, $bind);
+        $penaltyRefunds = $this->penaltyRefunds($db, $where, $bind);
+
         $pending = $db->select(
-            "select o.id, o.sber_order_id, o.created_at, o.from_name, o.to_name, o.trip_name,
+            "select o.id, o.sber_order_id, o.created_at, o.paid_at, o.from_name, o.to_name, o.trip_name,
                     o.date_start, o.time_start, o.back_code,
                     o.status, o.status_reason, o.total_price, o.email, o.phone, o.ip, o.passengers
              from orders o
@@ -304,7 +323,9 @@ class SiteSalesReport implements Report
         $problems = 0;
 
         foreach ($tickets as $t) {
-            [$status, $class] = $this->ticketStatus($t);
+            $bagsBack = $this->countBaggageBack($t, $baggageRefunds);
+            $penalty = $penaltyRefunds[$t->id.'/'.$t->serial.'/'.$t->number] ?? null;
+            [$status, $class] = $this->ticketStatus($t, $bagsBack, $penalty);
             $rows[] = $this->baseRow($t, $byTrips) + [
                 // Печать доступна только у завершённых заказов.
                 'status' => $t->status === 'completed'
@@ -314,15 +335,14 @@ class SiteSalesReport implements Report
                 'ticket' => $this->ticketCell($t),
                 'place' => (int) $t->place,
                 'price' => (float) $t->price,
-                'baggage' => $t->baggage > 0
-                    ? $t->baggage.' × '.number_format((float) $t->price_bag, 2, '.', '')
-                    : '',
+                'baggage' => $this->baggageCell($t, $bagsBack),
                 'passenger' => trim($t->last_name.' '.$t->first_name.' '.($t->middle_name ?? '')),
                 'fp' => $this->taxcomLink($t->fiscal_sign, (float) $t->total_price),
                 'refund_at' => $t->refund_at ? $this->mskDate($t->refund_at) : '',
                 'refund_amount' => $t->refund_id ? (float) $t->refund_amount : '',
                 'refund_fp' => $this->taxcomLink($t->refund_fp, (float) ($t->refund_amount ?? 0)),
                 'money_back_at' => $t->money_refunded_at ? $this->mskDate($t->money_refunded_at) : '',
+                'penalty_back' => $penalty ? (float) $penalty->amount : '',
             ];
             if ($class === 'row-red' || $class === 'row-orange') {
                 $problems++;
@@ -330,11 +350,8 @@ class SiteSalesReport implements Report
         }
 
         foreach ($pending as $o) {
-            [$status, $class] = self::STATUS_MAP[$o->status] ?? [$o->status, 'row-red'];
-            if ($o->status_reason) {
-                $status .= ': '.$o->status_reason;
-            }
-            if ($class === 'row-red') {
+            [$status, $class] = $this->orderStatus($o);
+            if ($class === 'row-red' || $class === 'row-orange') {
                 $problems += 1;
             }
 
@@ -354,6 +371,7 @@ class SiteSalesReport implements Report
                     'refund_amount' => '',
                     'refund_fp' => '',
                     'money_back_at' => '',
+                    'penalty_back' => '',
                 ];
             }
         }
@@ -425,27 +443,188 @@ class SiteSalesReport implements Report
     }
 
     /** Статус строки билета с учётом возврата и фискализации (логика legacy). */
-    private function ticketStatus(object $t): array
+    /**
+     * Состояние и цвет строки билета.
+     *
+     * Цвет отвечает на вопрос «где деньги покупателя»:
+     *  - красный — деньги у нас, а билета (или возврата) нет;
+     *  - оранжевый — с деньгами порядок, не хватает фискального чека;
+     *  - зелёный/сиреневый — норма: куплено / возвращено;
+     *  - серый — денег не было.
+     *
+     * @param  array<string, mixed>  $bagsBack  возвраты багажа этого билета
+     */
+    private function ticketStatus(object $t, array $bagsBack, ?object $penalty): array
     {
         if ($t->refund_id) {
             if (! $t->money_refunded_at) {
                 return ['Возвращён, возврат платежа не выполнен', 'row-red'];
             }
+            // Возврат удержания — отдельная операция с деньгами покупателя,
+            // и свои неудачи у неё тоже свои.
+            if ($penalty && ! $penalty->money_refunded_at) {
+                return ['Возвращён, удержание: деньги не отданы', 'row-red'];
+            }
             if (! $t->refund_fp) {
                 return ['Возвращён, нет фискального', 'row-orange'];
             }
+            if ($penalty && ! $penalty->fiscal_sign) {
+                return ['Возвращён, по удержанию нет чека', 'row-orange'];
+            }
 
-            return ['Возвращён', 'row-blue'];
+            return [$penalty ? 'Возвращён, удержание возвращено' : 'Возвращён', 'row-blue'];
         }
 
         if ($t->status === 'completed') {
-            return $t->fiscal_sign
-                ? ['Куплено', 'row-green']
-                : ['Куплено, нет фискального', 'row-orange'];
+            // Возврат ТОЛЬКО багажа билет не отменяет — он продолжает
+            // действовать, поэтому строка остаётся «куплено».
+            $bag = $bagsBack['count'] > 0 ? ', багаж возвращён' : '';
+
+            if (! $t->fiscal_sign) {
+                return ['Куплено, нет фискального'.$bag, 'row-orange'];
+            }
+            if ($bagsBack['pending'] > 0) {
+                return ['Куплено, возврат багажа: деньги не отданы', 'row-red'];
+            }
+            if ($bagsBack['no_receipt'] > 0) {
+                return ['Куплено, по возврату багажа нет чека', 'row-orange'];
+            }
+
+            return ['Куплено'.$bag, 'row-green'];
         }
 
-        // Билет есть, а заказ не завершён — так быть не должно.
-        return [self::STATUS_MAP[$t->status][0] ?? $t->status, 'row-red'];
+        // Билет оформлен, а заказ не завершён — так быть не должно: билет на
+        // станции продан, деньги списаны, но покупатель этого билета не
+        // получил (ни печати, ни возврата по коду).
+        return ['Билет оформлен, заказ не завершён: '.($t->status_reason ?: $t->status), 'row-red'];
+    }
+
+    /**
+     * Состояние и цвет заказа БЕЗ билетов.
+     *
+     * `failed` — это два разных случая: деньги списались, а продажа не
+     * прошла (деньги у нас, красный) и платёж просто не состоялся
+     * (серый, как `silver` у legacy). Различает их `paid_at`.
+     */
+    private function orderStatus(object $o): array
+    {
+        $label = self::STATUS_LABELS[$o->status] ?? $o->status;
+
+        if ($o->status === 'failed' && $o->paid_at) {
+            $label = 'Деньги списаны, билеты не оформлены';
+        }
+
+        $class = match (true) {
+            $o->status === 'paid' => 'row-red',
+            $o->status === 'failed' => $o->paid_at ? 'row-red' : 'row-gray',
+            $o->status === 'payment_registered' => 'row-yellow',
+            $o->status === 'pending', $o->status === 'cancelled' => 'row-gray',
+            // Неизвестный статус — повод посмотреть (legacy: default red).
+            default => 'row-red',
+        };
+
+        if ($o->status_reason) {
+            $label .= ': '.$o->status_reason;
+        }
+
+        return [$label, $class];
+    }
+
+    /**
+     * Возвраты багажа по заказам выборки: ключ «order_id/number бланка».
+     *
+     * Отдельным запросом, а не join'ом: у этих возвратов номера БАГАЖНОГО
+     * бланка, с номерами билета они не сходятся, и в журнале их не было
+     * видно вовсе.
+     *
+     * @param  array<int, mixed>  $bind
+     * @return array<string, object>
+     */
+    private function baggageRefunds(ConnectionInterface $db, string $where, array $bind): array
+    {
+        $rows = $db->select(
+            "select r.order_id, r.serial, r.number, r.amount, r.status,
+                    r.fiscal_sign, r.created_at, r.money_refunded_at
+             from refunds r
+             join orders o on o.id = r.order_id
+             where r.kind = 'baggage' and $where",
+            $bind,
+        );
+
+        $map = [];
+
+        foreach ($rows as $r) {
+            $map[$r->order_id.'/'.$r->number] = $r;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Возвраты удержания по заказам выборки: ключ «order_id/серия/номер».
+     *
+     * @param  array<int, mixed>  $bind
+     * @return array<string, object>
+     */
+    private function penaltyRefunds(ConnectionInterface $db, string $where, array $bind): array
+    {
+        $rows = $db->select(
+            "select r.order_id, r.serial, r.number, r.amount, r.status,
+                    r.fiscal_sign, r.created_at, r.money_refunded_at
+             from refunds r
+             join orders o on o.id = r.order_id
+             where r.kind = 'penalty' and $where",
+            $bind,
+        );
+
+        $map = [];
+
+        foreach ($rows as $r) {
+            $map[$r->order_id.'/'.$r->serial.'/'.$r->number] = $r;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Сколько багажных квитанций билета возвращено и всё ли с ними в порядке.
+     *
+     * @param  array<string, object>  $baggageRefunds
+     * @return array{count: int, pending: int, no_receipt: int}
+     */
+    private function countBaggageBack(object $t, array $baggageRefunds): array
+    {
+        $out = ['count' => 0, 'pending' => 0, 'no_receipt' => 0];
+
+        foreach (json_decode((string) ($t->baggage_tickets ?? '[]'), true) ?: [] as $bag) {
+            $refund = $baggageRefunds[$t->id.'/'.($bag['number'] ?? '')] ?? null;
+
+            if (! $refund) {
+                continue;
+            }
+
+            $out['count']++;
+            $out['pending'] += $refund->money_refunded_at ? 0 : 1;
+            $out['no_receipt'] += $refund->fiscal_sign ? 0 : 1;
+        }
+
+        return $out;
+    }
+
+    /** @param  array{count: int, pending: int, no_receipt: int}  $bagsBack */
+    private function baggageCell(object $t, array $bagsBack): string
+    {
+        if ((int) $t->baggage <= 0) {
+            return '';
+        }
+
+        $cell = $t->baggage.' × '.number_format((float) $t->price_bag, 2, '.', '');
+
+        if ($bagsBack['count'] > 0) {
+            $cell .= ', возвращено '.$bagsBack['count'];
+        }
+
+        return $cell;
     }
 
     /** Ссылка на чек ОФД (как legacy fp_url). */

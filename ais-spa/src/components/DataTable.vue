@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
+import { ROW_CLASSES, PROBLEM_CLASSES, rowClassKey } from '../rowClasses'
 
 const props = defineProps({
   columns: { type: Array, required: true },   // [{key,title,type}]
@@ -46,9 +47,47 @@ watch(() => props.columns, () => {
   }
 }, { immediate: true })
 
-const anyFilter = computed(() => Object.values(dateFilters).some((f) => f && (f.from || f.to)))
+// --- Фильтр по цветам подсветки (он же легенда) ---
+// Цвета, которые реально встречаются в выдаче, — показывать весь словарь
+// незачем. Пустой набор `hiddenClasses` = видно всё.
+const hiddenClasses = reactive(new Set())
+
+const presentClasses = computed(() => {
+  const seen = new Set(props.rows.map(rowClassKey))
+
+  return ROW_CLASSES.filter((c) => seen.has(c.key)).map((c) => ({
+    ...c,
+    count: props.rows.filter((r) => rowClassKey(r) === c.key).length,
+  }))
+})
+
+// Сменился отчёт — показываем всё заново, иначе спрятанный цвет незаметно
+// обрежет выдачу следующего отчёта.
+watch(() => props.rows, () => hiddenClasses.clear())
+
+function toggleClass(key) {
+  if (hiddenClasses.has(key)) hiddenClasses.delete(key)
+  else hiddenClasses.add(key)
+}
+function showOnlyProblems() {
+  hiddenClasses.clear()
+  for (const c of presentClasses.value) {
+    if (!PROBLEM_CLASSES.includes(c.key)) hiddenClasses.add(c.key)
+  }
+}
+function showAllClasses() { hiddenClasses.clear() }
+
+const hasProblemRows = computed(
+  () => presentClasses.value.some((c) => PROBLEM_CLASSES.includes(c.key)),
+)
+
+const anyFilter = computed(
+  () => hiddenClasses.size > 0
+    || Object.values(dateFilters).some((f) => f && (f.from || f.to)),
+)
 function resetFilters() {
   for (const k in dateFilters) { dateFilters[k].from = ''; dateFilters[k].to = '' }
+  hiddenClasses.clear()
 }
 
 // --- Приведение к сравнимому виду ---
@@ -83,6 +122,8 @@ function cmp(a, b, type) {
 
 // Строка проходит фильтр, если по каждой дате попадает в заданный диапазон.
 function passFilters(row) {
+  if (hiddenClasses.has(rowClassKey(row))) return false
+
   for (const c of dateCols.value) {
     const f = dateFilters[c.key]
     if (!f || (!f.from && !f.to)) continue
@@ -173,6 +214,29 @@ const hasTotals = computed(() => props.totals && Object.keys(props.totals).lengt
         <input type="date" v-model="dateFilters[c.key].to" />
       </div>
       <button class="btn small" :disabled="!anyFilter" @click="resetFilters">Сбросить фильтры</button>
+    </div>
+
+    <!--
+      Легенда и фильтр по цветам — одно и то же: клик по цвету скрывает его
+      строки. Подписи берём из общего словаря (src/rowClasses.js), чтобы
+      легенда не разошлась со смыслом цвета в отчётах.
+    -->
+    <div v-if="presentClasses.length > 1" class="dt-legend">
+      <button
+        v-for="c in presentClasses" :key="c.key || 'plain'"
+        class="dt-chip" :class="[c.key || 'row-plain', { off: hiddenClasses.has(c.key) }]"
+        :title="c.hint + (hiddenClasses.has(c.key) ? ' — скрыто, нажмите чтобы показать' : '')"
+        @click="toggleClass(c.key)"
+      >
+        <span class="dt-chip-dot"></span>
+        {{ c.title }} <span class="dt-chip-count">{{ c.count }}</span>
+      </button>
+      <button v-if="hasProblemRows" class="btn small" @click="showOnlyProblems">
+        Только требующие внимания
+      </button>
+      <button class="btn small" :disabled="!hiddenClasses.size" @click="showAllClasses">
+        Показать все
+      </button>
     </div>
 
     <div class="dt-toolbar">
