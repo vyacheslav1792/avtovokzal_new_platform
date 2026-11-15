@@ -19,6 +19,8 @@ class CabinetService
     /** Сколько минут после создания заказа ссылка на оплату ещё имеет смысл. */
     private const PAYMENT_RESUME_MINUTES = 20;
 
+    public function __construct(private readonly SettingService $settings) {}
+
     /**
      * Заказы пользователя: свои и купленные на его e-mail до регистрации.
      *
@@ -128,10 +130,13 @@ class CabinetService
                     'money_refunded' => $refund->status !== Refund::STATUS_BANK_FAILED,
                     'created_at' => $refund->created_at?->timezone(config('app.timezone'))->format('d.m.Y H:i'),
                 ] : null,
-                // Кнопку возврата прячем только у уже возвращённых: у сорванных
+                // Кнопку возврата прячем у уже возвращённых и когда возврат
+                // на сайте выключен из АИС (раздел «Настройки»): у сорванных
                 // и отменённых рейсов возврат открыт и после дедлайна, а это
                 // знает только API продаж (проверка — на шаге preview).
-                'can_refund' => ! $refund && $order->status === Order::STATUS_COMPLETED,
+                'can_refund' => ! $refund
+                    && $order->status === Order::STATUS_COMPLETED
+                    && $this->settings->refundsEnabled(),
                 'refund_deadline_passed' => time() > $departureAt - RefundService::REFUND_DEADLINE,
             ];
         });

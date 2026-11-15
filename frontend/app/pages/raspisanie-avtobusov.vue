@@ -223,6 +223,10 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       Расписание автобусов<span v-if="schedule"> · {{ schedule.name }}</span>
     </h1>
 
+    <!-- Объявление над расписанием: в legacy сюда включался тот же
+         vidjets/news.php, что и на главную. Правится в АИС. -->
+    <SiteBlock name="schedule_top" class="mb-5" />
+
     <p v-if="!from" class="text-muted mb-6">
       Выберите пункт отправления — покажем регулярное расписание маршрутов.
     </p>

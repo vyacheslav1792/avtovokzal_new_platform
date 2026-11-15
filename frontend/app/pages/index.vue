@@ -167,16 +167,30 @@ const tileOverlay = {
             </UButton>
           </div>
         </UCard>
+
+        <!-- Баннер под формой поиска — перенос legacy vidjets/top.php
+             (баннер и ссылки на билеты до мест проведения мероприятий):
+             правится в АИС, раздел «Блоки сайта». -->
+        <SiteBlock
+          name="home_hero"
+          class="max-w-4xl mx-auto mt-4 bg-default/95 rounded-lg px-4 py-3 text-center"
+        />
       </UContainer>
     </section>
 
     <UContainer class="py-10 space-y-10">
-      <UAlert
-        color="info"
-        variant="subtle"
-        title="Покупка билетов онлайн возможна на рейсы с выбранного автовокзала не позднее чем за 1 час до отправления."
-        description="Билеты на транзитные рейсы доступны к продаже только в кассах автовокзала. При успешной оплате электронный билет и чек ККМ высылаются на указанную почту."
-      />
+      <!--
+        Содержимое главной между поиском и направлениями правится в АИС
+        (раздел «Блоки сайта»). В legacy обращение, приветствие и памятки
+        были вбиты в avtovokzal57/url/index.php и vidjets/news.php: правка
+        текста означала выкладку кода на боевой сервер.
+      -->
+      <SiteBlock name="home_top" />
+      <SiteBlock name="home_welcome" />
+
+      <LatestNews />
+
+      <SiteBlock name="home_memos" />
 
       <!--
         Плитки направлений — геометрия legacy (`.popular-routes-list-item`
@@ -186,6 +200,8 @@ const tileOverlay = {
         20px, поверх градиента, который прозрачен до 60% высоты; наведение
         поднимает плитку на 10px с тенью.
       -->
+      <SiteBlock name="home_bottom" class="text-center" />
+
       <section>
         <h2 class="text-2xl font-light text-center mb-6">Популярные направления</h2>
         <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

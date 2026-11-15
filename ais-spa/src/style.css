@@ -285,3 +285,77 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
 .cc-title { font-weight: 700; margin-bottom: 6px; }
 .cc-input { width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 15px; margin: 12px 0; }
 .cc-actions { display: flex; gap: 8px; }
+
+/* ── Картинки в визуальном редакторе ──────────────────────────────────── */
+
+/* Кнопка «Картинка» выделена: в legacy вставка картинки была самой частой
+   правкой страницы, и искать её в ряду одинаковых кнопок неудобно. */
+.he-btn-accent { background: var(--head); font-weight: 600; }
+
+/* Полоса состояния под панелью: что делать с выделенной картинкой,
+   загрузка, ошибка. */
+.he-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 10px; background: #eef5ff; border-bottom: 1px solid var(--line); font-size: 13px; }
+.he-strip-error { background: var(--err-bg); }
+.he-foot { margin: 0; padding: 6px 10px; font-size: 12px; border-top: 1px solid var(--line); background: var(--head); }
+
+.img-dialog { max-width: 940px; }
+.img-tabs { margin-bottom: -1px; }
+.img-pane { border: 1px solid var(--line); border-radius: 0 8px 8px 8px; background: var(--panel); padding: 14px; min-height: 180px; }
+
+/* Зона перетаскивания файла */
+.img-drop { border: 2px dashed var(--line-strong); border-radius: 10px; padding: 22px; text-align: center; }
+.img-drop.over { border-color: var(--accent); background: #eef5ff; }
+.img-drop p { margin: 0 0 8px; }
+.img-drop-hint { max-width: 460px; margin: 12px auto 0; }
+
+.img-filter { width: 100%; margin-bottom: 12px; }
+.img-url { width: 100%; }
+
+/* Галерея: выбирают картинку глазами, поэтому превью, а не список имён */
+.img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 300px; overflow: auto; }
+.img-card { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; text-align: center; }
+.img-card:hover { border-color: var(--line-strong); }
+.img-card.chosen { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45, 108, 223, .25); }
+.img-card img { width: 100%; height: 92px; object-fit: contain; background: #f6f7f9; border-radius: 4px; }
+.img-card-name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Параметры вставки: предпросмотр слева, поля справа */
+.img-settings { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
+.img-preview { flex: 1 1 320px; min-width: 240px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 10px; max-height: 260px; overflow: auto; }
+.img-preview img { max-width: 100%; height: auto; }
+.img-fields { flex: 1 1 280px; display: flex; flex-direction: column; gap: 10px; }
+.img-fields .field input, .img-fields .field select { width: 100%; }
+.img-check { font-size: 13px; }
+
+.img-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+/* ── Новости, блоки и настройки сайта ─────────────────────────────────── */
+
+/* Обложка в списке новостей: заголовок без картинки узнаётся хуже */
+.news-thumb-cell { width: 76px; }
+.news-thumb { width: 64px; height: 44px; object-fit: cover; border-radius: 4px; background: var(--head); display: block; }
+.news-slug { font-size: 11px; }
+.news-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 4px; }
+.news-section { font-size: 17px; margin: 22px 0 4px; }
+
+/* Обложка в редакторе новости: предпросмотр слева, поля справа */
+.news-cover-row { align-items: flex-start; }
+.news-cover { flex: 0 0 220px; min-height: 120px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }
+.news-cover img { max-width: 100%; max-height: 160px; display: block; }
+.news-cover-fields { flex: 1 1 320px; }
+.news-cover-fields input { width: 100%; }
+
+/* Блоки сайта: свёрнутый список мест, раскрывается по «Править» */
+.block-panel { padding-bottom: 12px; }
+.block-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.block-head h2 { margin: 0 0 4px; }
+.block-hint { max-width: 620px; margin: 0; }
+.block-state { display: flex; align-items: center; gap: 8px; flex: none; }
+.block-excerpt { margin: 10px 0 0; font-size: 13px; }
+.block-opts { align-items: flex-end; margin: 12px 0; }
+
+/* Настройки: переключатель и описание последствий */
+.setting-panel { padding-bottom: 12px; }
+.setting-switch { gap: 10px; }
+.setting-title { font-weight: 600; }
+.setting-hint { margin: 8px 0 0; max-width: 680px; }

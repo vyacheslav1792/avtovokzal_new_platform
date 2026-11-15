@@ -118,6 +118,13 @@ async function installApp() {
       description="Доступны сохранённые билеты и контакты. Покупка и новости появятся, когда будет связь."
     />
 
+    <!-- Объявление для тех, кто поставил сайт на домашний экран -->
+    <SiteBlock
+      v-if="online"
+      name="app_top"
+      class="mb-5 rounded-lg border border-default bg-elevated/50 p-4"
+    />
+
     <!-- Предложение войти: карточка на экране + окно не чаще раза в неделю. -->
     <AppLoginPrompt class="mb-5" />
 

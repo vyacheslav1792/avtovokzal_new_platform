@@ -45,8 +45,20 @@ const trip = computed(() =>
 
 const fromName = computed(() => tripsResp.value?.awtname ?? '')
 
+/*
+ * Продажу билетов на сайте выключают из АИС (раздел «Настройки») — например
+ * на время работ у станции. Проверка на сервере всё равно есть
+ * (middleware site.enabled), здесь — чтобы покупатель не заполнял форму
+ * впустую.
+ */
+const { data: siteSettings } = await useSiteSettings()
+
 /** Причина, по которой рейс нельзя купить на сайте (иначе — пусто). */
 const unavailableReason = computed(() => {
+  if (!siteSettings.value.sales_enabled) {
+    return 'Продажа билетов на сайте временно приостановлена. Билеты продаются в кассах автовокзалов.'
+  }
+
   const t = trip.value
   if (!t) return 'Рейс не найден: возможно, ссылка устарела или расписание изменилось.'
   // Транзитный проверяем ДО отмены: у транзитных рейсов CANCELED в BUSTER

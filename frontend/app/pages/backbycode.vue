@@ -1,6 +1,14 @@
 <script setup lang="ts">
 const api = useApi()
 
+/*
+ * Возврат билетов на сайте выключают из АИС (раздел «Настройки»). Правила
+ * возврата при этом остаются на странице: покупателю важно знать, что и
+ * когда ему вернут, — пропадает только форма. Возврат через кассу и АИС
+ * выключателю не подчиняется.
+ */
+const { data: siteSettings } = await useSiteSettings()
+
 useSeoMeta({
   title: 'Возврат билета по коду для возврата',
   description: 'Быстрый возврат билета по коду без входа в личный кабинет.',
@@ -122,86 +130,104 @@ function reset() {
       <p>Деньги на карту зачисляются банком с задержкой 1-7 дней.</p>
     </div>
 
-    <h2 class="text-xl font-medium mt-8 mb-4">Возврат по коду для возврата:</h2>
-
     <UAlert
-      v-if="errorMessage"
-      color="error"
+      v-if="!siteSettings.refunds_enabled"
+      color="warning"
       variant="subtle"
-      :title="errorMessage"
-      class="mb-4"
-    />
-
-    <!-- Шаг 1: ввод кода с билета -->
-    <UCard v-if="step === 'form'">
-      <form class="space-y-4" @submit.prevent="requestPreview">
-        <UFormField
-          label="Код для возврата"
-          help="Введите код для возврата, который напечатан на билете"
-        >
-          <UInput
-            v-model="code"
-           
-            class="w-full max-w-md font-mono"
-            placeholder="Например: 400000252572631309900065"
-            autocomplete="off"
-          />
-        </UFormField>
-        <UButton type="submit" color="error" :loading="loading">
-          Вернуть билет
+      icon="i-lucide-undo-2"
+      class="mt-8"
+      title="Возврат билетов на сайте временно приостановлен"
+      description="Обратитесь в кассу автовокзала или в справочную службу — телефоны указаны на странице «Контакты»."
+    >
+      <template #actions>
+        <UButton to="/contacts" color="neutral" variant="outline" size="sm" icon="i-lucide-phone">
+          Контакты автовокзалов
         </UButton>
-      </form>
-    </UCard>
+      </template>
+    </UAlert>
 
-    <!-- Шаг 2: условия возврата -->
-    <UCard v-else-if="step === 'preview' && preview">
-      <div class="space-y-3">
-        <p>
-          Билет от <b>{{ preview.from_name }} до {{ preview.to_name }}</b>
-          на рейс: {{ preview.trip_name }}, место {{ preview.place }}
-        </p>
-        <p>Отправление: <b>{{ formatDate(preview.date_start) }} {{ preview.time_start }}</b></p>
-        <p>будут возвращены на следующих условиях:</p>
-        <p>Процент удержаний: <b>{{ preview.penalty_percent }}%</b></p>
-        <p>Возвращаемая сумма: <b>{{ preview.amount.toFixed(2) }}</b> руб.</p>
-        <UAlert
-          color="warning"
-          variant="subtle"
-          title="Денежные средства возвращаются банком в срок от 3 до 7 дней, в некоторых случаях банк эмитент может увеличить этот срок до 30 дней."
-        />
-        <p>Для подтверждения операции кликните выполнить возврат.</p>
-        <div class="flex flex-wrap gap-3 pt-2">
-          <UButton color="error" :loading="loading" @click="confirmRefund">
-            Выполнить возврат
+    <template v-else>
+      <h2 class="text-xl font-medium mt-8 mb-4">Возврат по коду для возврата:</h2>
+
+      <UAlert
+        v-if="errorMessage"
+        color="error"
+        variant="subtle"
+        :title="errorMessage"
+        class="mb-4"
+      />
+
+      <!-- Шаг 1: ввод кода с билета -->
+      <UCard v-if="step === 'form'">
+        <form class="space-y-4" @submit.prevent="requestPreview">
+          <UFormField
+            label="Код для возврата"
+            help="Введите код для возврата, который напечатан на билете"
+          >
+            <UInput
+              v-model="code"
+           
+              class="w-full max-w-md font-mono"
+              placeholder="Например: 400000252572631309900065"
+              autocomplete="off"
+            />
+          </UFormField>
+          <UButton type="submit" color="error" :loading="loading">
+            Вернуть билет
           </UButton>
-          <UButton color="neutral" variant="outline" :disabled="loading" @click="reset">
-            Не возвращать
+        </form>
+      </UCard>
+
+      <!-- Шаг 2: условия возврата -->
+      <UCard v-else-if="step === 'preview' && preview">
+        <div class="space-y-3">
+          <p>
+            Билет от <b>{{ preview.from_name }} до {{ preview.to_name }}</b>
+            на рейс: {{ preview.trip_name }}, место {{ preview.place }}
+          </p>
+          <p>Отправление: <b>{{ formatDate(preview.date_start) }} {{ preview.time_start }}</b></p>
+          <p>будут возвращены на следующих условиях:</p>
+          <p>Процент удержаний: <b>{{ preview.penalty_percent }}%</b></p>
+          <p>Возвращаемая сумма: <b>{{ preview.amount.toFixed(2) }}</b> руб.</p>
+          <UAlert
+            color="warning"
+            variant="subtle"
+            title="Денежные средства возвращаются банком в срок от 3 до 7 дней, в некоторых случаях банк эмитент может увеличить этот срок до 30 дней."
+          />
+          <p>Для подтверждения операции кликните выполнить возврат.</p>
+          <div class="flex flex-wrap gap-3 pt-2">
+            <UButton color="error" :loading="loading" @click="confirmRefund">
+              Выполнить возврат
+            </UButton>
+            <UButton color="neutral" variant="outline" :disabled="loading" @click="reset">
+              Не возвращать
+            </UButton>
+          </div>
+        </div>
+      </UCard>
+
+      <!-- Шаг 3: результат -->
+      <UCard v-else-if="step === 'done' && result">
+        <div class="space-y-3">
+          <UAlert
+            color="success"
+            variant="subtle"
+            :title="`Билеты от ${result.from_name} до ${result.to_name} на рейс ${result.trip_name} возвращены успешно`"
+            :description="`Отправление ${formatDate(result.date_start)} ${result.time_start}`"
+          />
+          <p>Сумма: <b>{{ result.amount.toFixed(2) }}</b> руб.</p>
+          <p><b>Внимание!</b> Деньги на карту зачисляются банком с задержкой 1-7 дней.</p>
+          <UAlert
+            v-if="result.bank_error"
+            color="warning"
+            variant="subtle"
+            :title="result.bank_error"
+          />
+          <UButton color="error" @click="reset">
+            Вернуть ещё один билет
           </UButton>
         </div>
-      </div>
-    </UCard>
-
-    <!-- Шаг 3: результат -->
-    <UCard v-else-if="step === 'done' && result">
-      <div class="space-y-3">
-        <UAlert
-          color="success"
-          variant="subtle"
-          :title="`Билеты от ${result.from_name} до ${result.to_name} на рейс ${result.trip_name} возвращены успешно`"
-          :description="`Отправление ${formatDate(result.date_start)} ${result.time_start}`"
-        />
-        <p>Сумма: <b>{{ result.amount.toFixed(2) }}</b> руб.</p>
-        <p><b>Внимание!</b> Деньги на карту зачисляются банком с задержкой 1-7 дней.</p>
-        <UAlert
-          v-if="result.bank_error"
-          color="warning"
-          variant="subtle"
-          :title="result.bank_error"
-        />
-        <UButton color="error" @click="reset">
-          Вернуть ещё один билет
-        </UButton>
-      </div>
-    </UCard>
+      </UCard>
+    </template>
   </UContainer>
 </template>

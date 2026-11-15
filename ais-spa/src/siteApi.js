@@ -1,7 +1,8 @@
 // Админское API сайта (backend avtovokzal57, сервис web). В dev '/site-api'
-// проксируется vite-сервером, см. vite.config.js. Здесь — страницы, меню
-// и файлы: в legacy всё это правилось прямо в исходниках сайта
-// (url/<slug>.php, списки ссылок в index.php, файлы в docs по FTP).
+// проксируется vite-сервером, см. vite.config.js. Здесь — страницы, новости,
+// блоки, меню, настройки и файлы: в legacy всё это правилось прямо в
+// исходниках сайта (url/<slug>.php, vidjets/*.php, списки ссылок в
+// index.php, файлы в docs по FTP).
 //
 // Эти маршруты тоже требуют сотрудника АИС с нужным правом: backend читает
 // его из БД ais по той же cookie сессии (см. App\Services\AisAuth).
@@ -30,6 +31,48 @@ export async function updatePage(id, page) {
 
 export async function deletePage(id) {
   return req(`${API}/admin/pages/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+/* Новости сайта */
+
+export async function fetchNewsList() {
+  return (await req(`${API}/admin/news`)).data
+}
+
+export async function fetchNewsItem(id) {
+  return (await req(`${API}/admin/news/${id}`)).data
+}
+
+export async function createNews(news) {
+  return (await req(`${API}/admin/news`, json('POST', news))).data
+}
+
+export async function updateNews(id, news) {
+  return (await req(`${API}/admin/news/${id}`, json('PUT', news))).data
+}
+
+export async function deleteNews(id) {
+  return req(`${API}/admin/news/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+/* Блоки сайта («виджеты» legacy vidjets/*.php) */
+
+export async function fetchBlocks() {
+  return (await req(`${API}/admin/blocks`)).data
+}
+
+export async function saveBlocks(blocks) {
+  return (await req(`${API}/admin/blocks`, json('PUT', { blocks }))).data
+}
+
+/* Настройки сайта: продажа и возврат билетов */
+
+export async function fetchSettings() {
+  return (await req(`${API}/admin/settings`)).data
+}
+
+export async function saveSettings(settings) {
+  return (await req(`${API}/admin/settings`, json('PUT', { settings }))).data
 }
 
 /* Меню сайта */

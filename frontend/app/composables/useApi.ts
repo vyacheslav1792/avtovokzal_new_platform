@@ -19,6 +19,7 @@ function browserApiBase(configured: string): string {
 export function useApi() {
   const config = useRuntimeConfig()
   const token = useAuthToken()
+  const outage = useApiOutage()
 
   // SSR выполняется внутри docker-сети — там свой адрес backend'а.
   const base = import.meta.server && config.apiBaseServer
@@ -34,6 +35,24 @@ export function useApi() {
       if (token.value) {
         options.headers.set('Authorization', `Bearer ${token.value}`)
       }
+    },
+
+    /*
+     * Состояние backend запоминаем в одном месте: иначе каждая страница
+     * обрабатывала бы «сервис на обслуживании» по-своему, а чаще всего —
+     * никак, и покупатель видел бы пустую форму.
+     */
+    onResponse({ response }) {
+      if (response.ok && outage.value) outage.value = null
+    },
+
+    onResponseError({ response }) {
+      reportApiOutage(outage, classifyApiError({ response }))
+    },
+
+    // Сервер не ответил вовсе: backend не поднят, прокси лежит, нет сети.
+    onRequestError({ error }) {
+      reportApiOutage(outage, classifyApiError(error))
     },
   })
 }

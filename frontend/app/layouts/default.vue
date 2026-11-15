@@ -312,6 +312,10 @@ async function signOut() {
       </template>
     </USlideover>
 
+    <!-- Обслуживание и недоступность backend: одно сообщение на все
+         страницы, а не пустые формы на каждой (см. useApiOutage). -->
+    <ApiOutageNotice />
+
     <main class="flex-1">
       <slot />
     </main>

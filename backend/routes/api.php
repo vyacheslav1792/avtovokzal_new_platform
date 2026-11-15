@@ -3,8 +3,11 @@
 use App\Http\Controllers\Api\AdminContactController;
 use App\Http\Controllers\Api\AdminFeedbackController;
 use App\Http\Controllers\Api\AdminMenuController;
+use App\Http\Controllers\Api\AdminNewsController;
 use App\Http\Controllers\Api\AdminPageController;
 use App\Http\Controllers\Api\AdminRefundController;
+use App\Http\Controllers\Api\AdminSettingController;
+use App\Http\Controllers\Api\AdminSiteBlockController;
 use App\Http\Controllers\Api\AdminSpamRuleController;
 use App\Http\Controllers\Api\AdminUploadController;
 use App\Http\Controllers\Api\AuthController;
@@ -14,10 +17,13 @@ use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\FeedbackController;
 use App\Http\Controllers\Api\FileController;
+use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PageController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ScheduleController;
+use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\SiteBlockController;
 use App\Http\Controllers\Api\VkAuthController;
 use App\Models\Order;
 use Illuminate\Support\Facades\Route;
@@ -48,10 +54,24 @@ Route::prefix('v1')->group(function () {
     Route::get('menu', [PageController::class, 'menu']);
     Route::get('pages/{slug}', [PageController::class, 'show']);
 
+    // Новости и объявления (в legacy — vidjets/news.php вместе с вёрсткой).
+    Route::get('news', [NewsController::class, 'index']);
+    Route::get('news/{slug}', [NewsController::class, 'show'])
+        ->where('slug', '[a-z0-9][a-z0-9\-]*');
+
+    // Блоки сайта («виджеты» legacy vidjets/*.php): ключ слота → HTML.
+    Route::get('blocks', [SiteBlockController::class, 'index']);
+
+    // Выключатели сайта из АИС: включены ли продажа и возврат билетов.
+    Route::get('settings', [SettingController::class, 'index']);
+
     // Файлы страниц по прежним адресам legacy: сайт проксирует сюда /docs/*.
     Route::get('files/{path}', [FileController::class, 'show'])->where('path', '.*');
 
-    Route::post('orders', [OrderController::class, 'store']);
+    // Продажу можно выключить из АИС (раздел «Настройки»). Дооформление
+    // уже оплаченного заказа (confirm) выключателю НЕ подчиняется: деньги
+    // у нас, билеты обязаны появиться.
+    Route::post('orders', [OrderController::class, 'store'])->middleware('site.enabled:sales');
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
     // Незавершённые покупки (покупатель ушёл на шлюз и не вернулся).
     // Ходит с каждой страницы сайта и дёргает шлюз — поэтому throttle.
@@ -66,8 +86,10 @@ Route::prefix('v1')->group(function () {
     Route::get('orders/{id}/print', [OrderController::class, 'printData'])->where('id', Order::ID_PATTERN);
     Route::get('orders/{id}/pdf', [OrderController::class, 'pdf'])->where('id', Order::ID_PATTERN);
 
-    Route::post('refunds/preview', [RefundController::class, 'preview']);
-    Route::post('refunds/confirm', [RefundController::class, 'confirm']);
+    // Возврат по коду тоже выключается из АИС; возврат через АИС
+    // (admin/refunds/*) при этом продолжает работать — это инструмент кассира.
+    Route::post('refunds/preview', [RefundController::class, 'preview'])->middleware('site.enabled:refunds');
+    Route::post('refunds/confirm', [RefundController::class, 'confirm'])->middleware('site.enabled:refunds');
 
     // Личный кабинет: вход/регистрация/восстановление пароля.
     // throttle — защита от перебора паролей и рассылки писем.
@@ -102,8 +124,13 @@ Route::prefix('v1')->group(function () {
 
         Route::get('cabinet/orders', [CabinetController::class, 'orders']);
         Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->where('id', Order::ID_PATTERN);
-        Route::post('cabinet/refunds/preview', [CabinetController::class, 'refundPreview']);
-        Route::post('cabinet/refunds/confirm', [CabinetController::class, 'refundConfirm']);
+        // Возврат из кабинета — тот же возврат по коду, поэтому слушается
+        // тот же выключатель: иначе выключенный возврат остался бы доступен
+        // всякому, кто завёл кабинет.
+        Route::post('cabinet/refunds/preview', [CabinetController::class, 'refundPreview'])
+            ->middleware('site.enabled:refunds');
+        Route::post('cabinet/refunds/confirm', [CabinetController::class, 'refundConfirm'])
+            ->middleware('site.enabled:refunds');
     });
 
     /*
@@ -140,6 +167,27 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:pages.edit');
     Route::delete('admin/pages/{page}', [AdminPageController::class, 'destroy'])
         ->middleware('ais.can:pages.delete');
+
+    Route::get('admin/news', [AdminNewsController::class, 'index'])
+        ->middleware('ais.can:news.view');
+    Route::post('admin/news', [AdminNewsController::class, 'store'])
+        ->middleware('ais.can:news.edit');
+    Route::get('admin/news/{news}', [AdminNewsController::class, 'show'])
+        ->middleware('ais.can:news.view');
+    Route::put('admin/news/{news}', [AdminNewsController::class, 'update'])
+        ->middleware('ais.can:news.edit');
+    Route::delete('admin/news/{news}', [AdminNewsController::class, 'destroy'])
+        ->middleware('ais.can:news.delete');
+
+    Route::get('admin/settings', [AdminSettingController::class, 'index'])
+        ->middleware('ais.can:settings.view');
+    Route::put('admin/settings', [AdminSettingController::class, 'update'])
+        ->middleware('ais.can:settings.edit');
+
+    Route::get('admin/blocks', [AdminSiteBlockController::class, 'index'])
+        ->middleware('ais.can:blocks.view');
+    Route::put('admin/blocks', [AdminSiteBlockController::class, 'update'])
+        ->middleware('ais.can:blocks.edit');
 
     Route::get('admin/menu', [AdminMenuController::class, 'index'])
         ->middleware('ais.can:menu.view');

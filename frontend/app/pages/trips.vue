@@ -13,6 +13,15 @@ const route = useRoute()
 const router = useRouter()
 const api = useApi()
 
+/*
+ * Продажу билетов на сайте выключают из АИС (раздел «Настройки»). Статусы
+ * рейсов при этом остаются как есть — расписание и свободные места
+ * по-прежнему полезны, — а вот кнопка покупки уступает место объявлению:
+ * иначе покупатель дошёл бы до формы и получил отказ от сервера.
+ */
+const { data: siteSettings } = await useSiteSettings()
+const salesEnabled = computed(() => siteSettings.value.sales_enabled)
+
 const awtcod = computed(() => Number(route.query.awtcod))
 const fromName = computed(() => String(route.query.from ?? ''))
 const toName = computed(() => String(route.query.to ?? ''))
@@ -236,6 +245,18 @@ useSeoMeta({
       <span v-else>— ближайшие</span>
     </h1>
 
+    <!-- Предупреждения об отменах и изменениях — блок из АИС -->
+    <SiteBlock name="trips_top" />
+
+    <UAlert
+      v-if="!salesEnabled"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-ticket-x"
+      title="Продажа билетов на сайте временно приостановлена"
+      description="Билеты продаются в кассах автовокзалов. Расписание и свободные места на этой странице актуальны."
+    />
+
     <!-- Шаги покупки -->
     <div class="flex gap-2 text-sm text-muted">
       <UBadge color="error" variant="solid">1. Рейсы</UBadge>
@@ -346,8 +367,14 @@ useSeoMeta({
           </div>
 
           <div class="flex items-center gap-4 shrink-0">
-            <div v-if="tripState.kind === 'buy'" class="text-right">
+            <div v-if="tripState.kind === 'buy' && salesEnabled" class="text-right">
               <UButton color="error" @click="buy(trip)">Купить</UButton>
+              <div class="text-xs text-muted mt-1">{{ tripState.note }}</div>
+            </div>
+
+            <!-- Продажа выключена из АИС: рейс доступен, но не у нас -->
+            <div v-else-if="tripState.kind === 'buy'" class="text-right max-w-56">
+              <UBadge color="warning" variant="soft">Продажа в кассах</UBadge>
               <div class="text-xs text-muted mt-1">{{ tripState.note }}</div>
             </div>
 
