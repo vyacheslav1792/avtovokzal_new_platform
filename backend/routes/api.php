@@ -95,16 +95,29 @@ Route::prefix('v1')->group(function () {
     // Личный кабинет: вход/регистрация/восстановление пароля.
     // throttle — защита от перебора паролей и рассылки писем.
     Route::middleware('throttle:10,1')->group(function () {
+        // Шаг 1 регистрации и запрос кода: за ними стоит отправка письма.
         Route::post('auth/register', [AuthController::class, 'register']);
         Route::post('auth/login', [AuthController::class, 'login']);
         Route::post('auth/password/forgot', [AuthController::class, 'forgotPassword']);
-        Route::post('auth/password/reset', [AuthController::class, 'resetPassword']);
+        // Повторная отправка кода. Пауза между письмами (3 минуты) и
+        // суточный потолок на адрес — в AuthCodeService.
+        Route::post('auth/code/resend', [AuthController::class, 'resendCode']);
         Route::post('auth/invite', [AuthController::class, 'invite']);
-        Route::post('auth/email/confirm', [AuthController::class, 'confirmEmail']);
 
         // Вход через VK ID: сюда ходит сервер Nuxt, а не браузер.
         Route::post('auth/vk/start', [VkAuthController::class, 'start']);
         Route::post('auth/vk/callback', [VkAuthController::class, 'callback']);
+    });
+
+    /*
+     * Ввод кода из письма — лимит свободнее: перебор закрыт самим кодом
+     * (пять попыток на пару «адрес + код», потом он гасится), а жёсткие
+     * 10 запросов в минуту отвечали «слишком много запросов» человеку,
+     * который всего лишь ошибся цифрой и попросил новый код.
+     */
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::post('auth/register/confirm', [AuthController::class, 'confirmRegistration']);
+        Route::post('auth/password/reset', [AuthController::class, 'resetPassword']);
     });
 
     // Какие способы входа настроены (кнопка «Войти через VK» на страницах).
@@ -116,6 +129,8 @@ Route::prefix('v1')->group(function () {
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/password/change', [AuthController::class, 'changePassword']);
         Route::post('auth/email', [AuthController::class, 'requestEmail']);
+        // Подтверждение добавленного адреса кодом — только своему кабинету.
+        Route::post('auth/email/confirm', [AuthController::class, 'confirmEmail']);
 
         // Сохранённые пассажиры: подставляются в форму покупки.
         Route::get('cabinet/passengers', [CabinetPassengerController::class, 'index']);

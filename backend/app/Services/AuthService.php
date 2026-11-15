@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
-use App\Mail\EmailConfirmMail;
-use App\Mail\PasswordResetMail;
+use App\Mail\AuthCodeMail;
 use App\Mail\RegistrationInviteMail;
+use App\Models\AuthCode;
 use App\Models\AuthToken;
 use App\Models\BlockedEmail;
 use App\Models\Order;
@@ -24,15 +24,26 @@ use Illuminate\Validation\ValidationException;
  * Способы входа лежат в user_identities: пароль ('password') и VK ID
  * ('vk'); позже добавится 'phone' (вход по коду из SMS) — тем же
  * методом issueToken(), без переделки схемы.
+ *
+ * Регистрация, восстановление пароля и добавление e-mail к кабинету
+ * подтверждаются КОДОМ из письма (App\Services\AuthCodeService), а не
+ * ссылкой: письма со ссылками чаще попадают в спам. Ссылкой осталось
+ * только приглашение в кабинет после первой покупки — оно живёт месяц,
+ * и шестизначный код на такой срок выдавать нельзя.
  */
 class AuthService
 {
+    public function __construct(private readonly AuthCodeService $codes) {}
+
     /**
-     * Регистрация по e-mail и паролю. Токен приглашения (ссылка из письма
-     * после первой покупки) необязателен — с ним e-mail сразу считается
-     * подтверждённым.
+     * Шаг 1 регистрации: проверяем данные и отправляем код на e-mail.
+     * Пользователь ПОКА НЕ создаётся — его данные лежат в auth_codes,
+     * иначе неподтверждённый кабинет занимал бы чужой адрес.
      *
-     * @return array{user: User, token: string}
+     * Исключение — приглашение (ссылка из письма после первой покупки):
+     * владение адресом им уже доказано, поэтому кабинет создаётся сразу.
+     *
+     * @return array{status: 'registered'|'code_sent', user?: User, token?: string, code?: array<string, mixed>}
      */
     public function register(array $data, ?string $ip = null): array
     {
@@ -47,21 +58,114 @@ class AuthService
             ]);
         }
 
-        if (User::where('email', $email)->exists()) {
-            throw ValidationException::withMessages([
-                'email' => "Пользователь с e-mail {$email} уже зарегистрирован. "
-                    .'Если вы не помните пароль — воспользуйтесь восстановлением пароля.',
-            ]);
-        }
+        $this->assertEmailFree($email);
 
         // Приглашение подтверждает владение почтой: ссылку получили письмом.
         $invite = isset($data['invite_token'])
             ? AuthToken::findValid(AuthToken::TYPE_INVITE, $data['invite_token'])
             : null;
 
-        $verified = $invite && $invite->email === $email;
+        if ($invite && $invite->email === $email) {
+            $user = $this->createUser($email, $password, $phone, verified: true, invite: $invite);
 
-        $user = DB::transaction(function () use ($email, $password, $phone, $verified, $invite) {
+            return [
+                'status' => 'registered',
+                'user' => $user,
+                'token' => $this->issueToken($user, $ip),
+            ];
+        }
+
+        // Пароль храним уже хэшированным: в payload лежат данные, которые
+        // ждут подтверждения адреса, и открытому паролю там не место.
+        $this->sendCode(AuthCode::TYPE_REGISTER, $email, null, [
+            'password' => Hash::make($password),
+            'phone' => $phone,
+        ], $ip);
+
+        return [
+            'status' => 'code_sent',
+            'code' => $this->codes->state(AuthCode::TYPE_REGISTER, $email),
+        ];
+    }
+
+    /**
+     * Шаг 2 регистрации: код из письма подтверждён — создаём кабинет.
+     * Пароль и телефон берём из payload кода, повторно их не спрашиваем.
+     *
+     * @return array{user: User, token: string}
+     */
+    public function confirmRegistration(string $email, string $code, ?string $ip = null): array
+    {
+        $email = $this->normalizeEmail($email);
+        $this->assertNotBlocked($email, 'регистрация невозможна');
+        // Пока код шёл, адрес могли занять (например, входом через VK).
+        $this->assertEmailFree($email);
+
+        $record = $this->codes->verify(AuthCode::TYPE_REGISTER, $email, $code);
+        $payload = $record->payload ?? [];
+
+        if (empty($payload['password']) || empty($payload['phone'])) {
+            throw ValidationException::withMessages([
+                'code' => 'Данные регистрации не сохранились. Заполните форму заново.',
+            ]);
+        }
+
+        $user = $this->createUser(
+            $email,
+            $payload['password'],
+            $payload['phone'],
+            verified: true,
+            code: $record,
+        );
+
+        return ['user' => $user, 'token' => $this->issueToken($user, $ip)];
+    }
+
+    /**
+     * Прислать код заново — тем же данным регистрации. Пароль и телефон
+     * берём из прежней записи: заново заполнять форму незачем, а хранить
+     * их на фронте до подтверждения не нужно.
+     *
+     * @return array<string, mixed> состояние кода для формы ввода
+     */
+    public function resendRegistrationCode(string $email, ?string $ip = null): array
+    {
+        $email = $this->normalizeEmail($email);
+        $this->assertNotBlocked($email, 'регистрация невозможна');
+        $this->assertEmailFree($email);
+
+        $last = AuthCode::query()
+            ->where('type', AuthCode::TYPE_REGISTER)
+            ->where('email', $email)
+            ->latest('created_at')
+            ->first();
+
+        $payload = $last?->payload ?? [];
+
+        if (empty($payload['password']) || empty($payload['phone'])) {
+            throw ValidationException::withMessages([
+                'email' => 'Регистрация не начата или данные устарели. Заполните форму заново.',
+            ]);
+        }
+
+        $this->sendCode(AuthCode::TYPE_REGISTER, $email, null, $payload, $ip);
+
+        return $this->codes->state(AuthCode::TYPE_REGISTER, $email);
+    }
+
+    /**
+     * Создание кабинета с паролем. `$password` может быть и открытым, и
+     * уже хэшированным — cast 'hashed' модели повторно не хэширует.
+     */
+    private function createUser(
+        string $email,
+        string $password,
+        string $phone,
+        bool $verified,
+        ?AuthToken $invite = null,
+        ?AuthCode $code = null,
+    ): User {
+        return DB::transaction(function () use ($email, $password, $phone, $verified, $invite, $code) {
             $user = User::create([
                 'email' => $email,
                 'phone' => $phone,
@@ -77,12 +181,11 @@ class AuthService
             ]);
 
             $invite?->markUsed();
+            $code?->markUsed();
             $this->claimOrders($user);
 
             return $user;
         });
-
-        return ['user' => $user, 'token' => $this->issueToken($user, $ip)];
     }
 
     /**
@@ -207,7 +310,7 @@ class AuthService
      * покупки. Поэтому отправляем ссылку-подтверждение, как при сбросе
      * пароля, и ставим адрес только по ней (confirmEmail).
      */
-    public function requestEmailConfirmation(User $user, string $email, ?string $ip = null): void
+    public function requestEmailConfirmation(User $user, string $email, ?string $ip = null): array
     {
         if ($user->email) {
             throw ValidationException::withMessages([
@@ -217,52 +320,45 @@ class AuthService
 
         $email = $this->normalizeEmail($email);
         $this->assertNotBlocked($email, 'указать его нельзя');
+        $this->assertEmailFree($email, 'Войдите в него по паролю — или укажите другой адрес.');
 
-        if (User::where('email', $email)->exists()) {
-            throw ValidationException::withMessages([
-                'email' => "Кабинет с e-mail {$email} уже зарегистрирован. "
-                    .'Войдите в него по паролю — или укажите другой адрес.',
-            ]);
-        }
+        $this->sendCode(AuthCode::TYPE_EMAIL_CONFIRM, $email, $user->id, [], $ip);
 
-        $token = AuthToken::issue(
-            AuthToken::TYPE_EMAIL_CONFIRM,
-            $email,
-            $user->id,
-            config('site.password_reset_ttl_hours'),
-            $ip,
-        );
-
-        Mail::to($email)->send(new EmailConfirmMail($token, $email));
+        return $this->codes->state(AuthCode::TYPE_EMAIL_CONFIRM, $email);
     }
 
-    /** Подтверждение e-mail по ссылке из письма. */
-    public function confirmEmail(string $token): User
+    /**
+     * Подтверждение e-mail кодом из письма. Код проверяется вместе с
+     * адресом и обязан принадлежать этому кабинету: иначе кодом, пришедшим
+     * на свой адрес, можно было бы подтвердить чужой кабинет.
+     */
+    public function confirmEmail(User $user, string $email, string $code): User
     {
-        $authToken = AuthToken::findValid(AuthToken::TYPE_EMAIL_CONFIRM, $token);
-
-        if (! $authToken || ! $authToken->user) {
+        if ($user->email) {
             throw ValidationException::withMessages([
-                'token' => 'Ссылка подтверждения недействительна или устарела. Запросите письмо заново.',
+                'email' => 'В кабинете уже указана электронная почта.',
             ]);
         }
 
-        $user = $authToken->user;
-
+        $email = $this->normalizeEmail($email);
         // Пока письмо шло, адрес мог занять кто-то ещё.
-        if (User::where('email', $authToken->email)->where('id', '!=', $user->id)->exists()) {
+        $this->assertEmailFree($email, 'Укажите другой адрес.');
+
+        $record = $this->codes->verify(AuthCode::TYPE_EMAIL_CONFIRM, $email, $code);
+
+        if ($record->user_id !== $user->id) {
             throw ValidationException::withMessages([
-                'token' => "Кабинет с e-mail {$authToken->email} уже зарегистрирован. Укажите другой адрес.",
+                'code' => 'Код выдан другому кабинету. Запросите код заново.',
             ]);
         }
 
-        DB::transaction(function () use ($user, $authToken) {
+        DB::transaction(function () use ($user, $record, $email) {
             $user->forceFill([
-                'email' => $authToken->email,
+                'email' => $email,
                 'email_verified_at' => now(),
             ])->save();
 
-            $authToken->markUsed();
+            $record->markUsed();
             $this->claimOrders($user);
         });
 
@@ -275,59 +371,67 @@ class AuthService
      * раскрывало базу e-mail'ов). Незарегистрированному покупателю,
      * у которого есть заказы, вместо сброса уходит приглашение.
      */
-    public function requestPasswordReset(string $email, ?string $ip = null): void
+    public function requestPasswordReset(string $email, ?string $ip = null): array
     {
         $email = $this->normalizeEmail($email);
         $this->assertNotBlocked($email, 'восстановление доступа невозможно');
         $user = User::where('email', $email)->first();
 
         if ($user) {
-            $token = AuthToken::issue(
-                AuthToken::TYPE_PASSWORD_RESET,
-                $email,
-                $user->id,
-                config('site.password_reset_ttl_hours'),
-                $ip,
-            );
+            $this->sendCode(AuthCode::TYPE_PASSWORD_RESET, $email, $user->id, [], $ip);
 
-            // Письма кабинета отправляем сразу, а не через очередь `emails`:
-            // пользователь ждёт ссылку на экране.
-            Mail::to($email)->send(new PasswordResetMail($token, $email));
-
-            return;
+            return $this->codes->state(AuthCode::TYPE_PASSWORD_RESET, $email);
         }
 
+        /*
+         * Кабинета нет — код всё равно ВЫПУСКАЕМ, но письмо с ним не
+         * отправляем: иначе лимиты выдачи отвечали бы на незарегистрированный
+         * адрес иначе, чем на зарегистрированный, и по ним можно было бы
+         * перебирать базу покупателей. Воспользоваться таким кодом нельзя —
+         * он никому не известен, а менять пароль некому.
+         */
+        $this->codes->issue(AuthCode::TYPE_PASSWORD_RESET, $email, null, [], $ip);
+
+        // Покупателю без кабинета, но с покупками, уходит приглашение
+        // зарегистрироваться — письмом без ссылки, как и все остальные.
         if (Order::where('email', $email)->where('status', Order::STATUS_COMPLETED)->exists()) {
-            $token = AuthToken::issue(
-                AuthToken::TYPE_INVITE,
-                $email,
-                null,
-                config('site.invite_ttl_hours'),
-                $ip,
-            );
-
-            Mail::to($email)->send(new RegistrationInviteMail($token, $email));
+            Mail::to($email)->send(new RegistrationInviteMail($email));
         }
+
+        return $this->codes->state(AuthCode::TYPE_PASSWORD_RESET, $email);
     }
 
-    /** Установка нового пароля по ссылке из письма. */
-    public function resetPassword(string $token, string $password): User
+    /**
+     * Прислать код для смены пароля заново — это тот же запрос, что и
+     * первый: лимиты и приватность ответа уже внутри.
+     */
+    public function resendPasswordResetCode(string $email, ?string $ip = null): array
     {
-        $authToken = AuthToken::findValid(AuthToken::TYPE_PASSWORD_RESET, $token);
+        return $this->requestPasswordReset($email, $ip);
+    }
 
-        if (! $authToken || ! $authToken->user) {
+    /** Новый пароль по коду из письма. */
+    public function resetPassword(string $email, string $code, string $password): User
+    {
+        $email = $this->normalizeEmail($email);
+        $this->assertNotBlocked($email, 'восстановление доступа невозможно');
+
+        $record = $this->codes->verify(AuthCode::TYPE_PASSWORD_RESET, $email, $code);
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
             throw ValidationException::withMessages([
-                'token' => 'Ссылка для смены пароля недействительна или устарела. Запросите сброс пароля заново.',
+                'email' => "Кабинет с e-mail {$email} не зарегистрирован.",
             ]);
         }
 
-        $user = $authToken->user;
         $user->forceFill([
             'password' => $this->normalizePassword($password),
+            // Код пришёл на этот адрес — владение им доказано.
             'email_verified_at' => $user->email_verified_at ?? now(),
         ])->save();
 
-        $authToken->markUsed();
+        $record->markUsed();
 
         // Смена пароля разлогинивает все устройства (у legacy этого не было).
         $user->tokens()->delete();
@@ -367,7 +471,13 @@ class AuthService
         }
     }
 
-    /** Проверка ссылки-приглашения: по ней страница регистрации знает e-mail. */
+    /**
+     * Проверка ссылки-приглашения: по ней страница регистрации знает
+     * e-mail и считает его подтверждённым.
+     *
+     * Новые приглашения ссылок не содержат, но выданные ранее ещё живут
+     * (месяц), поэтому обработка остаётся.
+     */
     public function inviteEmail(string $token): string
     {
         $authToken = AuthToken::findValid(AuthToken::TYPE_INVITE, $token);
@@ -383,8 +493,11 @@ class AuthService
 
     /**
      * Пригласить покупателя завести кабинет — после первой покупки на
-     * e-mail, за которым ещё нет пользователя. Повторное приглашение
-     * гасит предыдущую ссылку (AuthToken::issue).
+     * e-mail, за которым ещё нет пользователя.
+     *
+     * Письмо БЕЗ ссылки и без одноразового токена: регистрация и так
+     * подтверждается кодом, отправленным на этот же адрес, поэтому
+     * доказывать владение им отдельной ссылкой больше незачем.
      */
     public function sendInvite(string $email): void
     {
@@ -394,14 +507,43 @@ class AuthService
             return;
         }
 
-        $token = AuthToken::issue(
-            AuthToken::TYPE_INVITE,
-            $email,
-            null,
-            config('site.invite_ttl_hours'),
-        );
+        Mail::to($email)->send(new RegistrationInviteMail($email));
+    }
 
-        Mail::to($email)->send(new RegistrationInviteMail($token, $email));
+    /**
+     * Выпустить код и отправить письмо. Письма кабинета уходят СРАЗУ, а не
+     * через очередь `emails`: покупатель ждёт код на экране, а воркер
+     * очереди писем может быть и не запущен.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function sendCode(
+        string $type,
+        string $email,
+        ?int $userId,
+        array $payload = [],
+        ?string $ip = null,
+    ): void {
+        $record = $this->codes->issue($type, $email, $userId, $payload, $ip);
+
+        Mail::to($email)->send(new AuthCodeMail(
+            $record,
+            (string) $record->plainCode,
+            (int) config('site.auth_code.ttl_minutes'),
+        ));
+    }
+
+    /** Адрес не должен быть занят другим кабинетом. */
+    private function assertEmailFree(string $email, ?string $hint = null): void
+    {
+        if (! User::where('email', $email)->exists()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'email' => "Пользователь с e-mail {$email} уже зарегистрирован. "
+                .($hint ?? 'Если вы не помните пароль — воспользуйтесь восстановлением пароля.'),
+        ]);
     }
 
     /**

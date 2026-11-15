@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import type { AuthCodeState } from '~/composables/useAuth'
+
 definePageMeta({ middleware: 'auth' })
 
 useSeoMeta({ title: 'Профиль — личный кабинет' })
 
-const { user, updateProfile, changePassword, requestEmail, logout } = useAuth()
+const { user, updateProfile, changePassword, requestEmail, confirmEmail, logout } = useAuth()
 const route = useRoute()
 const toast = useToast()
 
@@ -17,12 +19,15 @@ const profileErrors = ref<Record<string, string>>({})
  * всегда. Тогда предлагаем его добавить — но не требуем (покупать это не
  * мешает, адрес для билетов вводится в форме покупки). Сразу записать
  * введённый адрес нельзя: по e-mail кабинет показывает покупки, сделанные
- * до регистрации, поэтому владение подтверждается ссылкой из письма.
+ * до регистрации, поэтому владение подтверждается КОДОМ из письма — он же
+ * не уводит письмо в спам, в отличие от ссылки.
  */
 const newEmail = ref('')
 const savingEmail = ref(false)
 const emailErrors = ref<Record<string, string>>({})
 const emailSentTo = ref('')
+const emailCodeState = ref<AuthCodeState | null>(null)
+const emailCodeError = ref('')
 // Пришли сразу после входа через VK — подсвечиваем блок с почтой.
 const emailInvited = computed(() => queryFlag(route.query['add-email']))
 
@@ -52,18 +57,51 @@ async function saveProfile() {
 
 async function sendEmailConfirmation() {
   emailErrors.value = {}
-  emailSentTo.value = ''
+  emailCodeError.value = ''
   savingEmail.value = true
   try {
-    const message = await requestEmail(newEmail.value)
-    emailSentTo.value = newEmail.value.trim()
-    toast.add({ title: message, color: 'success' })
+    emailCodeState.value = await requestEmail(newEmail.value)
+    emailSentTo.value = emailCodeState.value.email
+    toast.add({ title: `Код отправлен на ${emailSentTo.value}`, color: 'success' })
   }
   catch (e: any) {
     emailErrors.value = apiFieldErrors(e)
     if (!Object.keys(emailErrors.value).length) {
       toast.add({ title: apiErrorMessage(e), color: 'error' })
     }
+  }
+  finally {
+    savingEmail.value = false
+  }
+}
+
+/** Код подтверждения адреса: ввод и повторная отправка. */
+async function submitEmailCode(code: string) {
+  emailCodeError.value = ''
+  savingEmail.value = true
+  try {
+    const confirmed = await confirmEmail(emailSentTo.value, code)
+    emailSentTo.value = ''
+    emailCodeState.value = null
+    newEmail.value = ''
+    toast.add({ title: `Адрес ${confirmed} подтверждён`, color: 'success' })
+  }
+  catch (e: any) {
+    emailCodeError.value = apiErrorMessage(e, 'Не удалось подтвердить адрес, попробуйте позже')
+  }
+  finally {
+    savingEmail.value = false
+  }
+}
+
+async function resendEmailCode() {
+  emailCodeError.value = ''
+  savingEmail.value = true
+  try {
+    emailCodeState.value = await requestEmail(emailSentTo.value)
+  }
+  catch (e: any) {
+    emailCodeError.value = apiErrorMessage(e, 'Не удалось отправить код, попробуйте позже')
   }
   finally {
     savingEmail.value = false
@@ -157,34 +195,42 @@ async function signOut() {
         <div class="font-medium">Электронная почта</div>
       </template>
 
-      <UAlert
+      <!-- Код отправлен — ввод кода на месте формы адреса. -->
+      <AuthCodeForm
         v-if="emailSentTo"
-        color="success" variant="subtle"
-        title="Письмо отправлено"
-        :description="`Откройте ссылку из письма на ${emailSentTo} — после этого адрес появится в кабинете.`"
-        class="mb-4"
-      />
-      <UAlert
-        v-else
-        :color="emailInvited ? 'primary' : 'neutral'" variant="subtle"
-        title="Почта в кабинете не указана"
-        description="VK не сообщил нам ваш адрес. Билеты и чеки приходят на почту, которую вы вводите при покупке — но с адресом в кабинете он подставится сам, а прошлые покупки на этот адрес окажутся в списке билетов."
-        class="mb-4"
+        :email="emailSentTo"
+        :state="emailCodeState"
+        :error="emailCodeError"
+        :loading="savingEmail"
+        submit-label="Подтвердить адрес"
+        hint="После ввода адрес появится в кабинете."
+        @submit="submitEmailCode"
+        @resend="resendEmailCode"
+        @back="emailSentTo = ''"
       />
 
-      <form class="space-y-4" @submit.prevent="sendEmailConfirmation">
-        <UFormField
-          label="Ваш e-mail" :error="emailErrors.email"
-          help="Мы отправим на него письмо со ссылкой — адрес привяжется к кабинету после перехода по ней"
-        >
-          <UInput
-            v-model="newEmail" type="email" autocomplete="email" class="w-full"
-            placeholder="you@example.com" :highlight="!!emailErrors.email"
-          />
-        </UFormField>
+      <template v-else>
+        <UAlert
+          :color="emailInvited ? 'primary' : 'neutral'" variant="subtle"
+          title="Почта в кабинете не указана"
+          description="VK не сообщил нам ваш адрес. Билеты и чеки приходят на почту, которую вы вводите при покупке — но с адресом в кабинете он подставится сам, а прошлые покупки на этот адрес окажутся в списке билетов."
+          class="mb-4"
+        />
 
-        <UButton type="submit" color="error" :loading="savingEmail">Отправить подтверждение</UButton>
-      </form>
+        <form class="space-y-4" @submit.prevent="sendEmailConfirmation">
+          <UFormField
+            label="Ваш e-mail" :error="emailErrors.email"
+            help="Мы отправим на него код из 6 цифр — адрес привяжется к кабинету после его ввода"
+          >
+            <UInput
+              v-model="newEmail" type="email" autocomplete="email" class="w-full"
+              placeholder="you@example.com" :highlight="!!emailErrors.email"
+            />
+          </UFormField>
+
+          <UButton type="submit" color="error" :loading="savingEmail">Получить код</UButton>
+        </form>
+      </template>
     </UCard>
 
     <UCard>
@@ -214,8 +260,8 @@ async function signOut() {
           v-if="user?.has_password"
           label="Текущий пароль" required :error="passwordErrors.current_password"
         >
-          <UInput
-            v-model="currentPassword" type="password" autocomplete="current-password"
+          <PasswordInput
+            v-model="currentPassword" autocomplete="current-password"
             class="w-full" :highlight="!!passwordErrors.current_password"
           />
         </UFormField>
@@ -223,14 +269,14 @@ async function signOut() {
           :label="user?.has_password ? 'Новый пароль' : 'Пароль'" required
           help="Не менее 8 символов" :error="passwordErrors.password"
         >
-          <UInput
-            v-model="password" type="password" autocomplete="new-password"
+          <PasswordInput
+            v-model="password" autocomplete="new-password"
             class="w-full" :highlight="!!passwordErrors.password"
           />
         </UFormField>
         <UFormField :label="user?.has_password ? 'Повторите новый пароль' : 'Повторите пароль'" required>
-          <UInput
-            v-model="passwordRepeat" type="password" autocomplete="new-password"
+          <PasswordInput
+            v-model="passwordRepeat" autocomplete="new-password"
             class="w-full"
           />
         </UFormField>

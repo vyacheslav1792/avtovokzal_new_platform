@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { AuthCodeState } from '~/composables/useAuth'
+
 const api = useApi()
 const route = useRoute()
-const { register, isLoggedIn } = useAuth()
+const { register, confirmRegistration, resendCode, isLoggedIn } = useAuth()
 const { data: providers } = await useAuthProviders()
 
 useSeoMeta({
@@ -25,6 +27,15 @@ const errorMessage = ref('')
 const fieldErrors = ref<Record<string, string>>({})
 // Приглашение подтверждает почту письмом — менять адрес в этом случае нельзя.
 const emailLocked = ref(false)
+
+/*
+ * Регистрация в два шага: сначала данные, потом код из письма. Кабинет
+ * создаётся только после кода — иначе на непроверенный адрес заводился бы
+ * кабинет, которому видны покупки, сделанные на этот адрес до регистрации.
+ */
+const step = ref<'form' | 'code'>('form')
+const codeState = ref<AuthCodeState | null>(null)
+const codeError = ref('')
 
 watchEffect(() => {
   if (isLoggedIn.value) navigateTo(redirect.value)
@@ -55,20 +66,58 @@ async function submit() {
 
   loading.value = true
   try {
-    await register({
+    const result = await register({
       email: email.value,
       phone: phone.value,
       password: password.value,
       agree_pd: agree.value,
       ...(inviteToken ? { invite_token: inviteToken } : {}),
     })
-    await navigateTo(redirect.value)
+
+    // По приглашению кабинет открывается сразу: адрес подтверждён ссылкой.
+    if (result.status === 'registered') {
+      await navigateTo(redirect.value)
+      return
+    }
+
+    codeState.value = result.state
+    codeError.value = ''
+    step.value = 'code'
   }
   catch (e: any) {
     fieldErrors.value = apiFieldErrors(e)
     if (!Object.keys(fieldErrors.value).length) {
       errorMessage.value = apiErrorMessage(e, 'Не удалось зарегистрироваться, попробуйте позже')
     }
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+async function confirm(code: string) {
+  codeError.value = ''
+  loading.value = true
+  try {
+    await confirmRegistration(email.value, code)
+    await navigateTo(redirect.value)
+  }
+  catch (e: any) {
+    codeError.value = apiErrorMessage(e, 'Не удалось подтвердить код, попробуйте позже')
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+async function resend() {
+  codeError.value = ''
+  loading.value = true
+  try {
+    codeState.value = await resendCode('register', email.value)
+  }
+  catch (e: any) {
+    codeError.value = apiErrorMessage(e, 'Не удалось отправить код, попробуйте позже')
   }
   finally {
     loading.value = false
@@ -92,9 +141,45 @@ async function submit() {
         />
         <UAlert v-if="errorMessage" color="error" variant="subtle" :title="errorMessage" class="mb-4" />
 
-        <UCard>
+        <!-- Шаг 2: подтверждение адреса кодом из письма. -->
+        <UCard v-if="step === 'code'">
+          <AuthCodeForm
+            :email="email"
+            :state="codeState"
+            :error="codeError"
+            :loading="loading"
+            submit-label="Подтвердить и войти"
+            hint="Введите его здесь — после этого кабинет будет создан."
+            back-label="Изменить данные регистрации"
+            @submit="confirm"
+            @resend="resend"
+            @back="step = 'form'"
+          />
+        </UCard>
+
+        <UCard v-else>
+          <!-- Вход через VK — первым: это один тап вместо заполнения формы
+               и подтверждения адреса, поэтому он идёт до полей, а не под
+               ними, где его просто не замечали. -->
+          <template v-if="providers?.vk">
+            <VkLoginButton :redirect="redirect" label="Зарегистрироваться через VK" />
+            <p class="text-xs text-muted mt-3">
+              Пароль придумывать не нужно. Если VK не сообщит нам электронную почту,
+              её можно будет указать в профиле — билеты приходят на адрес,
+              указанный при покупке.
+            </p>
+            <div class="flex items-center gap-3 my-5 text-sm text-muted">
+              <span class="h-px flex-1 bg-default" />
+              или по электронной почте
+              <span class="h-px flex-1 bg-default" />
+            </div>
+          </template>
+
           <form class="space-y-4" @submit.prevent="submit">
-            <UFormField label="Электронная почта" required :error="fieldErrors.email">
+            <UFormField
+              label="Электронная почта" required :error="fieldErrors.email"
+              help="На неё придёт код подтверждения"
+            >
               <UInput
                 v-model="email" type="email" autocomplete="email" class="w-full"
                 :disabled="emailLocked" :highlight="!!fieldErrors.email"
@@ -112,15 +197,15 @@ async function submit() {
             </UFormField>
 
             <UFormField label="Пароль" required :error="fieldErrors.password" help="Не менее 8 символов">
-              <UInput
-                v-model="password" type="password" autocomplete="new-password"
+              <PasswordInput
+                v-model="password" autocomplete="new-password"
                 class="w-full" :highlight="!!fieldErrors.password"
               />
             </UFormField>
 
             <UFormField label="Повторите пароль" required>
-              <UInput
-                v-model="passwordRepeat" type="password" autocomplete="new-password"
+              <PasswordInput
+                v-model="passwordRepeat" autocomplete="new-password"
                 class="w-full"
               />
             </UFormField>
@@ -147,20 +232,6 @@ async function submit() {
               </UButton>
             </div>
           </form>
-
-          <template v-if="providers?.vk" #footer>
-            <div class="flex items-center gap-3 mb-4 text-sm text-muted">
-              <span class="h-px flex-1 bg-default" />
-              или
-              <span class="h-px flex-1 bg-default" />
-            </div>
-            <VkLoginButton :redirect="redirect" label="Зарегистрироваться через VK" />
-            <p class="text-xs text-muted mt-3">
-              Пароль придумывать не нужно. Если VK не сообщит нам электронную почту,
-              её можно будет указать в профиле — билеты приходят на адрес,
-              указанный при покупке.
-            </p>
-          </template>
         </UCard>
       </div>
 

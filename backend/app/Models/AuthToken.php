@@ -9,9 +9,13 @@ use Illuminate\Support\Str;
 
 /**
  * Одноразовая ссылка из письма: приглашение зарегистрироваться после
- * первой покупки, сброс пароля и подтверждение e-mail, добавленного
- * к кабинету без почты (вход через VK). В базе хранится только sha256
- * токена.
+ * первой покупки. В базе хранится только sha256 токена.
+ *
+ * Регистрация, сброс пароля и подтверждение e-mail перешли на КОД из
+ * письма (App\Models\AuthCode): письма со ссылками чаще уходят в спам.
+ * Ссылкой осталось только приглашение — оно живёт месяц, и шестизначный
+ * код на такой срок выдавать нельзя. Старые типы оставлены в таблице
+ * (исторические записи), но больше не выпускаются.
  */
 class AuthToken extends Model
 {
@@ -25,10 +29,6 @@ class AuthToken extends Model
     ];
 
     public const TYPE_INVITE = 'invite';
-
-    public const TYPE_PASSWORD_RESET = 'password_reset';
-
-    public const TYPE_EMAIL_CONFIRM = 'email_confirm';
 
     public function user(): BelongsTo
     {

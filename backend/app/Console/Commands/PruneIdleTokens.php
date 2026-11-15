@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AuthCode;
 use App\Models\AuthToken;
 use Illuminate\Console\Command;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -12,7 +13,8 @@ use Laravel\Sanctum\PersonalAccessToken;
  * Проверку «полгода бездействия» делает AppServiceProvider на каждом
  * запросе — команда лишь убирает из таблицы мёртвые строки, чтобы
  * personal_access_tokens не рос бесконечно. Заодно удаляет протухшие
- * ссылки писем (auth_tokens).
+ * ссылки писем (auth_tokens) и использованные коды подтверждения
+ * (auth_codes).
  */
 class PruneIdleTokens extends Command
 {
@@ -39,7 +41,13 @@ class PruneIdleTokens extends Command
         // ни для проверки, ни для разбора инцидентов.
         $links = AuthToken::where('expires_at', '<', now()->subMonth())->delete();
 
-        $this->info("Удалено токенов: {$tokens}, устаревших ссылок из писем: {$links}.");
+        // Коды подтверждения из писем. Месяц держим не ради проверки (они
+        // живут 30 минут), а чтобы по ним можно было разобрать жалобу
+        // «код не приходил» или «кто-то запрашивал сброс пароля».
+        $codes = AuthCode::where('expires_at', '<', now()->subMonth())->delete();
+
+        $this->info("Удалено токенов: {$tokens}, устаревших ссылок из писем: {$links}, "
+            ."кодов подтверждения: {$codes}.");
 
         return self::SUCCESS;
     }

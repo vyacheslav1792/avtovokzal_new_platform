@@ -22,16 +22,10 @@ class RefundMail extends Mailable
 
     public function content(): Content
     {
-        $site = rtrim((string) config('site.url'), '/');
-        $order = $this->refund->order;
-
+        // Без ссылок — как и остальные письма сайта (см. PurchaseMail).
         return new Content(
             markdown: 'mail.refund',
-            with: [
-                'order' => $order,
-                'printUrl' => $site.'/print/'.$order->id,
-                'cabinetUrl' => $site.'/lk',
-            ],
+            with: ['order' => $this->refund->order],
         );
     }
 }

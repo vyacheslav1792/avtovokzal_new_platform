@@ -6,6 +6,7 @@ use App\Services\SalesApiException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -75,6 +76,28 @@ return Application::configure(basePath: dirname(__DIR__))
                 'error' => config('site.maintenance_text'),
                 'retry_after' => $retryAfter === null ? null : (int) $retryAfter,
             ], 503, $e->getHeaders());
+        });
+
+        /*
+         * Слишком частые запросы (middleware throttle). Без этого покупатель
+         * видел английское «Too Many Attempts» со стектрейсом — например
+         * когда несколько раз ошибся кодом из письма. Про собственные
+         * лимиты кодов (попытки, пауза, суточный потолок) сообщает
+         * AuthCodeService — тут именно защита от флуда по IP.
+         */
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            $retryAfter = (int) ($e->getHeaders()['Retry-After'] ?? 60);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Слишком много запросов подряд. Подождите '
+                    .max(1, (int) ceil($retryAfter / 60)).' мин и попробуйте снова.',
+                'retry_after' => $retryAfter,
+            ], 429, $e->getHeaders());
         });
 
         $exceptions->render(function (SalesApiException $e, Request $request) {

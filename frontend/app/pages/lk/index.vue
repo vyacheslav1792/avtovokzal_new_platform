@@ -72,25 +72,41 @@ function ticketTotal(t: CabinetTicket) {
   <UContainer class="py-8 max-w-5xl">
     <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
       <div>
-        <h1 class="text-3xl font-light">Личный кабинет</h1>
-        <p class="text-sm text-muted mt-1">{{ userLabel(user) }}</p>
+        <h1 class="text-2xl sm:text-3xl font-light">Личный кабинет</h1>
+        <!-- `break-all`: длинный e-mail (логин кабинета) не должен
+             растягивать страницу шире экрана телефона. -->
+        <p class="text-sm text-muted mt-1 break-all">{{ userLabel(user) }}</p>
       </div>
-      <div class="flex items-center gap-2">
-        <UButton to="/" color="error" icon="i-lucide-ticket">Купить билет</UButton>
-        <UButton to="/tickets" color="neutral" variant="outline" icon="i-lucide-smartphone">
+      <!-- На телефоне четыре кнопки в один ряд не помещаются: сетка 2×2 во
+           всю ширину вместо ряда, который иначе переносился бы по одной
+           кнопке и занимал пол-экрана. -->
+      <div class="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:items-center">
+        <UButton to="/" color="error" icon="i-lucide-ticket" class="justify-center">
+          Купить билет
+        </UButton>
+        <UButton
+          to="/tickets" color="neutral" variant="outline" icon="i-lucide-smartphone"
+          class="justify-center"
+        >
           Билеты на устройстве
         </UButton>
-        <UButton to="/lk/passengers" color="neutral" variant="outline" icon="i-lucide-users">
+        <UButton
+          to="/lk/passengers" color="neutral" variant="outline" icon="i-lucide-users"
+          class="justify-center"
+        >
           Пассажиры
         </UButton>
-        <UButton to="/lk/profile" color="neutral" variant="outline" icon="i-lucide-settings">
+        <UButton
+          to="/lk/profile" color="neutral" variant="outline" icon="i-lucide-settings"
+          class="justify-center"
+        >
           Профиль
         </UButton>
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-4 mb-6">
-      <USelect v-model="scope" :items="scopeItems" value-key="value" class="w-48" />
+    <div class="flex flex-wrap items-center gap-3 sm:gap-4 mb-6">
+      <USelect v-model="scope" :items="scopeItems" value-key="value" class="w-full sm:w-48" />
       <div v-if="meta" class="text-sm text-muted">
         Оплаченных заказов: <b class="text-highlighted">{{ meta.orders_total }}</b>,
         из них предстоящих поездок: <b class="text-highlighted">{{ meta.upcoming_total }}</b>
@@ -115,7 +131,7 @@ function ticketTotal(t: CabinetTicket) {
       <UCard v-for="order in orders" :key="order.id">
         <template #header>
           <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
+            <div class="min-w-0">
               <div class="text-lg font-medium">
                 {{ order.from_name }} → {{ order.to_name }}
               </div>
@@ -127,7 +143,9 @@ function ticketTotal(t: CabinetTicket) {
                 Куплен {{ order.created_at }}<span v-if="order.carrier"> · перевозчик {{ order.carrier }}</span>
               </div>
             </div>
-            <div class="text-right space-y-2">
+            <!-- На телефоне блок статуса и суммы встаёт под маршрутом, и
+                 выравнивание по правому краю там только мешает читать. -->
+            <div class="space-y-2 sm:text-right">
               <UBadge :color="statusColor(order)" variant="subtle">{{ order.status_label }}</UBadge>
               <div class="text-xl font-semibold">{{ order.total_price.toFixed(2) }} ₽</div>
               <div v-if="order.refunded_total > 0" class="text-sm text-warning">
@@ -138,12 +156,16 @@ function ticketTotal(t: CabinetTicket) {
         </template>
 
         <div v-if="order.tickets.length" class="space-y-3">
+          <!-- Телефон: пассажир, сумма и кнопка возврата столбиком. В ряд
+               они укладываются только от `sm` — иначе «Место 12 · Полный»
+               и цена наезжали друг на друга. -->
           <div
             v-for="ticket in order.tickets"
             :key="ticket.id"
-            class="flex flex-wrap items-center justify-between gap-3 border-b border-default last:border-0 pb-3 last:pb-0"
+            class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between
+                   sm:gap-3 border-b border-default last:border-0 pb-3 last:pb-0"
           >
-            <div class="min-w-56">
+            <div class="min-w-0 sm:min-w-56">
               <div class="font-medium">{{ ticket.passenger }}</div>
               <div class="text-sm text-muted">
                 Место {{ ticket.place }} · {{ ticket.tariff }}
@@ -154,7 +176,7 @@ function ticketTotal(t: CabinetTicket) {
               </div>
             </div>
 
-            <div class="text-right">
+            <div class="sm:text-right">
               <div class="font-medium">{{ ticketTotal(ticket) }} ₽</div>
               <div v-if="ticket.refund" class="text-sm text-warning">
                 Возвращено {{ ticket.refund.amount.toFixed(2) }} ₽
@@ -208,7 +230,7 @@ function ticketTotal(t: CabinetTicket) {
               >
                 Скачать PDF
               </UButton>
-              <span v-if="order.back_code" class="text-xs text-muted ml-auto">
+              <span v-if="order.back_code" class="text-xs text-muted w-full sm:w-auto sm:ml-auto">
                 Код для возврата: {{ order.back_code }}
               </span>
             </template>

@@ -32,16 +32,12 @@ class PurchaseMail extends Mailable
 
     public function content(): Content
     {
-        $site = rtrim((string) config('site.url'), '/');
-
+        // Ссылок в письме нет (решение заказчика, 15.11.2026): из-за них
+        // письма уходили в спам, а билеты обязаны доходить. Вместо кнопки
+        // «Открыть билеты» к письму прикладывается тот же PDF.
         return new Content(
             markdown: 'mail.purchase',
-            with: [
-                'printUrl' => $site.'/print/'.$this->order->id,
-                'cabinetUrl' => $site.'/lk',
-                'refundUrl' => $site.'/backbycode?code='.rawurlencode((string) $this->order->back_code),
-                'pdfAttached' => $this->pdf !== null,
-            ],
+            with: ['pdfAttached' => $this->pdf !== null],
         );
     }
 

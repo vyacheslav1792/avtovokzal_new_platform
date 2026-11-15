@@ -21,6 +21,29 @@ export interface RegisterPayload {
 }
 
 /**
+ * Состояние кода подтверждения из письма: отсчёты и остатки, которые
+ * считает backend (config/site.php → auth_code). Фронт их только
+ * показывает — своих констант не держит, иначе кнопка «отправить снова»
+ * включалась бы раньше, чем сервер готов принять запрос.
+ */
+export interface AuthCodeState {
+  email: string
+  /** Через сколько секунд можно запросить код заново. */
+  resend_after: number
+  /** Сколько секунд живёт текущий код. */
+  expires_in: number
+  /** Сколько попыток ввода осталось у этого кода. */
+  attempts_left: number
+  /** Сколько кодов на адрес ещё можно получить за сутки. */
+  codes_left: number
+}
+
+/** Ответ шага «данные приняты»: либо код на почту, либо сразу кабинет. */
+export type RegisterResult =
+  | { status: 'code_sent', state: AuthCodeState }
+  | { status: 'registered' }
+
+/**
  * Bearer-токен кабинета в памяти приложения. На диске он лежит в httpOnly
  * cookie, которую ставит сервер Nuxt (`server/api/auth/session.*`): cookie
  * и localStorage, записанные из JS, Safari (ITP) стирает через неделю, а
@@ -132,18 +155,64 @@ export function useAuth() {
     await accept(resp.data)
   }
 
-  async function register(payload: RegisterPayload) {
+  /**
+   * Шаг 1 регистрации: данные уходят на сервер, а кабинет создаётся только
+   * после подтверждения адреса кодом из письма (`confirmRegistration`).
+   * Исключение — регистрация по приглашению: адрес уже подтверждён
+   * ссылкой из письма, и кабинет открывается сразу.
+   */
+  async function register(payload: RegisterPayload): Promise<RegisterResult> {
+    const resp = await api<{
+      success: boolean
+      data: AuthCodeState & { status: 'code_sent' | 'registered', token?: string, user?: AuthUser }
+    }>('/auth/register', { method: 'POST', body: payload })
+
+    if (resp.data.status === 'registered' && resp.data.token && resp.data.user) {
+      await accept({ token: resp.data.token, user: resp.data.user })
+
+      return { status: 'registered' }
+    }
+
+    return { status: 'code_sent', state: resp.data }
+  }
+
+  /** Шаг 2 регистрации: код из письма — и сразу вход в кабинет. */
+  async function confirmRegistration(email: string, code: string) {
     const resp = await api<{ success: boolean, data: { token: string, user: AuthUser } }>(
-      '/auth/register',
-      { method: 'POST', body: payload },
+      '/auth/register/confirm',
+      { method: 'POST', body: { email, code } },
     )
     await accept(resp.data)
   }
 
-  async function resetPassword(resetToken: string, password: string) {
+  /** Запросить код для смены пароля (он же — повторная отправка). */
+  async function requestPasswordReset(email: string): Promise<AuthCodeState> {
+    const resp = await api<{ success: boolean, data: AuthCodeState }>(
+      '/auth/password/forgot',
+      { method: 'POST', body: { email } },
+    )
+
+    return resp.data
+  }
+
+  /** Прислать код заново: регистрация или смена пароля. */
+  async function resendCode(
+    type: 'register' | 'password_reset',
+    email: string,
+  ): Promise<AuthCodeState> {
+    const resp = await api<{ success: boolean, data: AuthCodeState }>(
+      '/auth/code/resend',
+      { method: 'POST', body: { type, email } },
+    )
+
+    return resp.data
+  }
+
+  /** Новый пароль по коду из письма — и сразу вход. */
+  async function resetPassword(email: string, code: string, password: string) {
     const resp = await api<{ success: boolean, data: { token: string, user: AuthUser } }>(
       '/auth/password/reset',
-      { method: 'POST', body: { token: resetToken, password } },
+      { method: 'POST', body: { email, code, password } },
     )
     await accept(resp.data)
   }
@@ -185,26 +254,26 @@ export function useAuth() {
 
   /**
    * Добавить e-mail кабинету, вошедшему через VK без почты. Адрес сразу не
-   * ставится: backend шлёт письмо со ссылкой, по ней он и подтверждается —
-   * иначе по чужому адресу открылись бы чужие покупки.
+   * ставится: backend шлёт на него код, и адрес привязывается только
+   * после ввода кода — иначе по чужому адресу открылись бы чужие покупки.
    */
-  async function requestEmail(email: string) {
-    const resp = await api<{ success: boolean, message: string }>('/auth/email', {
+  async function requestEmail(email: string): Promise<AuthCodeState> {
+    const resp = await api<{ success: boolean, data: AuthCodeState }>('/auth/email', {
       method: 'POST',
       body: { email },
     })
 
-    return resp.message
+    return resp.data
   }
 
-  /** Подтверждение e-mail по ссылке из письма (страница /confirm-email). */
-  async function confirmEmail(confirmToken: string) {
+  /** Подтверждение добавленного e-mail кодом из письма (страница профиля). */
+  async function confirmEmail(email: string, code: string) {
     const resp = await api<{ success: boolean, data: { email: string } }>('/auth/email/confirm', {
       method: 'POST',
-      body: { token: confirmToken },
+      body: { email, code },
     })
 
-    if (token.value) await fetchUser(true)
+    await fetchUser(true)
 
     return resp.data.email
   }
@@ -216,6 +285,9 @@ export function useAuth() {
     fetchUser,
     login,
     register,
+    confirmRegistration,
+    requestPasswordReset,
+    resendCode,
     logout,
     resetPassword,
     updateProfile,

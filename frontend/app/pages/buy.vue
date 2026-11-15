@@ -1123,7 +1123,10 @@ function formatDate(d: string) {
       </template>
 
       <template #footer>
+        <!-- Вход через VK — первым: он не требует ни пароля, ни кода
+             из письма, то есть покупку задерживает меньше всего. -->
         <div class="w-full space-y-3">
+          <VkLoginButton v-if="providers?.vk" :redirect="route.fullPath" />
           <div class="grid gap-2 sm:flex sm:flex-wrap">
             <UButton
               color="error" class="justify-center"
@@ -1141,7 +1144,6 @@ function formatDate(d: string) {
               Продолжить без регистрации
             </UButton>
           </div>
-          <VkLoginButton v-if="providers?.vk" :redirect="route.fullPath" />
         </div>
       </template>
     </UModal>

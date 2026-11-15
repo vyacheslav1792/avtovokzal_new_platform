@@ -52,13 +52,29 @@ async function submit() {
     <UAlert v-if="errorMessage" color="error" variant="subtle" :title="errorMessage" class="mb-4" />
 
     <UCard>
+      <!-- Вход через VK — первым пунктом: это один тап (на телефоне ссылку
+           подхватывает приложение VK), тогда как ниже нужно вспомнить
+           пароль. Под формой кнопку просто не замечали. -->
+      <template v-if="providers?.vk">
+        <VkLoginButton :redirect="redirect" />
+        <p class="text-xs text-muted mt-3">
+          Если VK не сообщит нам вашу электронную почту, кабинет всё равно будет создан —
+          адрес можно указать позже в профиле.
+        </p>
+        <div class="flex items-center gap-3 my-5 text-sm text-muted">
+          <span class="h-px flex-1 bg-default" />
+          или по электронной почте
+          <span class="h-px flex-1 bg-default" />
+        </div>
+      </template>
+
       <form class="space-y-4" @submit.prevent="submit">
         <UFormField label="E-Mail" required>
           <UInput v-model="email" type="email" autocomplete="email" class="w-full" />
         </UFormField>
         <UFormField label="Пароль" required>
-          <UInput
-            v-model="password" type="password" autocomplete="current-password"
+          <PasswordInput
+            v-model="password" autocomplete="current-password"
             class="w-full"
           />
         </UFormField>
@@ -72,18 +88,6 @@ async function submit() {
         </NuxtLink>
       </form>
 
-      <template v-if="providers?.vk" #footer>
-        <div class="flex items-center gap-3 mb-4 text-sm text-muted">
-          <span class="h-px flex-1 bg-default" />
-          или
-          <span class="h-px flex-1 bg-default" />
-        </div>
-        <VkLoginButton :redirect="redirect" />
-        <p class="text-xs text-muted mt-3">
-          Если VK не сообщит нам вашу электронную почту, кабинет всё равно будет создан —
-          адрес можно указать позже в профиле.
-        </p>
-      </template>
     </UCard>
 
     <p class="text-sm text-muted mt-6">

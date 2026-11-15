@@ -20,7 +20,12 @@ class AuthController extends Controller
 {
     public function __construct(private readonly AuthService $auth) {}
 
-    /** Регистрация: e-mail + пароль + телефон (необязательно — по приглашению). */
+    /**
+     * Шаг 1 регистрации: данные проверены, код подтверждения ушёл на
+     * e-mail. Кабинет создаётся только шагом 2 (confirmRegistration) —
+     * кроме регистрации по приглашению, где адрес уже подтверждён
+     * ссылкой из письма и кабинет открывается сразу.
+     */
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -40,13 +45,70 @@ class AuthController extends Controller
 
         $result = $this->auth->register($data, (string) $request->ip());
 
+        if ($result['status'] === 'registered') {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'status' => 'registered',
+                    'token' => $result['token'],
+                    'user' => $this->presentUser($result['user']),
+                ],
+            ], 201);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => ['status' => 'code_sent'] + $result['code'],
+        ]);
+    }
+
+    /** Шаг 2 регистрации: код из письма — и кабинет создан. */
+    public function confirmRegistration(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'code' => ['required', 'string', 'max:12'],
+        ], [
+            'code.required' => 'Введите код из письма.',
+        ]);
+
+        $result = $this->auth->confirmRegistration(
+            $data['email'],
+            $data['code'],
+            (string) $request->ip(),
+        );
+
         return response()->json([
             'success' => true,
             'data' => [
+                'status' => 'registered',
                 'token' => $result['token'],
                 'user' => $this->presentUser($result['user']),
             ],
         ], 201);
+    }
+
+    /**
+     * Прислать код заново — для регистрации или смены пароля. Пауза между
+     * письмами и суточный потолок на адрес держит AuthCodeService.
+     */
+    public function resendCode(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'type' => ['required', 'string', 'in:register,password_reset'],
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        $ip = (string) $request->ip();
+
+        $state = $data['type'] === 'register'
+            ? $this->auth->resendRegistrationCode($data['email'], $ip)
+            : $this->auth->resendPasswordResetCode($data['email'], $ip);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['status' => 'code_sent'] + $state,
+        ]);
     }
 
     /** Вход по e-mail и паролю. */
@@ -124,7 +186,11 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'data' => $this->presentUser($user)]);
     }
 
-    /** Запрос ссылки для сброса пароля (ответ одинаков для любого адреса). */
+    /**
+     * Запрос кода для смены пароля. Ответ одинаков для любого адреса
+     * (legacy сообщал «не зарегистрирован» — это раскрывало базу
+     * покупателей), поэтому состояние кода отдаётся всегда.
+     */
     public function forgotPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -133,27 +199,30 @@ class AuthController extends Controller
             'email.email' => 'Похоже, в адресе электронной почты опечатка. Проверьте его, пожалуйста.',
         ]);
 
-        $this->auth->requestPasswordReset($data['email'], (string) $request->ip());
+        $state = $this->auth->requestPasswordReset($data['email'], (string) $request->ip());
 
         return response()->json([
             'success' => true,
-            'message' => 'Если такой адрес зарегистрирован, мы отправили на него письмо с дальнейшими инструкциями.',
+            'data' => ['status' => 'code_sent'] + $state,
+            'message' => 'Если такой адрес зарегистрирован, мы отправили на него код для смены пароля.',
         ]);
     }
 
-    /** Новый пароль по ссылке из письма. */
+    /** Новый пароль по коду из письма. */
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'token' => ['required', 'string', 'max:128'],
+            'email' => ['required', 'email', 'max:255'],
+            'code' => ['required', 'string', 'max:12'],
             'password' => ['required', 'string'],
         ], [
+            'code.required' => 'Введите код из письма.',
             'password.required' => 'Придумайте пароль.',
         ]);
 
-        $user = $this->auth->resetPassword($data['token'], $data['password']);
+        $user = $this->auth->resetPassword($data['email'], $data['code'], $data['password']);
 
-        // Сразу пускаем в кабинет: пароль только что подтверждён письмом.
+        // Сразу пускаем в кабинет: адрес только что подтверждён кодом из письма.
         $login = $this->auth->login($user->email, trim($data['password']), (string) $request->ip());
 
         return response()->json([
@@ -199,24 +268,34 @@ class AuthController extends Controller
             'email.email' => 'Похоже, в адресе электронной почты опечатка. Проверьте его, пожалуйста.',
         ]);
 
-        $this->auth->requestEmailConfirmation($request->user(), $data['email'], (string) $request->ip());
+        $state = $this->auth->requestEmailConfirmation(
+            $request->user(),
+            $data['email'],
+            (string) $request->ip(),
+        );
 
         return response()->json([
             'success' => true,
-            'message' => 'Мы отправили письмо со ссылкой подтверждения на '.$data['email'].'.',
+            'data' => ['status' => 'code_sent'] + $state,
+            'message' => 'Мы отправили код подтверждения на '.$state['email'].'.',
         ]);
     }
 
     /**
-     * Подтверждение e-mail по ссылке из письма. Без авторизации: письмо
-     * могут открыть в другом браузере, а владение кабинетом доказывает
-     * сам токен.
+     * Подтверждение e-mail кодом из письма. Требует авторизации: код
+     * вводится в том же профиле, где адрес и указывали, а привязать его
+     * можно только к своему кабинету.
      */
     public function confirmEmail(Request $request): JsonResponse
     {
-        $data = $request->validate(['token' => ['required', 'string', 'max:128']]);
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'code' => ['required', 'string', 'max:12'],
+        ], [
+            'code.required' => 'Введите код из письма.',
+        ]);
 
-        $user = $this->auth->confirmEmail($data['token']);
+        $user = $this->auth->confirmEmail($request->user(), $data['email'], $data['code']);
 
         return response()->json([
             'success' => true,

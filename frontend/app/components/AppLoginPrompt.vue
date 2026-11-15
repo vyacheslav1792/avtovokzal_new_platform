@@ -95,7 +95,10 @@ watch(isLoggedIn, (value) => {
           сохранятся в этом приложении.
         </p>
 
+        <!-- VK первым пунктом: вход в один тап (на телефоне ссылку
+             подхватывает приложение VK), без пароля и кода из письма. -->
         <div class="mt-5 grid gap-2">
+          <VkLoginButton v-if="providers?.vk" :redirect="redirect" />
           <UButton :to="{ path: '/login', query: { redirect } }" color="error" block>
             Войти
           </UButton>
@@ -107,7 +110,6 @@ watch(isLoggedIn, (value) => {
           >
             Зарегистрироваться
           </UButton>
-          <VkLoginButton v-if="providers?.vk" :redirect="redirect" />
         </div>
       </template>
 

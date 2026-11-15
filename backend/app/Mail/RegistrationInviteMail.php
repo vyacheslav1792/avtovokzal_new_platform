@@ -10,13 +10,16 @@ use Illuminate\Mail\Mailables\Envelope;
  * Приглашение завести личный кабинет — уходит после первой покупки
  * на e-mail, за которым ещё нет пользователя (у legacy такого письма
  * не было: кабинет заводили только вручную через /register).
+ *
+ * **Без ссылки** (решение заказчика, 15.11.2026): письма со ссылками
+ * чаще попадают в спам. Одноразовый токен для этого письма больше не
+ * нужен и по другой причине — регистрация и так подтверждается кодом,
+ * отправленным на тот же адрес, то есть владение им доказывается
+ * самой регистрацией.
  */
 class RegistrationInviteMail extends Mailable
 {
-    public function __construct(
-        public readonly string $token,
-        public readonly string $email,
-    ) {}
+    public function __construct(public readonly string $email) {}
 
     public function envelope(): Envelope
     {
@@ -25,12 +28,6 @@ class RegistrationInviteMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(
-            markdown: 'mail.registration-invite',
-            with: [
-                'url' => config('site.url').'/register?token='.$this->token
-                    .'&email='.rawurlencode($this->email),
-            ],
-        );
+        return new Content(markdown: 'mail.registration-invite');
     }
 }

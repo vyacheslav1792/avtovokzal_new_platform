@@ -3,7 +3,7 @@
 <x-mail::layout>
     {{-- Header --}}
     <x-slot:header>
-        <x-mail::header :url="config('site.url')">
+        <x-mail::header>
             {{ config('site.brand') }}
         </x-mail::header>
     </x-slot:header>
@@ -23,7 +23,7 @@
     {{-- Footer --}}
     <x-slot:footer>
         <x-mail::footer>
-            © {{ date('Y') }} {{ config('site.company') }} · {{ config('site.url') }}
+            © {{ date('Y') }} {{ config('site.company') }}
         </x-mail::footer>
     </x-slot:footer>
 </x-mail::layout>
