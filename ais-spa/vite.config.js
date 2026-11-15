@@ -1,12 +1,39 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+/*
+ * Версия сборки. Попадает и в код (`__APP_VERSION__`), и в отдельный файл
+ * `version.json` рядом со статикой — по их расхождению приложение понимает,
+ * что на сервере лежит уже другая сборка, и перезагружается.
+ *
+ * Без этого в браузере сотрудника оставалась СТАРАЯ версия SPA: index.html
+ * мог прийти из кэша, и человек работал с прошлой сборкой, не зная об этом
+ * (ловилось 16.11.2026 — «не могу вернуть багаж» оказалось старой версией
+ * страницы возврата).
+ */
+const BUILD_VERSION = new Date().toISOString()
+
+/** Плагин кладёт version.json в сборку: его и опрашивает приложение. */
+function emitVersion() {
+  return {
+    name: 'ais-emit-version',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ version: BUILD_VERSION }),
+      })
+    },
+  }
+}
+
 // SPA отчётов АИС новой платформы. Живёт в корне своего хоста (base '/').
 // В dev '/api' проксируется на ais-api: в docker — http://ais_web,
 // на хосте — http://localhost:8086 (переопределяется env AIS_API_PROXY).
 export default defineConfig({
   base: '/',
-  plugins: [vue()],
+  define: { __APP_VERSION__: JSON.stringify(BUILD_VERSION) },
+  plugins: [vue(), emitVersion()],
   preview: {
     // vite preview отдаёт собранную статику в проде; за nginx приходит Host домена.
     allowedHosts: ['localhost', '.orelavtotrans.ru'],

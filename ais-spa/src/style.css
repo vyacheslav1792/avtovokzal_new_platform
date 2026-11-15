@@ -432,3 +432,13 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
     print-color-adjust: exact;
   }
 }
+
+/* Полоса «вышла новая версия АИС» (src/version.js) */
+.app-update {
+  position: fixed; right: 16px; bottom: 16px; z-index: 80;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; font-size: 13px;
+  background: var(--warn-bg, #fff7cf); color: #6b4e00;
+  border: 1px solid #e0c35a; border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(20, 26, 38, .18);
+}

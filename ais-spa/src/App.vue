@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import ConfirmCodeDialog from './components/ConfirmCodeDialog.vue'
+import { applyUpdate, updateAvailable } from './version'
 import LoginView from './views/LoginView.vue'
 import { fetchReports } from './api'
 import { authReady, can, canAny, employee, isAuthenticated, signOut } from './auth'
@@ -115,6 +116,16 @@ watch(isAuthenticated, (yes) => {
       <main class="content">
         <router-view />
       </main>
+    </div>
+
+    <!--
+      Новая версия АИС уже на сервере: при переходе на другую страницу
+      приложение перезагрузится само (см. src/version.js), а пока сотрудник
+      на месте — предлагаем обновиться кнопкой, чтобы не терять введённое.
+    -->
+    <div v-if="updateAvailable" class="app-update">
+      Вышла новая версия АИС.
+      <button class="btn small" @click="applyUpdate()">Обновить страницу</button>
     </div>
 
     <ConfirmCodeDialog />

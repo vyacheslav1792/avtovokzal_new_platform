@@ -2,7 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Models\Order;
 use App\Models\Refund;
+use App\Models\Ticket;
 use App\Services\KkmApiClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,38 +34,7 @@ class RegisterRefundReceipt implements ShouldQueue
         $refund = Refund::with('order')->findOrFail($this->refundId);
         $order = $refund->order;
 
-        $ticket = $order->tickets->first(
-            fn (\App\Models\Ticket $t) => (int) $t->number === (int) $refund->number,
-        );
-        $tariff = ($ticket['type'] ?? 'П') === 'Д' ? 'дет.' : 'полн.';
-        $factor = 1 - $refund->penalty_percent / 100;
-
-        // Позиции чека возврата — цены за вычетом удержаний.
-        $items = [[
-            'name' => sprintf(
-                'Билет %s-%s %s %s м. %s %s',
-                $order->from_name,
-                $order->to_name,
-                $order->date_start->format('d.m.Y'),
-                substr((string) $order->time_start, 0, 5),
-                $refund->place,
-                $tariff,
-            ),
-            'price' => round($refund->ticket_price * $factor, 2),
-        ]];
-
-        if ((float) $refund->baggage_price > 0) {
-            $items[] = [
-                'name' => sprintf(
-                    'Багаж %s-%s %s %s',
-                    $order->from_name,
-                    $order->to_name,
-                    $order->date_start->format('d.m.Y'),
-                    substr((string) $order->time_start, 0, 5),
-                ),
-                'price' => round($refund->baggage_price * $factor, 2),
-            ];
-        }
+        $items = $this->items($refund, $order);
 
         // Сумма к возврату считалась от общей стоимости с округлением вниз
         // (формула legacy) — построчные округления могут разойтись с ней на
@@ -92,5 +63,73 @@ class RegisterRefundReceipt implements ShouldQueue
         }
 
         $refund->update(['fiscal_sign' => $receipt['fiscal_sign'] ?? $receipt['check_number']]);
+    }
+
+    /**
+     * Позиции чека возврата — ровно то, за что отдаются деньги.
+     *
+     * Было три беды: позиция «Билет» ставилась ВСЕГДА, поэтому в чеке
+     * возврата одного багажа печаталась лишняя строка «Билет … 1 x 0.00», а
+     * в чеке возврата удержания — та же строка «Билет» вместо понятного
+     * «Удерж.». Нулевых позиций в чеке быть не должно, а вид возврата виден
+     * покупателю только из названия позиции.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function items(Refund $refund, Order $order): array
+    {
+        $trip = sprintf(
+            '%s-%s %s %s',
+            $order->from_name,
+            $order->to_name,
+            $order->date_start->format('d.m.Y'),
+            substr((string) $order->time_start, 0, 5),
+        );
+
+        // Возврат удержания: денег за билет и багаж тут нет — отдаётся
+        // удержанное с прошлого возврата.
+        if ($refund->kind === Refund::KIND_PENALTY) {
+            return [[
+                'name' => sprintf('Удерж. %s м. %s', $trip, $refund->place),
+                'price' => round((float) $refund->amount, 2),
+            ]];
+        }
+
+        $ticket = $order->tickets->first(
+            fn (Ticket $t) => (int) $t->number === (int) $refund->number,
+        );
+        $tariff = ($ticket['type'] ?? 'П') === 'Д' ? 'дет.' : 'полн.';
+        $factor = 1 - $refund->penalty_percent / 100;
+
+        $items = [];
+
+        $ticketPrice = round((float) $refund->ticket_price * $factor, 2);
+
+        if ($ticketPrice > 0) {
+            $items[] = [
+                'name' => sprintf('Билет %s м. %s %s', $trip, $refund->place, $tariff),
+                'price' => $ticketPrice,
+            ];
+        }
+
+        $baggagePrice = round((float) $refund->baggage_price * $factor, 2);
+
+        if ($baggagePrice > 0) {
+            $items[] = [
+                'name' => 'Багаж '.$trip,
+                'price' => $baggagePrice,
+            ];
+        }
+
+        // На всякий случай: чек без позиций ККТ не примет. Сюда можно попасть
+        // только при нулевых ценах в самом возврате.
+        if ($items === []) {
+            $items[] = [
+                'name' => sprintf('Возврат %s м. %s', $trip, $refund->place),
+                'price' => round((float) $refund->amount, 2),
+            ];
+        }
+
+        return $items;
     }
 }

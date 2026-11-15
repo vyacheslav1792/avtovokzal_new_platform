@@ -90,11 +90,14 @@ class AdminRefundController extends Controller
         $data = $request->validate([
             'order_id' => ['required', 'string', 'max:36'],
             'refund_id' => ['required', 'uuid'],
+            // Часть удержания: без суммы отдаётся весь остаток.
+            'amount' => ['sometimes', 'numeric', 'min:0.01'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->confirmPenalty(
             $data['order_id'],
             $data['refund_id'],
+            isset($data['amount']) ? (float) $data['amount'] : null,
         )]);
     }
 

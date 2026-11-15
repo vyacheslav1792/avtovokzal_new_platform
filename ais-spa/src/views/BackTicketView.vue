@@ -5,7 +5,7 @@
 // Защитный код 123321 из legacy сознательно не перенесён: его заменили
 // авторизация сотрудника и личный код подтверждения, который сервер
 // спрашивает перед возвратом денег (права back-ticket.refund/repair).
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { can } from '../auth'
 import { refundAction } from '../siteApi'
@@ -114,9 +114,35 @@ async function refundBaggage() {
  * Возврат удержания: станция о нём не знает — ведомость удержание уже
  * посчитала. Мы лишь отдаём покупателю удержанные деньги.
  */
+/*
+ * Удержание возвращается ЧАСТЯМИ: кассиру нередко надо отдать покупателю
+ * лишь часть, а остальное — позже. Поле суммы по умолчанию равно остатку,
+ * сервер сверяет его сам (больше остатка не отдаст).
+ */
+const penaltyAmount = reactive({})
+
+function penaltyInput(refund) {
+  if (penaltyAmount[refund.id] === undefined) {
+    penaltyAmount[refund.id] = refund.penalty_left
+  }
+
+  return penaltyAmount[refund.id]
+}
+
 async function refundPenalty(refund) {
+  const amount = Number(penaltyAmount[refund.id] ?? refund.penalty_left)
+
+  if (!(amount > 0)) {
+    error.value = 'Укажите сумму возврата удержания'
+    return
+  }
+  if (amount > refund.penalty_left) {
+    error.value = `Больше остатка вернуть нельзя: осталось ${money(refund.penalty_left)} руб.`
+    return
+  }
   if (!window.confirm(
-    `Вернуть покупателю удержание ${refund.withheld} руб. по возврату ${refund.serial} ${refund.number}?`,
+    `Вернуть покупателю ${money(amount)} руб. удержания по возврату ${refund.serial} ${refund.number}`
+    + ` (удержано ${money(refund.withheld)}, осталось ${money(refund.penalty_left)})?`,
   )) return
 
   confirming.value = true
@@ -125,8 +151,10 @@ async function refundPenalty(refund) {
     done.value = await req('penalty', {
       order_id: orderId.value,
       refund_id: refund.id,
+      amount,
     })
     done.value.penalty = true
+    delete penaltyAmount[refund.id]
     await load()
   } catch (e) {
     error.value = e.message
@@ -265,8 +293,14 @@ onMounted(() => {
           <p>Сумма: {{ money(done.amount) }} руб.</p>
         </template>
         <template v-else-if="done.penalty">
-          <p><b>Удержание возвращено покупателю.</b></p>
-          <p>Сумма: {{ money(done.amount) }} руб. (было удержано {{ done.parent_percent }}%).</p>
+          <p><b>Удержание возвращено покупателю{{ done.left > 0 ? ' частично' : '' }}.</b></p>
+          <p>
+            Сумма: {{ money(done.amount) }} руб. из {{ money(done.withheld) }} руб. удержания
+            (было удержано {{ done.parent_percent }}%).
+            <template v-if="done.left > 0">
+              <br />Осталось неотданным: <b>{{ money(done.left) }} руб.</b> — можно вернуть позже.
+            </template>
+          </p>
           <p class="muted">На автостанции такой возврат не фиксируется — ведомость уже закрыта.</p>
         </template>
         <template v-else>
@@ -427,12 +461,19 @@ onMounted(() => {
                   >
                     Вернуть по банку
                   </button>
-                  <button
-                    v-else-if="r.penalty_returnable && can('back-ticket.refund')"
-                    class="btn small" :disabled="confirming" @click="refundPenalty(r)"
-                  >
-                    Вернуть удержание
-                  </button>
+                  <template v-else-if="r.penalty_returnable && can('back-ticket.refund')">
+                    <!-- Сумма правится: часть удержания можно отдать сейчас, остальное позже -->
+                    <input
+                      class="bt-penalty-sum" type="number" step="0.01" min="0.01" :max="r.penalty_left"
+                      :value="penaltyInput(r)" @input="penaltyAmount[r.id] = $event.target.value"
+                    />
+                    <button class="btn small" :disabled="confirming" @click="refundPenalty(r)">
+                      Вернуть удержание
+                    </button>
+                    <div v-if="r.penalty_left < r.withheld" class="muted small">
+                      осталось {{ money(r.penalty_left) }} из {{ money(r.withheld) }}
+                    </div>
+                  </template>
                   <span v-else-if="r.penalty_returned" class="muted">удержание возвращено</span>
                 </td>
               </tr>
@@ -450,4 +491,5 @@ onMounted(() => {
 .bt-passengers { list-style: none; padding-left: 0; }
 .bt-passengers li { padding: 2px 0; }
 .bt-done { background: #f0fff0; }
+.bt-penalty-sum { width: 90px; margin-right: 6px; text-align: right; }
 </style>

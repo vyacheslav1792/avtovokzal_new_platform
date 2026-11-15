@@ -520,7 +520,7 @@ class AdminRefundService
      * закрыла. Здесь только деньги — например, когда возврат задержался по
      * нашей вине и обещали вернуть удержание.
      */
-    public function confirmPenalty(string $orderId, string $refundId): array
+    public function confirmPenalty(string $orderId, string $refundId, ?float $amount = null): array
     {
         $order = $this->findOrder($orderId);
 
@@ -548,8 +548,28 @@ class AdminRefundService
             ]);
         }
 
-        if (Refund::where('parent_refund_id', $parent->id)->exists()) {
+        /*
+         * Удержание возвращается ЧАСТЯМИ: кассиру нередко надо отдать
+         * покупателю лишь часть, а остальное — позже (или не отдавать
+         * вовсе). Поэтому считаем остаток, а не запрещаем второй возврат.
+         */
+        $left = $this->penaltyLeft($parent);
+
+        if ($left <= 0) {
             throw ValidationException::withMessages(['refund' => 'Удержание по этому возврату уже возвращено']);
+        }
+
+        $amount = $amount === null ? $left : round($amount, 2);
+
+        if ($amount <= 0) {
+            throw ValidationException::withMessages(['amount' => 'Сумма возврата удержания должна быть больше нуля']);
+        }
+
+        if ($amount > $left) {
+            throw ValidationException::withMessages([
+                'amount' => 'Больше остатка удержания вернуть нельзя: осталось '
+                    .number_format($left, 2, '.', '').' руб.',
+            ]);
         }
 
         $refund = Refund::create([
@@ -562,19 +582,42 @@ class AdminRefundService
             'penalty_percent' => 0,
             'ticket_price' => 0,
             'baggage_price' => 0,
-            'amount' => $withheld,
+            'amount' => $amount,
             'status' => Refund::STATUS_REFUNDED,
-            'legacy' => ['parent_percent' => $parent->penalty_percent],
+            'legacy' => [
+                'parent_percent' => $parent->penalty_percent,
+                'parent_withheld' => $withheld,
+                'partial' => $amount < $left,
+            ],
         ]);
 
         $bankError = $this->refundMoney($refund, $order);
         $order->touch();
 
         return [
-            'amount' => $withheld,
+            'amount' => $amount,
+            'withheld' => $withheld,
+            // Сколько удержания осталось неотданным после этой операции.
+            'left' => round($left - $amount, 2),
             'parent_percent' => (int) $parent->penalty_percent,
             'bank_error' => $bankError,
         ];
+    }
+
+    /**
+     * Сколько удержания по возврату ещё не отдано покупателю.
+     *
+     * Считаем по УСПЕШНЫМ и ожидающим банк строкам удержания (деньги либо
+     * ушли, либо уйдут), а отказ банка не уменьшает остаток — иначе
+     * неудачная попытка «съедала» бы удержание.
+     */
+    private function penaltyLeft(Refund $parent): float
+    {
+        $returned = (float) Refund::where('parent_refund_id', $parent->id)
+            ->where('status', '!=', Refund::STATUS_BANK_FAILED)
+            ->sum('amount');
+
+        return round($parent->withheld() - $returned, 2);
     }
 
     /**
@@ -585,10 +628,10 @@ class AdminRefundService
     private function orderRefunds(Order $order): array
     {
         $refunds = Refund::where('order_id', $order->id)->orderBy('created_at')->get();
-        $penaltyReturned = $refunds->whereNotNull('parent_refund_id')->keyBy('parent_refund_id');
 
-        return $refunds->map(function (Refund $r) use ($penaltyReturned) {
+        return $refunds->map(function (Refund $r) {
             $withheld = $r->withheld();
+            $left = $withheld > 0 ? $this->penaltyLeft($r) : 0.0;
 
             return [
                 'id' => $r->id,
@@ -604,14 +647,15 @@ class AdminRefundService
                 'money_refunded' => $r->money_refunded_at !== null,
                 'fiscal_sign' => $r->fiscal_sign,
                 'created_at' => $r->created_at?->format('d.m.Y H:i'),
-                // Удержание можно вернуть один раз и только там, где оно было.
+                // Удержание возвращается частями — пока остаток не исчерпан.
                 'penalty_returnable' => $r->kind !== Refund::KIND_PENALTY
                     && $withheld > 0
-                    && ! $penaltyReturned->has($r->id),
+                    && $left > 0,
+                'penalty_left' => $left,
                 // Деньги по строке не ушли, а сумма есть — можно повторить
                 // обращение к шлюзу (кнопка «Вернуть по банку» в списке).
                 'money_repairable' => $r->money_refunded_at === null && (float) $r->amount > 0,
-                'penalty_returned' => $penaltyReturned->has($r->id),
+                'penalty_returned' => $withheld > 0 && $left <= 0,
             ];
         })->all();
     }
