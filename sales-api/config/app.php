@@ -59,13 +59,20 @@ return [
     | Application Timezone
     |--------------------------------------------------------------------------
     |
-    | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | Europe/Moscow, как и у остальных сервисов монорепо. UTC здесь не
+    | годится: времена рейсов в BUSTER — московские wall-clock, а сервис
+    | сравнивает их обычными date()/time() (сегодняшняя дата в поиске
+    | рейсов, отсечка «не ближе 2000 секунд до отправления»). В UTC эти
+    | сравнения уезжали на 3 часа: отсечка пропускала уже ушедшие рейсы, а
+    | с полуночи до трёх ночи «сегодня» оказывалось вчерашним числом.
+    |
+    | ВАЖНО: Laravel выставляет пояс процесса из ЭТОГО значения
+    | (date_default_timezone_set в LoadConfiguration), поэтому TZ
+    | контейнера на date() не влияет — менять нужно здесь.
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
 
     /*
     |--------------------------------------------------------------------------

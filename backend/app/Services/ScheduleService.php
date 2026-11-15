@@ -51,12 +51,13 @@ class ScheduleService
                     'slug' => StationSchedule::slug($response['awtname'] ?: $name),
                     'routes' => $response['data'],
                     'routes_count' => count($response['data']),
-                    // ЛОВУШКА ПОЯСА: API продаж живёт в UTC и отдаёт время
-                    // со смещением (+00:00), а Eloquent пишет дату строкой
-                    // БЕЗ смещения — сессия Postgres в Europe/Moscow примет
-                    // её за московскую, и «актуально на» уедет на 3 часа
-                    // назад (а для прогона после полуночи — и на сутки).
-                    // Поэтому приводим к поясу приложения явно.
+                    // ЛОВУШКА ПОЯСА: API продаж отдаёт время строкой СО
+                    // смещением, а Eloquent пишет дату строкой БЕЗ него —
+                    // сессия Postgres в Europe/Moscow примет её за
+                    // московскую. Пока API продаж жил в UTC, «актуально на»
+                    // уезжало на 3 часа назад (а для прогона после полуночи
+                    // — и на сутки). Приводим к поясу приложения явно:
+                    // так правка верна при любом поясе источника.
                     'generated_at' => isset($response['generated_at'])
                         ? Carbon::parse($response['generated_at'])->timezone(config('app.timezone'))
                         : now(),
