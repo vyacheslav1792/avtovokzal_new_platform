@@ -13,4 +13,17 @@ return [
     'database' => env('LEGACY_SITE_DB_NAME', 'site'),
     'username' => env('LEGACY_SITE_DB_USER', 'SYSDBA'),
     'password' => env('LEGACY_SITE_DB_PASSWORD', 'masterkey'),
+
+    /*
+     * Соль хэширования паролей старого сайта: legacy хранил
+     * md5(соль + пароль) в `USERS.PASSWORD` (`$CONFIG['password_sol']` в
+     * `avtovokzal57/inc/config.php`). Нужна в двух местах — при переносе
+     * кабинетов (`legacy:import-site`) и при входе прежним паролем
+     * (AuthService::login).
+     *
+     * В репозиторий значение НЕ кладём (боевой секрет; сам legacy-код
+     * в git тоже не хранится) — только в `backend/.env`. Пусто = вход
+     * прежним паролем выключен, перенос кабинетов откажется работать.
+     */
+    'password_salt' => (string) env('LEGACY_SITE_PASSWORD_SALT', ''),
 ];

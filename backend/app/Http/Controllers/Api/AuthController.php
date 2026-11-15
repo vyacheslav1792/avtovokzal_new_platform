@@ -240,7 +240,9 @@ class AuthController extends Controller
      */
     public function changePassword(Request $request): JsonResponse
     {
-        $hasPassword = (bool) $request->user()->password;
+        // Пароль может быть и «старый» — кабинет переехал со прежнего сайта
+        // и с тех пор пароль не менялся (users.legacy_password).
+        $hasPassword = $request->user()->hasPassword();
 
         $data = $request->validate([
             'current_password' => [$hasPassword ? 'required' : 'nullable', 'string'],
@@ -322,7 +324,8 @@ class AuthController extends Controller
     /**
      * Пользователь для фронта. `email` может быть null (вход через VK без
      * почты), `has_password` отличает такой кабинет от обычного — в профиле
-     * ему показывается «Задать пароль» вместо смены.
+     * ему показывается «Задать пароль» вместо смены. Кабинет, переехавший
+     * со старого сайта, пароль имеет (пусть пока и в legacy-хэше).
      */
     public static function present(User $user): array
     {
@@ -333,7 +336,9 @@ class AuthController extends Controller
             'name' => $user->name,
             'email_verified' => (bool) $user->email_verified_at,
             'phone_verified' => (bool) $user->phone_verified_at,
-            'has_password' => (bool) $user->password,
+            // Пароль со старого сайта тоже считается заданным: профиль
+            // должен показывать «Смена пароля», а не «Задать пароль».
+            'has_password' => $user->hasPassword(),
             'has_vk' => $user->hasIdentity(UserIdentity::PROVIDER_VK),
         ];
     }

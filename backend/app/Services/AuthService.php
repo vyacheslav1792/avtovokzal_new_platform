@@ -197,10 +197,16 @@ class AuthService
     {
         $email = $this->normalizeEmail($email);
         $user = User::where('email', $email)->first();
-
         // trim пароля — как при регистрации: пробел, «прилипший» при
         // копировании, не должен мешать войти.
-        if (! $user || ! $user->password || ! Hash::check(trim($password), $user->password)) {
+        $password = trim($password);
+
+        $ok = $user && (
+            ($user->password && Hash::check($password, $user->password))
+            || $this->acceptLegacyPassword($user, $password)
+        );
+
+        if (! $ok) {
             throw ValidationException::withMessages([
                 'email' => 'Пользователь с таким e-mail не зарегистрирован или пароль неверен',
             ]);
@@ -212,6 +218,53 @@ class AuthService
             ->update(['last_login_at' => now()]);
 
         return ['user' => $user, 'token' => $this->issueToken($user, $ip)];
+    }
+
+    /**
+     * Пароль кабинета, переехавшего со старого сайта: legacy хранил
+     * md5(соль + пароль). Подошёл — тут же пересохраняем его в bcrypt и
+     * забываем старый хэш: md5 от девятизначного числа (а именно такие
+     * пароли рассылал старый сайт) подбирается мгновенно, и держать его
+     * дольше необходимого незачем.
+     *
+     * Адрес при этом считаем подтверждённым: пароль покупатель получил
+     * письмом на него же — это и было подтверждением в legacy.
+     */
+    private function acceptLegacyPassword(?User $user, string $password): bool
+    {
+        $salt = (string) config('legacy_site.password_salt');
+
+        if (! $user || ! $user->legacy_password || $salt === '' || $password === '') {
+            return false;
+        }
+
+        if (! hash_equals(mb_strtolower($user->legacy_password), md5($salt.$password))) {
+            return false;
+        }
+
+        $user->forceFill([
+            'password' => $password,            // cast 'hashed' — bcrypt
+            'legacy_password' => null,
+            'email_verified_at' => $user->email_verified_at ?? now(),
+        ])->save();
+
+        $this->ensurePasswordIdentity($user);
+
+        return true;
+    }
+
+    /** Способ входа 'password' — на случай кабинета, пришедшего переносом. */
+    private function ensurePasswordIdentity(User $user): void
+    {
+        if (! $user->email || $user->hasIdentity(UserIdentity::PROVIDER_PASSWORD)) {
+            return;
+        }
+
+        $user->identities()->create([
+            'provider' => UserIdentity::PROVIDER_PASSWORD,
+            'provider_user_id' => $user->email,
+            'last_login_at' => now(),
+        ]);
     }
 
     /**
@@ -427,11 +480,17 @@ class AuthService
 
         $user->forceFill([
             'password' => $this->normalizePassword($password),
+            // Старый пароль со прежнего сайта больше не действует. В legacy
+            // было наоборот: `newpass.php` обновлял только md5, а
+            // PASSWORD_RAW оставлял прежним — и старый пароль продолжал
+            // пускать в кабинет. Это не переносим.
+            'legacy_password' => null,
             // Код пришёл на этот адрес — владение им доказано.
             'email_verified_at' => $user->email_verified_at ?? now(),
         ])->save();
 
         $record->markUsed();
+        $this->ensurePasswordIdentity($user);
 
         // Смена пароля разлогинивает все устройства (у legacy этого не было).
         $user->tokens()->delete();
@@ -446,29 +505,38 @@ class AuthService
      */
     public function changePassword(User $user, string $current, string $password): void
     {
-        if ($user->password && ! Hash::check(trim($current), $user->password)) {
+        $current = trim($current);
+
+        // У кабинета со старого сайта пароль может быть ещё в legacy-хэше
+        // (его не меняли с переезда) — текущий сверяем с ним.
+        $currentOk = $user->password
+            ? Hash::check($current, $user->password)
+            : ($user->legacy_password
+                ? hash_equals(
+                    mb_strtolower($user->legacy_password),
+                    md5((string) config('legacy_site.password_salt').$current),
+                )
+                : true);
+
+        if (! $currentOk) {
             throw ValidationException::withMessages([
                 'current_password' => 'Текущий пароль указан неверно',
             ]);
         }
 
         // Логин по паролю — это e-mail: без адреса такой вход некуда вести.
-        if (! $user->password && ! $user->email) {
+        if (! $user->hasPassword() && ! $user->email) {
             throw ValidationException::withMessages([
                 'password' => 'Сначала укажите электронную почту — она будет логином при входе по паролю.',
             ]);
         }
 
-        $first = ! $user->password;
-        $user->forceFill(['password' => $this->normalizePassword($password)])->save();
+        $user->forceFill([
+            'password' => $this->normalizePassword($password),
+            'legacy_password' => null,
+        ])->save();
 
-        if ($first) {
-            $user->identities()->create([
-                'provider' => UserIdentity::PROVIDER_PASSWORD,
-                'provider_user_id' => $user->email,
-                'last_login_at' => now(),
-            ]);
-        }
+        $this->ensurePasswordIdentity($user);
     }
 
     /**

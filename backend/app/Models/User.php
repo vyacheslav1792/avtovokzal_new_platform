@@ -15,7 +15,12 @@ use Laravel\Sanctum\HasApiTokens;
  * Пароль необязателен: способы входа лежат в user_identities, и вход
  * через VK или по коду из SMS заведёт пользователя вообще без пароля.
  * E-mail тоже необязателен — VK отдаёт его не всегда; такому покупателю
- * почту предлагаем добавить позже, с подтверждением по ссылке.
+ * почту предлагаем добавить позже, с подтверждением кодом из письма.
+ *
+ * У кабинетов, переехавших со старого сайта, `password` пуст, а в
+ * `legacy_password` лежит md5 старого пароля — он позволяет войти
+ * прежним паролем один раз, после чего заменяется на bcrypt
+ * (см. AuthService::login).
  */
 class User extends Authenticatable
 {
@@ -23,7 +28,7 @@ class User extends Authenticatable
 
     protected $guarded = [];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'legacy_password', 'remember_token'];
 
     protected function casts(): array
     {
@@ -33,6 +38,12 @@ class User extends Authenticatable
             'last_login_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /** Задан ли пароль — свой (bcrypt) или ещё старый, со старого сайта. */
+    public function hasPassword(): bool
+    {
+        return (bool) ($this->password || $this->legacy_password);
     }
 
     /** Способы входа: password / vk / phone. */
