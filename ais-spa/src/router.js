@@ -7,6 +7,7 @@ import CustomersView from './views/CustomersView.vue'
 import DataSyncView from './views/DataSyncView.vue'
 import EmployeesView from './views/EmployeesView.vue'
 import FeedbackView from './views/FeedbackView.vue'
+import FiscalReceiptsView from './views/FiscalReceiptsView.vue'
 import HomeView from './views/HomeView.vue'
 import KkmView from './views/KkmView.vue'
 import LogsView from './views/LogsView.vue'
@@ -64,6 +65,8 @@ const routes = [
   { path: '/settings', component: SettingsView },
   { path: '/stations', component: StationsView },
   { path: '/kkm', component: KkmView },
+  // Непробитые чеки: деньги прошли, фискального документа нет.
+  { path: '/receipts', component: FiscalReceiptsView },
   { path: '/sync', component: DataSyncView },
   { path: '/logs', component: LogsView },
   { path: '/menu', component: MenuView },

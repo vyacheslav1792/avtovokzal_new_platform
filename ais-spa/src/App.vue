@@ -148,6 +148,7 @@ watch(isAuthenticated, (yes) => {
             <router-link v-if="can('settings.view')" class="nav-item" to="/settings">Настройки сайта</router-link>
             <router-link v-if="can('stations.view')" class="nav-item" to="/stations">Автостанции</router-link>
             <router-link v-if="can('kkm.view')" class="nav-item" to="/kkm">Фискальный сервер</router-link>
+            <router-link v-if="can('kkm.view')" class="nav-item" to="/receipts">Непробитые чеки</router-link>
             <router-link v-if="can('data-sync.view')" class="nav-item" to="/sync">Обновление данных</router-link>
             <router-link v-if="can('logs.view')" class="nav-item" to="/logs">Журналы</router-link>
           </template>

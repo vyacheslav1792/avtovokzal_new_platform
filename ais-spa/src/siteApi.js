@@ -149,6 +149,20 @@ export async function saveSpamRules(rules) {
   return (await req(`${API}/admin/spam-rules`, json('PUT', { rules }))).data
 }
 
+/* Непробитые фискальные чеки */
+
+/** Что осталось без чека за период (просмотр, ничего не меняет). */
+export async function fetchFiscalPending(dateFrom, dateTo) {
+  const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
+
+  return (await req(`${API}/admin/fiscal/pending?${query}`)).data
+}
+
+/** Пробить чеки за период: ККТ выдаст настоящие фискальные документы. */
+export async function retryFiscal(dateFrom, dateTo) {
+  return (await req(`${API}/admin/fiscal/retry`, json('POST', { date_from: dateFrom, date_to: dateTo }))).data
+}
+
 /* Покупатели сайта (кабинеты и покупавшие без регистрации) */
 
 export async function fetchCustomers(params = {}) {

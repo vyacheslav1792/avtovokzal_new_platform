@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AdminContactController;
 use App\Http\Controllers\Api\AdminCustomerController;
 use App\Http\Controllers\Api\AdminDataSyncController;
 use App\Http\Controllers\Api\AdminFeedbackController;
+use App\Http\Controllers\Api\AdminFiscalController;
 use App\Http\Controllers\Api\AdminMenuController;
 use App\Http\Controllers\Api\AdminNewsController;
 use App\Http\Controllers\Api\AdminPageController;
@@ -202,6 +203,16 @@ Route::prefix('v1')->group(function () {
     // Чек ПОКУПКИ (он один на заказ) — тем же правом: работа с ККТ.
     Route::post('admin/refunds/sale-receipt', [AdminRefundController::class, 'saleReceipt'])
         ->middleware('ais.can:back-ticket.repair');
+
+    /*
+     * Непробитые чеки за период: просмотр и повторная фискализация.
+     * Перенесённые со старого сайта операции сервис не берёт — их чеки
+     * пробивала прежняя система.
+     */
+    Route::get('admin/fiscal/pending', [AdminFiscalController::class, 'pending'])
+        ->middleware('ais.can:kkm.view');
+    Route::post('admin/fiscal/retry', [AdminFiscalController::class, 'retry'])
+        ->middleware('ais.can:kkm.receipts');
     /*
      * Досылка аннулирования на станцию по возврату, сделанному при её
      * недоступности (деньги покупателю уже вернули). Право — как у
