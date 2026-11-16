@@ -178,6 +178,26 @@ async function cancelPayment() {
 }
 
 /**
+ * Пробить фискальный чек ПОКУПКИ вручную (он один на заказ). Чек продажи
+ * мог не пробиться при оформлении: ККТ без связи, закрытая смена, не
+ * запущен воркер очереди чеков.
+ */
+async function registerSaleReceipt() {
+  confirming.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await req('sale-receipt', { order_id: orderId.value })
+    notice.value = result.message
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/**
  * Пробить фискальный чек по операции вручную: очередь чеков могла не
  * отработать или ККТ отказала (закрытая смена, нет связи). Операция
  * идемпотентна — второй чек по той же операции ККТ не пробьёт.
@@ -476,15 +496,22 @@ onMounted(() => {
             </template>
           </p>
           <!--
-            Шлюз принимает возврат, пока расчёт по платежу не закрыт. На
-            проде возвраты в первый час проходили десятками, а попытка
-            вернуть удержание через 66 часов получила «Системная ошибка»
-            пять раз подряд. Поэтому предупреждаем ДО попытки.
+            Предупреждения про «прошло N часов» здесь нет: возврат, в
+            отличие от отмены, шлюз принимает и через дни (проверено —
+            возврат удержания прошёл спустя 67 часов). Прежние отказы
+            давала потерянная копейка, а не давность платежа.
           -->
-          <p v-if="info.bank.stale" class="alert warn">
-            С оплаты прошло {{ info.bank.hours_since_paid }} ч. Шлюз может отказать в возврате:
-            расчёт по платежу уже закрыт. Если отказ придёт, в ответе будет вся техническая
-            информация — возвращать придётся через кассу или бухгалтерию.
+          <p v-if="info.order.fiscal_sign" class="muted">
+            Чек покупки: ФП {{ info.order.fiscal_sign }}
+          </p>
+          <p v-else-if="info.order.receipt_needed" class="alert warn">
+            Фискального чека покупки нет.
+            <button
+              v-if="can('back-ticket.repair')"
+              class="btn small"
+              :disabled="confirming"
+              @click="registerSaleReceipt"
+            >Пробить чек покупки</button>
           </p>
         </template>
       </section>
@@ -505,6 +532,7 @@ onMounted(() => {
               <th>Место</th>
               <th>Пассажир</th>
               <th class="fm-num">Цена</th>
+              <th>Чек покупки</th>
               <th>Состояние</th>
               <th></th>
             </tr>
@@ -518,7 +546,28 @@ onMounted(() => {
               <td class="nowrap">{{ t.serial }} {{ t.number }}</td>
               <td>{{ t.place }}</td>
               <td>{{ t.passenger }}</td>
-              <td class="fm-num">{{ money(t.price) }}</td>
+              <td class="fm-num">
+                {{ money(t.price_total) }}
+                <div v-if="t.baggage > 0" class="muted small">
+                  место {{ money(t.price) }} + багаж {{ money(t.price_bag) }}×{{ t.baggage }}
+                </div>
+              </td>
+              <!--
+                Чек ПОКУПКИ один на заказ (ККМ пробивает его на весь заказ),
+                поэтому в строке билета показываем тот же признак — вопрос
+                «пробит ли чек продажи» возникает именно здесь.
+              -->
+              <td>
+                <span v-if="info.order.fiscal_sign" class="muted small">ФП {{ info.order.fiscal_sign }}</span>
+                <template v-else>
+                  <span class="badge-off">нет</span>
+                  <div v-if="info.order.receipt_needed && can('back-ticket.repair')" class="bt-row-action">
+                    <button class="btn small" :disabled="confirming" @click="registerSaleReceipt">
+                      Пробить
+                    </button>
+                  </div>
+                </template>
+              </td>
               <td>
                 <span v-if="t.state === 'active'" class="badge-on">действует</span>
                 <template v-else-if="t.state === 'money_only'">

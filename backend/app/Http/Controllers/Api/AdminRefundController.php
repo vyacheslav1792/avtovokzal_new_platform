@@ -109,6 +109,22 @@ class AdminRefundController extends Controller
         )]);
     }
 
+    /**
+     * Пробить фискальный чек ПОКУПКИ вручную (он один на заказ).
+     * Чек продажи мог не пробиться при оформлении — ККТ без связи,
+     * закрытая смена, не запущен воркер очереди.
+     */
+    public function saleReceipt(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->refunds->registerSaleReceipt(
+            $data['order_id'],
+        )]);
+    }
+
     /** Возвраты, ждущие аннулирования на станции (раздел АИС). */
     public function pending(): JsonResponse
     {

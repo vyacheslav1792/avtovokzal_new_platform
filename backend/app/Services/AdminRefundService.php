@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\RegisterFiscalReceipt;
 use App\Jobs\RegisterRefundReceipt;
 use App\Jobs\SendRefundEmail;
 use App\Models\Order;
@@ -440,6 +441,69 @@ class AdminRefundService
             'fiscal_sign' => $refund->fiscal_sign,
             'message' => $refund->fiscal_sign
                 ? 'Чек пробит, ФП '.$refund->fiscal_sign.'.'
+                : 'Команда отправлена в ККТ, но фискальный признак пока не получен. '
+                    .'Проверьте состояние ККТ и повторите через минуту.',
+        ];
+    }
+
+    /**
+     * Пробить фискальный чек ПОКУПКИ вручную.
+     *
+     * Чек продажи ставится в очередь при оформлении и мог не пробиться
+     * (ККТ без связи, закрытая смена, воркер не запущен) — тогда у заказа
+     * нет фискального признака, а 54-ФЗ его требует. Выполняем синхронно,
+     * чтобы кассир сразу видел результат; второй чек по тому же ключу ККТ
+     * не пробьёт.
+     *
+     * @return array<string, mixed>
+     */
+    public function registerSaleReceipt(string $orderId): array
+    {
+        $order = $this->findOrder($orderId);
+
+        if ($order->fiscal_sign) {
+            return [
+                'fiscal_sign' => $order->fiscal_sign,
+                'message' => 'Чек покупки уже пробит, ФП '.$order->fiscal_sign.'.',
+            ];
+        }
+
+        if ($order->status !== Order::STATUS_COMPLETED) {
+            throw ValidationException::withMessages([
+                'order' => 'Заказ не оформлен — чек покупки пробивать нечему. '
+                    .'Сначала разберитесь с оформлением или отмените платёж.',
+            ]);
+        }
+
+        $lock = Cache::lock('order-receipt:'.$order->id, 120);
+
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'order' => 'Чек покупки уже пробивается — дождитесь результата.',
+            ]);
+        }
+
+        try {
+            RegisterFiscalReceipt::dispatchSync($order->id);
+        } catch (\Throwable $e) {
+            Log::warning('Ручная фискализация покупки не удалась', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'order' => 'Чек покупки пробить не удалось: '.$e->getMessage(),
+            ]);
+        } finally {
+            $lock->release();
+        }
+
+        $order->refresh();
+
+        return [
+            'fiscal_sign' => $order->fiscal_sign,
+            'message' => $order->fiscal_sign
+                ? 'Чек покупки пробит, ФП '.$order->fiscal_sign.'.'
                 : 'Команда отправлена в ККТ, но фискальный признак пока не получен. '
                     .'Проверьте состояние ККТ и повторите через минуту.',
         ];
@@ -1375,6 +1439,15 @@ class AdminRefundService
             // «Платёж не состоялся» и т.п. Без этого кассир видит только
             // слово failed и не понимает, что произошло.
             'status_reason' => $order->status_reason,
+            /*
+             * Фискальный признак чека ПОКУПКИ (он один на заказ). Его не
+             * было видно нигде в карточке, хотя вопрос «пробит ли чек
+             * продажи» возникает не реже, чем про чек возврата.
+             */
+            'fiscal_sign' => $order->fiscal_sign,
+            'receipt_needed' => ! $order->fiscal_sign
+                && $order->status === Order::STATUS_COMPLETED
+                && (float) $order->total_price > 0,
             'from_name' => $order->from_name,
             'to_name' => $order->to_name,
             'trip_name' => $order->trip_name,
@@ -1418,14 +1491,14 @@ class AdminRefundService
         $deposited = isset($info['depositedAmount']) ? ((int) $info['depositedAmount']) / 100 : null;
 
         /*
-         * Сколько времени прошло с оплаты. Это не прихоть: возврат остатка
-         * шлюз принимает, пока расчёт по платежу не закрыт. На проде
-         * возвраты в пределах часа после оплаты проходили десятками, а
-         * попытка вернуть удержание через 66 часов получила отказ «код 7»
-         * пять раз подряд (16.11.2026, заказ 01a1d671-…). Кассиру надо
-         * видеть это ДО попытки.
+         * Срок с оплаты здесь НЕ ограничение: возврат (в отличие от отмены)
+         * шлюз принимает и через дни — проверено 16.11.2026, когда возврат
+         * удержания прошёл спустя 67 часов. Пять отказов до этого давала
+         * не давность, а потерянная копейка: floor(8.95 * 100) = 894 при
+         * доступных 895, то есть мы просили сумму, оставляющую одну
+         * копейку «хвоста». Поэтому предупреждения про «прошло N часов»
+         * здесь нет — оно вводило в заблуждение.
          */
-        $hoursSincePaid = $order->paid_at ? round($order->paid_at->diffInMinutes(now()) / 60, 1) : null;
 
         return [
             'order_status' => $code,
@@ -1437,8 +1510,6 @@ class AdminRefundService
             'deposited' => $deposited,
             'available' => $deposited ?? round($amount - $refunded, 2),
             'payment_state' => $info['paymentState'] ?? null,
-            'hours_since_paid' => $hoursSincePaid,
-            'stale' => $hoursSincePaid !== null && $hoursSincePaid >= 24,
         ];
     }
 
@@ -1475,6 +1546,14 @@ class AdminRefundService
                 'passenger' => trim($t->last_name.' '.$t->first_name.' '.($t->middle_name ?? '')),
                 'price' => (float) $t->price,
                 'baggage' => (int) $t->baggage,
+                'price_bag' => (float) $t->price_bag,
+                /*
+                 * Полная стоимость бланка: место плюс багаж. В колонке
+                 * «Цена» раньше стояла только цена места (141,74 при
+                 * фактической стоимости 178,85) — кассир сравнивал её с
+                 * суммой возврата и не понимал расхождения.
+                 */
+                'price_total' => round((float) $t->price + (float) $t->price_bag * (int) $t->baggage, 2),
                 'refunded' => $refund !== null,
                 'refund_id' => $refund?->id,
                 'refund_amount' => $refund ? (float) $refund->amount : null,

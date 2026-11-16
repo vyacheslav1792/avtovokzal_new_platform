@@ -199,6 +199,9 @@ Route::prefix('v1')->group(function () {
      */
     Route::post('admin/refunds/receipt', [AdminRefundController::class, 'receipt'])
         ->middleware('ais.can:back-ticket.repair');
+    // Чек ПОКУПКИ (он один на заказ) — тем же правом: работа с ККТ.
+    Route::post('admin/refunds/sale-receipt', [AdminRefundController::class, 'saleReceipt'])
+        ->middleware('ais.can:back-ticket.repair');
     /*
      * Досылка аннулирования на станцию по возврату, сделанному при её
      * недоступности (деньги покупателю уже вернули). Право — как у
