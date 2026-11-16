@@ -52,6 +52,33 @@ export function deleteFastToken() {
   return request(`${API}/auth/fast-token`, { method: 'DELETE', headers: { Accept: 'application/json' } })
 }
 
+/* Журналы приложений */
+
+export function fetchLogSources() {
+  return request(`${API}/logs`)
+}
+
+/**
+ * Записи журнала. `levels` — уровни через запятую (пусто = любые),
+ * `before` — позиция в файле, до которой читать назад («показать ещё»):
+ * файлы на проде по десятки мегабайт, поэтому читаются только с конца и
+ * порциями.
+ */
+export function fetchLogEntries(source, params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+  )
+
+  return request(`${API}/logs/${source}?${query}`)
+}
+
+/** Адрес выгрузки файла целиком (право logs.download). */
+export function logDownloadUrl(source, file) {
+  const query = new URLSearchParams(file ? { file } : {})
+
+  return `${API}/logs/${source}/download?${query}`
+}
+
 /* Отчёты */
 
 export function fetchReports() {

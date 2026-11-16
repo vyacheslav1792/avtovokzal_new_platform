@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ImpersonationController;
 use App\Http\Controllers\Api\KkmServerController;
+use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\StationController;
@@ -106,6 +107,18 @@ Route::prefix('v1')->group(function () {
         Route::post('employees/{id}/impersonate', [ImpersonationController::class, 'start'])
             ->whereNumber('id')->middleware('employee.can:employees.impersonate');
         Route::post('impersonation/stop', [ImpersonationController::class, 'stop']);
+
+        /*
+         * Журналы приложений: свой читаем из storage/logs, остальные
+         * приходят bind mount'ами (см. docker-compose.yml, ais_app).
+         * Файлы читаются с конца — на проде laravel.log у backend под 70 МБ.
+         */
+        Route::get('logs', [LogController::class, 'index'])
+            ->middleware('employee.can:logs.view');
+        Route::get('logs/{source}', [LogController::class, 'entries'])
+            ->middleware('employee.can:logs.view');
+        Route::get('logs/{source}/download', [LogController::class, 'download'])
+            ->middleware('employee.can:logs.download');
 
         Route::get('roles', [RoleController::class, 'index'])
             ->middleware('employee.can:roles.view');

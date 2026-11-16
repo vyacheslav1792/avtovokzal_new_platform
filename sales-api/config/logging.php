@@ -52,9 +52,19 @@ return [
 
     'channels' => [
 
+        /*
+         * По умолчанию — `daily`, а НЕ `single`: при одном файле журнал
+         * растёт без предела, и к концу года он съел бы диск (за сутки
+         * 16.11.2026 у backend на проде накопилось 68 МБ — восемь тысяч
+         * ошибок со стектрейсами). Драйвер `daily` сам режет журнал по
+         * суткам и удаляет файлы старше `LOG_DAILY_DAYS`.
+         *
+         * Раздел АИС «Журналы» с этим работает штатно: он показывает все
+         * файлы источника и по умолчанию открывает свежий.
+         */
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily')),
             'ignore_exceptions' => false,
         ],
 
@@ -69,7 +79,9 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => env('LOG_DAILY_DAYS', 14),
+            // Две недели истории: дольше в журнале разбираются редко,
+            // а места он занимает много.
+            'days' => (int) env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
         ],
 

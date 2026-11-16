@@ -9,6 +9,7 @@ import EmployeesView from './views/EmployeesView.vue'
 import FeedbackView from './views/FeedbackView.vue'
 import HomeView from './views/HomeView.vue'
 import KkmView from './views/KkmView.vue'
+import LogsView from './views/LogsView.vue'
 import MenuView from './views/MenuView.vue'
 import NewsEditView from './views/NewsEditView.vue'
 import NewsListView from './views/NewsListView.vue'
@@ -33,6 +34,7 @@ import StationsView from './views/StationsView.vue'
 // /stations — автостанции и подключения к их базам (в legacy — массив $AWT
 //   в коде, в трёх местах), /kkm — настройки фискального сервера,
 // /sync — немедленное обновление расписания и пунктов назначения,
+// /logs — журналы приложений (раньше их смотрели только через ssh),
 // /feedback и /spam-rules — обращения с сайта и антиспам-словарь
 // (legacy url/contact.php: письмо на почту и словарь в исходнике),
 // /employees, /roles и /profile — сотрудники, роли и свой профиль
@@ -59,6 +61,7 @@ const routes = [
   { path: '/stations', component: StationsView },
   { path: '/kkm', component: KkmView },
   { path: '/sync', component: DataSyncView },
+  { path: '/logs', component: LogsView },
   { path: '/menu', component: MenuView },
   { path: '/feedback', component: FeedbackView },
   { path: '/spam-rules', component: SpamRulesView },

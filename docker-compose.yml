@@ -230,6 +230,13 @@ services:
       - ./ais-api:/var/www/html
       - ./shared:/var/www/shared:ro
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/zz-app.ini:ro
+      # Журналы остальных приложений — РАЗДЕЛ «ЖУРНАЛЫ» В АИС читает их
+      # файлами, read-only. Так не нужно ни ssh с docker exec (сейчас логи
+      # смотрят только так), ни отдельного API у каждого сервиса: свои
+      # журналы АИС и так видит в storage/logs.
+      - ./backend/storage/logs:/var/log/apps/backend:ro
+      - ./sales-api/storage/logs:/var/log/apps/sales:ro
+      - ./kkm-api/storage/logs:/var/log/apps/kkm:ro
     environment:
       DB_CONNECTION: pgsql
       DB_HOST: db

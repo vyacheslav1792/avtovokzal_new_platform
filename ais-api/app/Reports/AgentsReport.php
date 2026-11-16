@@ -198,8 +198,19 @@ class AgentsReport implements Report
         $totals['PRICE_BAG'] += (float) $v['PRICE_BAG'];
         $totals['STRWANT'] += $strwant;
 
-        // Рейс: в legacy у возвратов кассирами имена клеятся без дефиса.
-        $raice = $cashier ? $v['RAICENAME'].$v['NAPNAME'] : $v['RAICENAME'].'-'.$v['NAPNAME'];
+        /*
+         * Рейс. У возвратов кассирами имена клеятся без дефиса — и RAICENAME
+         * там нет вовсе: запрос кассирских возвратов его НЕ выбирает (ни у
+         * нас, ни в legacy `apiv2/reports/agents.php`, хотя EVRYRAICE уже
+         * присоединён). В legacy это давало notice и пустую строку, то есть
+         * в колонке «Рейс» оставалось одно направление; у нас warning
+         * превращается в исключение, и вся секция роняла отчёт целиком
+         * («Undefined array key RAICENAME», ловилось на проде 16.11.2026).
+         * Поведение legacy сохраняем: нет колонки — нет имени рейса.
+         */
+        $raice = $cashier
+            ? ($v['RAICENAME'] ?? '').$v['NAPNAME']
+            : $v['RAICENAME'].'-'.$v['NAPNAME'];
 
         return [
             'i' => $i, 'AV' => $av, 'N_TICKET' => $v['N_TICKET'],

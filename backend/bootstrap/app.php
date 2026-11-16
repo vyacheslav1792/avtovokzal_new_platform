@@ -111,4 +111,20 @@ return Application::configure(basePath: dirname(__DIR__))
                 'error_code' => $e->errorCode,
             ], 422);
         });
+
+        /*
+         * Штатные отказы API продаж в журнал не пишем: «данные за этот
+         * период более недоступны» (поисковые роботы ходят по старым
+         * ссылкам расписания), «рейс не найден», выключенная в АИС продажа.
+         * На проде это 4601 запись ERROR со стектрейсом за одни сутки —
+         * из-за них журнал backend разросся до 68 МБ, и настоящие сбои
+         * (отказ станции в подключении) в этой массе терялись.
+         *
+         * Технические ошибки API продаж (sales_api_error, bad_response,
+         * конфликты продажи) логируются как раньше — см.
+         * SalesApiException::isExpected().
+         */
+        $exceptions->dontReportWhen(
+            fn (\Throwable $e) => $e instanceof SalesApiException && $e->isExpected(),
+        );
     })->create();
