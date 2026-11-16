@@ -28,5 +28,10 @@ ARG GID=1000
 RUN groupmod -g "${GID}" www-data 2>/dev/null || true \
     && usermod  -u "${UID}" -g "${GID}" www-data 2>/dev/null || true
 
+# Потолок одновременных запросов (см. docker/php/pool.conf). Значение для
+# каждого приложения задаёт docker-compose.yml; здесь — чтобы контейнер
+# стартовал и без него.
+ENV PHP_FPM_MAX_CHILDREN=10
+
 WORKDIR /var/www/html
 USER www-data
