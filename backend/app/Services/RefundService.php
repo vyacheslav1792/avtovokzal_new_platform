@@ -147,7 +147,12 @@ class RefundService
         // вернёт бухгалтерия вручную (поведение legacy).
         $bankError = null;
         try {
-            $this->payments->refund($order->sber_order_id, (int) floor($payload['amount'] * 100));
+            // round, а НЕ floor: 8.95 * 100 в двоичной арифметике даёт
+            // 894.9999…, и floor вернул бы покупателю на копейку меньше,
+            // чем указано в карточке возврата и в чеке. Сама СУММА
+            // считается формулой legacy (floor в refundAmount) — здесь
+            // только перевод в копейки.
+            $this->payments->refund($order->sber_order_id, (int) round($payload['amount'] * 100));
             $refund->update([
                 'status' => Refund::STATUS_MONEY_REFUNDED,
                 'money_refunded_at' => now(),

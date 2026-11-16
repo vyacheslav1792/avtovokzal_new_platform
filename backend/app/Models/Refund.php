@@ -33,6 +33,9 @@ class Refund extends Model
         'station_annul_pending' => 'bool',
         'station_annul_attempted_at' => 'datetime',
         'station_backdated_at' => 'datetime',
+        // Полный ответ шлюза на отказ в возврате: по короткому тексту
+        // («Системная ошибка.») причину не найти.
+        'bank_response' => 'array',
     ];
 
     /** Возврат билета: место освобождается, багаж едет вместе с ним. */

@@ -192,6 +192,14 @@ Route::prefix('v1')->group(function () {
     Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair'])
         ->middleware('ais.can:back-ticket.repair');
     /*
+     * Ручная фискализация операции возврата: чек из очереди мог не
+     * пробиться (воркер receipts запускается не всегда, ККТ могла
+     * отказать). Право как у починки возврата — это работа с ККТ, а не с
+     * деньгами покупателя.
+     */
+    Route::post('admin/refunds/receipt', [AdminRefundController::class, 'receipt'])
+        ->middleware('ais.can:back-ticket.repair');
+    /*
      * Досылка аннулирования на станцию по возврату, сделанному при её
      * недоступности (деньги покупателю уже вернули). Право — как у
      * возврата: операция меняет ведомость станции. Список ожидающих

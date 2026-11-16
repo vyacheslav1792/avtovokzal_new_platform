@@ -7,6 +7,7 @@ use App\Jobs\SendRefundEmail;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Ticket;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
@@ -68,6 +69,13 @@ class AdminRefundService
             'order' => $this->orderInfo($order),
             'bank' => $this->bankInfo($order),
             'passengers' => $this->passengersInfo($order),
+            /*
+             * Все билеты заказа с их состоянием. Без этого списка билет,
+             * по которому вернули ТОЛЬКО деньги (станция была недоступна),
+             * ничем не отличался от остальных — кассир не видел, что место
+             * на станции до сих пор числится проданным.
+             */
+            'tickets' => $this->ticketsState($order),
             // Все возвраты заказа: по ним видно, что уже вернули и где
             // осталось неотданное покупателю удержание.
             'refunds' => $this->orderRefunds($order),
@@ -121,8 +129,25 @@ class AdminRefundService
         try {
             $preview = $this->stationRefund($order, $ticket, preview: true);
         } catch (SalesApiException $e) {
+            /*
+             * Станция ОТВЕТИЛА отказом: «билет не найден в БД вокзала»,
+             * «ведомость закрыта», «нет разрешения на возврат после
+             * отправления». Карточку из-за этого рушить нельзя — кассиру
+             * нужны и заказ, и список билетов, и прошлые возвраты, чтобы
+             * понять, что делать дальше (раньше он видел только красную
+             * строку и закрывал окно).
+             */
             if ($e->errorCode !== 'station_unavailable') {
-                throw $e;
+                return $result + [
+                    'state' => 'station_rejected',
+                    'station_error' => $e->getMessage(),
+                    'station_error_code' => $e->errorCode,
+                    'message' => 'Станция отказала в возврате этого билета: '.$e->getMessage()
+                        .' Проверьте список билетов заказа ниже — возможно, он уже возвращён. '
+                        .'Если возврат всё же нужен, его оформляют на станции вручную: '
+                        .'`admin_mode` снимает только нашу проверку, правила станции (закрытая '
+                        .'ведомость, запрет возврата после отправления) он не обходит.',
+                ];
             }
 
             return $result + [
@@ -172,11 +197,33 @@ class AdminRefundService
         string $number,
         int $percent,
         bool $withoutStation = false,
+        bool $withReceipt = true,
     ): array {
         // Legacy: PROC<0 → «Не выбран процент удержаний!»; варианты — из формы.
         if (! in_array($percent, self::PERCENTS, true)) {
             throw ValidationException::withMessages(['percent' => 'Не выбран процент удержаний!']);
         }
+
+        /*
+         * Блокировка на бланк: двойной клик по «Выполнить возврат» иначе
+         * дважды уходит на станцию (второй раз она откажет) и дважды — в
+         * шлюз. Операции с деньгами и ведомостью станции задваиваться не
+         * должны ни при каких обстоятельствах.
+         */
+        return $this->withBlankLock($orderId, $serial, $number, fn () => $this->confirmLocked(
+            $orderId, $serial, $number, $percent, $withoutStation, $withReceipt,
+        ));
+    }
+
+    /** @return array<string, mixed> */
+    private function confirmLocked(
+        string $orderId,
+        string $serial,
+        string $number,
+        int $percent,
+        bool $withoutStation,
+        bool $withReceipt,
+    ): array {
 
         $order = $this->findOrder($orderId);
         $ticket = $this->findTicket($order, $serial, $number);
@@ -197,7 +244,7 @@ class AdminRefundService
         if ($withoutStation) {
             $this->assertStationUnavailable($order, $ticket);
 
-            return $this->confirmWithoutStation($order, $ticket, $percent);
+            return $this->confirmWithoutStation($order, $ticket, $percent, $withReceipt);
         }
 
         // Аннулирование в ведомости станции (back=true, admin_mode).
@@ -224,7 +271,7 @@ class AdminRefundService
         ]);
         $order->touch();
 
-        $bankError = $this->refundMoney($refund, $order);
+        $bankError = $this->refundMoney($refund, $order, $withReceipt);
 
         // Письмо о возврате уходит независимо от исхода банка (как legacy).
         SendRefundEmail::dispatch($refund->id)->onQueue('emails');
@@ -318,6 +365,118 @@ class AdminRefundService
     }
 
     /**
+     * Пробить фискальный чек по операции возврата вручную.
+     *
+     * Зачем кнопка: чек ставится в очередь `receipts`, а её воркер
+     * запускается не всегда — и у возврата остаётся «нет чека». Плюс чек
+     * мог не пробиться из-за ККТ (закрытая смена, нет связи), и повторять
+     * попытку должен человек, видя результат сразу. Поэтому выполняем
+     * СИНХРОННО, а не кладём в очередь.
+     *
+     * Идемпотентность — на стороне KKM API: ключ `refund:{id}` не пробьёт
+     * второй чек по той же операции (см. CLAUDE.md про external_id).
+     *
+     * @return array<string, mixed>
+     */
+    public function registerReceipt(string $orderId, string $refundId): array
+    {
+        $order = $this->findOrder($orderId);
+        $refund = Refund::where('order_id', $order->id)->find($refundId);
+
+        if (! $refund) {
+            throw ValidationException::withMessages(['refund' => 'Возврат не найден в этом заказе']);
+        }
+
+        if ($refund->fiscal_sign) {
+            return [
+                'fiscal_sign' => $refund->fiscal_sign,
+                'message' => 'Чек по этой операции уже пробит, ФП '.$refund->fiscal_sign.'.',
+            ];
+        }
+
+        if ((float) $refund->amount <= 0) {
+            throw ValidationException::withMessages([
+                'refund' => 'Это отметка об аннулировании бланка — чек по ней не нужен: '
+                    .'деньги по ней не возвращались.',
+            ]);
+        }
+
+        if (! $refund->money_refunded_at) {
+            throw ValidationException::withMessages([
+                'refund' => 'Деньги по этой операции ещё не вернулись — чек возврата пробивать рано. '
+                    .'Сначала выполните возврат по банку.',
+            ]);
+        }
+
+        // Замок: двойной клик не должен отправлять в ККТ две команды.
+        $lock = Cache::lock('refund-receipt:'.$refund->id, 120);
+
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'refund' => 'Чек по этой операции уже пробивается — дождитесь результата.',
+            ]);
+        }
+
+        try {
+            // Синхронно: сотрудник должен увидеть результат, а не «поставлено в очередь».
+            RegisterRefundReceipt::dispatchSync($refund->id);
+        } catch (\Throwable $e) {
+            Log::warning('Ручная фискализация возврата не удалась', [
+                'order_id' => $order->id,
+                'refund_id' => $refund->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'refund' => 'Чек пробить не удалось: '.$e->getMessage(),
+            ]);
+        } finally {
+            $lock->release();
+        }
+
+        $refund->refresh();
+
+        return [
+            'fiscal_sign' => $refund->fiscal_sign,
+            'message' => $refund->fiscal_sign
+                ? 'Чек пробит, ФП '.$refund->fiscal_sign.'.'
+                : 'Команда отправлена в ККТ, но фискальный признак пока не получен. '
+                    .'Проверьте состояние ККТ и повторите через минуту.',
+        ];
+    }
+
+    /**
+     * Выполнить операцию под замком на бланк: одна операция возврата по
+     * одному билету за раз.
+     *
+     * Иначе двойной клик (или «ничего не произошло, нажму ещё раз» после
+     * долгого ответа станции) превращается в две операции с деньгами
+     * покупателя и двумя обращениями к ведомости станции.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withBlankLock(string $orderId, string $serial, string $number, callable $callback)
+    {
+        $lock = Cache::lock("refund-blank:{$orderId}:{$serial}:{$number}", 120);
+
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'Операция по этому билету уже выполняется — дождитесь результата, '
+                    .'не нажимайте повторно.',
+            ]);
+        }
+
+        try {
+            return $callback();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
      * Убедиться, что база станции действительно не отвечает.
      *
      * Спрашиваем станцию предварительным расчётом (preview — он ничего не
@@ -359,8 +518,12 @@ class AdminRefundService
      *
      * @return array<string, mixed>
      */
-    private function confirmWithoutStation(Order $order, Ticket $ticket, int $percent): array
-    {
+    private function confirmWithoutStation(
+        Order $order,
+        Ticket $ticket,
+        int $percent,
+        bool $withReceipt = true,
+    ): array {
         $amount = $this->refundAmount($order, $ticket, $percent);
 
         $refund = Refund::create([
@@ -381,7 +544,7 @@ class AdminRefundService
         ]);
         $order->touch();
 
-        $bankError = $this->refundMoney($refund, $order);
+        $bankError = $this->refundMoney($refund, $order, $withReceipt);
 
         SendRefundEmail::dispatch($refund->id)->onQueue('emails');
 
@@ -510,8 +673,13 @@ class AdminRefundService
      * Починка зависшего возврата: билет аннулирован, а деньги в банк не ушли
      * (legacy-ветка «Не прошёл возврат денег по банку»).
      */
-    public function repairMoney(string $orderId, ?string $serial, ?string $number, ?string $refundId = null): array
-    {
+    public function repairMoney(
+        string $orderId,
+        ?string $serial,
+        ?string $number,
+        ?string $refundId = null,
+        bool $withReceipt = true,
+    ): array {
         $order = $this->findOrder($orderId);
 
         /*
@@ -543,11 +711,13 @@ class AdminRefundService
             throw ValidationException::withMessages(['ticket' => 'Возврат денег по этому билету уже прошёл']);
         }
 
-        $bankError = $this->refundMoney($refund, $order);
+        $bankError = $this->refundMoney($refund, $order, $withReceipt);
 
         return [
             'amount' => (float) $refund->amount,
             'bank_error' => $bankError,
+            'refund_id' => $refund->id,
+            'bank_response' => $refund->refresh()->bank_response,
         ];
     }
 
@@ -555,22 +725,46 @@ class AdminRefundService
      * Возврат платежа в шлюзе + чек. При отказе банка возврат остаётся
      * bank_failed — деньги вернёт бухгалтерия (текст legacy).
      */
-    private function refundMoney(Refund $refund, Order $order): ?string
+    private function refundMoney(Refund $refund, Order $order, bool $withReceipt = true): ?string
     {
+        /*
+         * ЛОВУШКА КОПЕЙКИ: floor здесь нельзя. 8.95 * 100 в двоичной
+         * арифметике даёт 894.9999…, и floor превращал это в 894 — мы
+         * возвращали покупателю на копейку меньше, чем написано в карточке
+         * и в чеке (ловилось при проверке 16.11.2026). Сумма возврата
+         * считается своей формулой (round, как в legacy back_bilet), а
+         * здесь только перевод рублей в копейки — и он обязан быть точным.
+         */
+        $kopecks = (int) round((float) $refund->amount * 100);
+
         try {
-            $this->payments->refund($order->sber_order_id, (int) floor((float) $refund->amount * 100));
+            $this->payments->refund($order->sber_order_id, $kopecks);
             $refund->update([
                 'status' => Refund::STATUS_MONEY_REFUNDED,
                 'money_refunded_at' => now(),
                 'bank_error' => null,
+                'bank_response' => null,
             ]);
-            RegisterRefundReceipt::dispatch($refund->id)->onQueue('receipts');
+
+            /*
+             * Чек возврата обычно обязателен (54-ФЗ), но бывает нужно
+             * вернуть деньги БЕЗ чека — например когда чек уже пробит
+             * вручную на кассе. Тогда кассир снимает галочку, а пробить
+             * чек можно позже кнопкой в карточке.
+             */
+            if ($withReceipt) {
+                RegisterRefundReceipt::dispatch($refund->id)->onQueue('receipts');
+            }
 
             return null;
         } catch (\Throwable $e) {
             $refund->update([
                 'status' => Refund::STATUS_BANK_FAILED,
                 'bank_error' => $e->getMessage(),
+                // Шлюз на отказ отвечает «Системная ошибка.» — по ней
+                // причину не найти, поэтому складываем рядом всё, что
+                // знаем о попытке. Это показывается сотруднику.
+                'bank_response' => $this->bankFailureDetails($refund, $order, $kopecks, $e),
             ]);
 
             // Текст в `bank_error` короткий («Системная ошибка.»), а причина
@@ -589,6 +783,55 @@ class AdminRefundService
 
             return 'Не удалось вернуть платёж. Он будет возвращён в ближайшее время бухгалтерией';
         }
+    }
+
+    /**
+     * Всё, что известно о неудачной попытке возврата: что отправили, что
+     * ответил шлюз и в каком состоянии платёж СЕЙЧАС.
+     *
+     * Снимок состояния — главное: у отказа «Системная ошибка.» (код 7)
+     * настоящей причиной обычно оказывается `paymentState = REFUNDED`, то
+     * есть шлюз считает платёж закрытым возвратом и остаток возвращать не
+     * даёт. По одному тексту ошибки этого не увидеть.
+     *
+     * @return array<string, mixed>
+     */
+    private function bankFailureDetails(Refund $refund, Order $order, int $kopecks, \Throwable $e): array
+    {
+        $details = [
+            'at' => now()->format('d.m.Y H:i:s'),
+            'request' => [
+                'sber_order_id' => $order->sber_order_id,
+                'amount' => (float) $refund->amount,
+                'amount_kopecks' => $kopecks,
+                'refund_kind' => $refund->kind,
+                'refund_id' => $refund->id,
+            ],
+            'error' => [
+                'class' => $e::class,
+                'code' => $e->getCode(),
+                'message' => $e->getMessage(),
+            ],
+        ];
+
+        try {
+            $status = $this->payments->statusExtended((string) $order->sber_order_id);
+            $info = $status['paymentAmountInfo'] ?? [];
+
+            $details['gateway'] = [
+                'order_status' => $status['orderStatus'] ?? null,
+                'order_status_text' => self::ORDER_STATUS_TEXT[(int) ($status['orderStatus'] ?? -1)] ?? null,
+                'payment_state' => $info['paymentState'] ?? null,
+                'amount' => isset($status['amount']) ? ((int) $status['amount']) / 100 : null,
+                'refunded' => isset($info['refundedAmount']) ? ((int) $info['refundedAmount']) / 100 : null,
+                'deposited' => isset($info['depositedAmount']) ? ((int) $info['depositedAmount']) / 100 : null,
+                'action_code_description' => $status['actionCodeDescription'] ?? null,
+            ];
+        } catch (\Throwable $statusError) {
+            $details['gateway'] = ['error' => $statusError->getMessage()];
+        }
+
+        return $details;
     }
 
     /**
@@ -784,8 +1027,28 @@ class AdminRefundService
      * Вернуть ТОЛЬКО багаж: билет остаётся действующим, на станции
      * аннулируются отдельные багажные бланки (категория 9).
      */
-    public function confirmBaggage(string $orderId, string $serial, string $number, int $count, int $percent): array
-    {
+    public function confirmBaggage(
+        string $orderId,
+        string $serial,
+        string $number,
+        int $count,
+        int $percent,
+        bool $withReceipt = true,
+    ): array {
+        return $this->withBlankLock($orderId, $serial, $number, fn () => $this->confirmBaggageLocked(
+            $orderId, $serial, $number, $count, $percent, $withReceipt,
+        ));
+    }
+
+    /** @return array<string, mixed> */
+    private function confirmBaggageLocked(
+        string $orderId,
+        string $serial,
+        string $number,
+        int $count,
+        int $percent,
+        bool $withReceipt,
+    ): array {
         if (! in_array($percent, self::PERCENTS, true)) {
             throw ValidationException::withMessages(['percent' => 'Не выбран процент удержаний!']);
         }
@@ -853,7 +1116,7 @@ class AdminRefundService
                 'legacy' => ['ticket_serial' => $ticket->serial, 'ticket_number' => $ticket->number],
             ]);
 
-            if ($error = $this->refundMoney($refund, $order)) {
+            if ($error = $this->refundMoney($refund, $order, $withReceipt)) {
                 $bankErrors[] = $error;
             }
         }
@@ -876,8 +1139,41 @@ class AdminRefundService
      * закрыла. Здесь только деньги — например, когда возврат задержался по
      * нашей вине и обещали вернуть удержание.
      */
-    public function confirmPenalty(string $orderId, string $refundId, ?float $amount = null): array
-    {
+    public function confirmPenalty(
+        string $orderId,
+        string $refundId,
+        ?float $amount = null,
+        bool $withReceipt = true,
+    ): array {
+        /*
+         * Блокировка на родительский возврат: без неё двойной клик (или
+         * повторное нажатие после отказа банка) создавал НОВУЮ запись
+         * возврата удержания. На проде так появилось пять строк по 8,95 ₽,
+         * все `bank_failed` — журнал возвратов распух, а денег покупатель
+         * не получил (16.11.2026, заказ 01a1d671-…).
+         */
+        $lock = Cache::lock('refund-penalty:'.$refundId, 60);
+
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'refund' => 'Возврат удержания по этому билету уже выполняется — подождите результата.',
+            ]);
+        }
+
+        try {
+            return $this->confirmPenaltyLocked($orderId, $refundId, $amount, $withReceipt);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function confirmPenaltyLocked(
+        string $orderId,
+        string $refundId,
+        ?float $amount,
+        bool $withReceipt,
+    ): array {
         $order = $this->findOrder($orderId);
 
         $parent = Refund::where('order_id', $order->id)->find($refundId);
@@ -928,26 +1224,55 @@ class AdminRefundService
             ]);
         }
 
-        $refund = Refund::create([
-            'order_id' => $order->id,
-            'kind' => Refund::KIND_PENALTY,
-            'parent_refund_id' => $parent->id,
-            'serial' => $parent->serial,
-            'number' => $parent->number,
-            'place' => $parent->place,
-            'penalty_percent' => 0,
-            'ticket_price' => 0,
-            'baggage_price' => 0,
-            'amount' => $amount,
-            'status' => Refund::STATUS_REFUNDED,
-            'legacy' => [
-                'parent_percent' => $parent->penalty_percent,
-                'parent_withheld' => $withheld,
-                'partial' => $amount < $left,
-            ],
-        ]);
+        /*
+         * Повтор после отказа банка НЕ создаёт новую запись: берём ту же
+         * и пробуем платёж снова. Иначе каждое нажатие множило строки
+         * возвратов (деньги при этом не уходили), и отчёты показывали
+         * возвраты, которых не было.
+         */
+        $refund = Refund::where('parent_refund_id', $parent->id)
+            ->where('kind', Refund::KIND_PENALTY)
+            ->whereNull('money_refunded_at')
+            ->orderByDesc('created_at')
+            ->first();
 
-        $bankError = $this->refundMoney($refund, $order);
+        $retry = $refund !== null;
+
+        if ($retry) {
+            $refund->update([
+                'amount' => $amount,
+                'status' => Refund::STATUS_REFUNDED,
+                'legacy' => array_merge((array) $refund->legacy, [
+                    'parent_percent' => $parent->penalty_percent,
+                    'parent_withheld' => $withheld,
+                    'partial' => $amount < $left,
+                    // Сколько раз уже пробовали — видно в карточке.
+                    'attempts' => (int) (($refund->legacy['attempts'] ?? 1)) + 1,
+                ]),
+            ]);
+        } else {
+            $refund = Refund::create([
+                'order_id' => $order->id,
+                'kind' => Refund::KIND_PENALTY,
+                'parent_refund_id' => $parent->id,
+                'serial' => $parent->serial,
+                'number' => $parent->number,
+                'place' => $parent->place,
+                'penalty_percent' => 0,
+                'ticket_price' => 0,
+                'baggage_price' => 0,
+                'amount' => $amount,
+                'status' => Refund::STATUS_REFUNDED,
+                'legacy' => [
+                    'parent_percent' => $parent->penalty_percent,
+                    'parent_withheld' => $withheld,
+                    'partial' => $amount < $left,
+                    'attempts' => 1,
+                ],
+            ]);
+        }
+
+        $bankError = $this->refundMoney($refund, $order, $withReceipt);
         $order->touch();
 
         return [
@@ -957,6 +1282,10 @@ class AdminRefundService
             'left' => round($left - $amount, 2),
             'parent_percent' => (int) $parent->penalty_percent,
             'bank_error' => $bankError,
+            'retry' => $retry,
+            'refund_id' => $refund->id,
+            // Техника отказа — сотруднику её надо видеть целиком.
+            'bank_response' => $refund->refresh()->bank_response,
         ];
     }
 
@@ -1011,6 +1340,16 @@ class AdminRefundService
                 // Деньги по строке не ушли, а сумма есть — можно повторить
                 // обращение к шлюзу (кнопка «Вернуть по банку» в списке).
                 'money_repairable' => $r->money_refunded_at === null && (float) $r->amount > 0,
+                // Чек по операции можно пробить вручную: деньги вернулись,
+                // а фискального признака нет (очередь чеков могла не
+                // отработать или ККТ отказала).
+                'receipt_needed' => $r->money_refunded_at !== null
+                    && ! $r->fiscal_sign
+                    && (float) $r->amount > 0,
+                'bank_error' => $r->bank_error,
+                'bank_response' => $r->bank_response,
+                'attempts' => (int) ($r->legacy['attempts'] ?? 1),
+                'station_annul_pending' => (bool) $r->station_annul_pending,
                 'penalty_returned' => $withheld > 0 && $left <= 0,
             ];
         })->all();
@@ -1073,12 +1412,33 @@ class AdminRefundService
 
         $code = (int) ($status['orderStatus'] ?? -1);
 
+        $info = $status['paymentAmountInfo'] ?? [];
+        $amount = ((int) $status['amount']) / 100;
+        $refunded = ((int) ($info['refundedAmount'] ?? 0)) / 100;
+        $deposited = isset($info['depositedAmount']) ? ((int) $info['depositedAmount']) / 100 : null;
+
+        /*
+         * Сколько времени прошло с оплаты. Это не прихоть: возврат остатка
+         * шлюз принимает, пока расчёт по платежу не закрыт. На проде
+         * возвраты в пределах часа после оплаты проходили десятками, а
+         * попытка вернуть удержание через 66 часов получила отказ «код 7»
+         * пять раз подряд (16.11.2026, заказ 01a1d671-…). Кассиру надо
+         * видеть это ДО попытки.
+         */
+        $hoursSincePaid = $order->paid_at ? round($order->paid_at->diffInMinutes(now()) / 60, 1) : null;
+
         return [
             'order_status' => $code,
             'status_text' => self::ORDER_STATUS_TEXT[$code] ?? (string) $code,
             'action_code_description' => $status['actionCodeDescription'] ?? '',
-            'amount' => ((int) $status['amount']) / 100,
-            'refunded' => ((int) ($status['paymentAmountInfo']['refundedAmount'] ?? 0)) / 100,
+            'amount' => $amount,
+            'refunded' => $refunded,
+            // Что по мнению шлюза ещё можно вернуть.
+            'deposited' => $deposited,
+            'available' => $deposited ?? round($amount - $refunded, 2),
+            'payment_state' => $info['paymentState'] ?? null,
+            'hours_since_paid' => $hoursSincePaid,
+            'stale' => $hoursSincePaid !== null && $hoursSincePaid >= 24,
         ];
     }
 
@@ -1090,6 +1450,49 @@ class AdminRefundService
             'birth_date' => $p['birth_date'] ?? null,
             'document' => trim(($p['doc_series'] ?? '').' '.($p['doc_number'] ?? '')),
         ], $order->passengers ?? []);
+    }
+
+    /**
+     * Билеты заказа и что с каждым сделано: возвращён ли, вернулись ли
+     * деньги, есть ли чек и аннулирован ли бланк на станции.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function ticketsState(Order $order): array
+    {
+        $refunds = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_TICKET)
+            ->get()
+            ->keyBy(fn (Refund $r) => $r->serial.'/'.$r->number);
+
+        return $order->tickets()->orderBy('position')->get()->map(function (Ticket $t) use ($refunds) {
+            $refund = $refunds->get($t->serial.'/'.$t->number);
+
+            return [
+                'serial' => $t->serial,
+                'number' => $t->number,
+                'place' => (int) $t->place,
+                'passenger' => trim($t->last_name.' '.$t->first_name.' '.($t->middle_name ?? '')),
+                'price' => (float) $t->price,
+                'baggage' => (int) $t->baggage,
+                'refunded' => $refund !== null,
+                'refund_id' => $refund?->id,
+                'refund_amount' => $refund ? (float) $refund->amount : null,
+                'refund_at' => $refund?->created_at?->format('d.m.Y H:i'),
+                'money_refunded' => $refund?->money_refunded_at !== null,
+                'fiscal_sign' => $refund?->fiscal_sign,
+                // Деньги вернули, а на станции бланк ещё проданный: место
+                // занято, аннулирование надо дослать.
+                'station_annul_pending' => (bool) $refund?->station_annul_pending,
+                'state' => match (true) {
+                    $refund === null => 'active',
+                    (bool) $refund->station_annul_pending => 'money_only',
+                    $refund->money_refunded_at === null => 'bank_pending',
+                    ! $refund->fiscal_sign => 'no_receipt',
+                    default => 'refunded',
+                },
+            ];
+        })->all();
     }
 
     private function ticketInfo(Ticket $ticket): array
@@ -1116,6 +1519,10 @@ class AdminRefundService
             'money_refunded_at' => $refund->money_refunded_at?->format('Y-m-d H:i:s'),
             'fiscal_sign' => $refund->fiscal_sign,
             'bank_error' => $refund->bank_error,
+            // Полная техника отказа шлюза: по короткому «Системная ошибка.»
+            // сотруднику разобраться невозможно.
+            'bank_response' => $refund->bank_response,
+            'attempts' => (int) ($refund->legacy['attempts'] ?? 1),
             'id' => $refund->id,
             'kind' => $refund->kind,
             // Состояние на станции — независимо от денег.

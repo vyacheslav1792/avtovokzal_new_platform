@@ -53,6 +53,12 @@ class AdminRefundController extends Controller
              * станция действительно не отвечает.
              */
             'without_station' => ['sometimes', 'boolean'],
+            /*
+             * Возврат БЕЗ фискального чека. Обычно чек обязателен (54-ФЗ),
+             * но бывает, что он уже пробит вручную на кассе — тогда второй
+             * не нужен. Пробить его позже можно кнопкой в карточке.
+             */
+            'without_receipt' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->confirm(
@@ -61,6 +67,7 @@ class AdminRefundController extends Controller
             $data['number'],
             (int) $data['percent'],
             (bool) ($data['without_station'] ?? false),
+            withReceipt: ! (bool) ($data['without_receipt'] ?? false),
         )]);
     }
 
@@ -123,6 +130,7 @@ class AdminRefundController extends Controller
             'number' => ['required', 'string', 'max:20'],
             'count' => ['required', 'integer', 'min:1', 'max:5'],
             'percent' => ['required', 'integer'],
+            'without_receipt' => ['sometimes', 'boolean'],
         ], [
             'count.required' => 'Укажите, сколько мест багажа вернуть.',
         ]);
@@ -133,6 +141,7 @@ class AdminRefundController extends Controller
             $data['number'],
             (int) $data['count'],
             (int) $data['percent'],
+            withReceipt: ! (bool) ($data['without_receipt'] ?? false),
         )]);
     }
 
@@ -147,12 +156,14 @@ class AdminRefundController extends Controller
             'refund_id' => ['required', 'uuid'],
             // Часть удержания: без суммы отдаётся весь остаток.
             'amount' => ['sometimes', 'numeric', 'min:0.01'],
+            'without_receipt' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->confirmPenalty(
             $data['order_id'],
             $data['refund_id'],
             isset($data['amount']) ? (float) $data['amount'] : null,
+            withReceipt: ! (bool) ($data['without_receipt'] ?? false),
         )]);
     }
 
@@ -170,6 +181,7 @@ class AdminRefundController extends Controller
             'refund_id' => ['sometimes', 'uuid'],
             'serial' => ['required_without:refund_id', 'nullable', 'string', 'max:20'],
             'number' => ['required_without:refund_id', 'nullable', 'string', 'max:20'],
+            'without_receipt' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->repairMoney(
@@ -177,6 +189,28 @@ class AdminRefundController extends Controller
             $data['serial'] ?? null,
             $data['number'] ?? null,
             $data['refund_id'] ?? null,
+            withReceipt: ! (bool) ($data['without_receipt'] ?? false),
+        )]);
+    }
+
+    /**
+     * Пробить фискальный чек по операции возврата вручную.
+     *
+     * Чек ставится в очередь `receipts`, воркер которой запускается не
+     * всегда, да и ККТ может отказать (закрытая смена, нет связи) — тогда
+     * повторять должен человек, видя результат сразу. Операция
+     * идемпотентна: KKM API не пробьёт второй чек по тому же ключу.
+     */
+    public function receipt(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+            'refund_id' => ['required', 'uuid'],
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->refunds->registerReceipt(
+            $data['order_id'],
+            $data['refund_id'],
         )]);
     }
 }

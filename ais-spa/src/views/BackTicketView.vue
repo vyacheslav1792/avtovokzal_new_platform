@@ -6,7 +6,7 @@
 // авторизация сотрудника и личный код подтверждения, который сервер
 // спрашивает перед возвратом денег (права back-ticket.refund/repair).
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { can } from '../auth'
 import { refundAction } from '../siteApi'
 
@@ -18,15 +18,43 @@ const props = defineProps({
 })
 
 const route = useRoute()
+const router = useRouter()
+
+/*
+ * Выбранный билет можно сменить, не закрывая карточку (список билетов
+ * заказа). В режиме оверлея — поверх отчёта — адрес менять нельзя, там
+ * карточкой управляют props, поэтому держим выбор у себя.
+ */
+const overrideSerial = ref('')
+const overrideNumber = ref('')
+
 const orderId = computed(() => props.orderId || route.query.order_id || '')
-const serial = computed(() => props.serial || route.query.serial || '')
-const number = computed(() => props.number || route.query.number || '')
+const serial = computed(() => overrideSerial.value || props.serial || route.query.serial || '')
+const number = computed(() => overrideNumber.value || props.number || route.query.number || '')
 
 const info = ref(null)       // ответ inspect
 const loading = ref(false)
 const error = ref('')
 const done = ref(null)       // результат confirm/repair
 const notice = ref('')       // итог досылки аннулирования на станцию
+
+/*
+ * Возврат БЕЗ фискального чека. По 54-ФЗ чек нужен, но бывает, что он уже
+ * пробит вручную на кассе — тогда второй не нужен. Пробить его позже можно
+ * кнопкой у самой операции.
+ */
+const withoutReceipt = ref(false)
+
+// Раскрытая техника отказа шлюза (по id операции): кассиру нужны код и
+// состояние платежа, а не «Системная ошибка.».
+const openedDetails = ref(new Set())
+
+function toggleDetails(id) {
+  const next = new Set(openedDetails.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  openedDetails.value = next
+}
 const percent = ref(-1)      // -1 = «Не выбран» (как в legacy)
 const confirming = ref(false)
 
@@ -69,7 +97,11 @@ async function confirmRefund() {
       serial: serial.value,
       number: number.value,
       percent: percent.value,
+      without_receipt: withoutReceipt.value,
     })
+    // Карточку перезагружаем: после возврата по заказу обычно есть что
+    // сделать дальше (багаж, удержание, чек), и закрывать окно незачем.
+    await load()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -104,7 +136,9 @@ async function confirmWithoutStation() {
       number: number.value,
       percent: percent.value,
       without_station: true,
+      without_receipt: withoutReceipt.value,
     })
+    await load()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -134,6 +168,26 @@ async function cancelPayment() {
   notice.value = ''
   try {
     const result = await req('cancel-payment', { order_id: orderId.value })
+    notice.value = result.message
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/**
+ * Пробить фискальный чек по операции вручную: очередь чеков могла не
+ * отработать или ККТ отказала (закрытая смена, нет связи). Операция
+ * идемпотентна — второй чек по той же операции ККТ не пробьёт.
+ */
+async function registerReceipt(refund) {
+  confirming.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await req('receipt', { order_id: orderId.value, refund_id: refund.id })
     notice.value = result.message
     await load()
   } catch (e) {
@@ -182,6 +236,7 @@ async function refundBaggage() {
       number: number.value,
       count: baggageCount.value,
       percent: baggagePercent.value,
+      without_receipt: withoutReceipt.value,
     })
     done.value.baggage = true
     await load()
@@ -234,6 +289,7 @@ async function refundPenalty(refund) {
       order_id: orderId.value,
       refund_id: refund.id,
       amount,
+      without_receipt: withoutReceipt.value,
     })
     done.value.penalty = true
     delete penaltyAmount[refund.id]
@@ -260,8 +316,10 @@ async function repairMoney() {
       order_id: orderId.value,
       serial: serial.value,
       number: number.value,
+      without_receipt: withoutReceipt.value,
     })
     done.value.repaired = true
+    await load()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -286,6 +344,7 @@ async function repairRefund(refund) {
     done.value = await req('repair', {
       order_id: orderId.value,
       refund_id: refund.id,
+      without_receipt: withoutReceipt.value,
     })
     done.value.repaired = true
     await load()
@@ -294,6 +353,58 @@ async function repairRefund(refund) {
   } finally {
     confirming.value = false
   }
+}
+
+/**
+ * Открыть другой билет этого же заказа, не закрывая карточку: кассиру
+ * почти всегда нужно разобраться со всем заказом, а не с одним бланком.
+ * В режиме оверлея (поверх отчёта) адрес не меняем — там карточкой
+ * управляют props.
+ */
+function openTicket(ticket) {
+  error.value = ''
+  notice.value = ''
+  done.value = null
+
+  if (props.overlay) {
+    overrideSerial.value = ticket.serial
+    overrideNumber.value = ticket.number
+    load()
+
+    return
+  }
+
+  router.replace({
+    path: '/back-ticket',
+    query: { order_id: orderId.value, serial: ticket.serial, number: ticket.number },
+  })
+}
+
+/** Техника отказа шлюза — в человекочитаемый вид, без JSON-мусора. */
+function bankDetailsText(d) {
+  if (!d) return ''
+  const lines = []
+  if (d.at) lines.push(`Когда: ${d.at}`)
+  if (d.error) {
+    lines.push(`Ошибка шлюза: код ${d.error.code ?? '—'} · ${d.error.message ?? ''}`)
+    if (d.error.class) lines.push(`Класс исключения: ${d.error.class}`)
+  }
+  if (d.request) {
+    lines.push(`Отправляли: ${d.request.amount} руб. (${d.request.amount_kopecks} коп.), `
+      + `вид операции ${d.request.refund_kind}, платёж ${d.request.sber_order_id}`)
+  }
+  if (d.gateway) {
+    if (d.gateway.error) {
+      lines.push(`Состояние платежа узнать не удалось: ${d.gateway.error}`)
+    } else {
+      lines.push(`Платёж в шлюзе: статус ${d.gateway.order_status} (${d.gateway.order_status_text ?? '—'}), `
+        + `состояние ${d.gateway.payment_state ?? '—'}`)
+      lines.push(`Суммы: платёж ${d.gateway.amount ?? '—'}, возвращено ${d.gateway.refunded ?? '—'}, `
+        + `доступно ${d.gateway.deposited ?? '—'}`)
+      if (d.gateway.action_code_description) lines.push(`Расшифровка: ${d.gateway.action_code_description}`)
+    }
+  }
+  return lines.join('\n')
 }
 
 function money(v) {
@@ -318,8 +429,22 @@ onMounted(() => {
     <h1>Возврат билета (админ)</h1>
 
     <div v-if="loading" class="muted loading">Загрузка данных заказа…</div>
-    <div v-if="error" class="alert">{{ error }}</div>
-    <div v-if="notice" class="alert ok">{{ notice }}</div>
+    <!--
+      Сообщения закреплены сверху: карточка заказа длинная, и прокрутив её
+      вниз, кассир не видел ни ошибки, ни подтверждения — нажимал ещё раз
+      «потому что ничего не произошло». Именно так появились пять записей
+      возврата удержания по одному билету.
+    -->
+    <div v-if="error || notice" class="bt-messages">
+      <div v-if="error" class="alert">
+        {{ error }}
+        <button class="btn small bt-msg-close" type="button" @click="error = ''">✕</button>
+      </div>
+      <div v-if="notice" class="alert ok">
+        {{ notice }}
+        <button class="btn small bt-msg-close" type="button" @click="notice = ''">✕</button>
+      </div>
+    </div>
 
     <template v-if="info">
       <!--
@@ -337,12 +462,96 @@ onMounted(() => {
       <section class="bt-block">
         <h3>Информация об оплате из сбербанка</h3>
         <div v-if="info.bank.error" class="alert warn">{{ info.bank.error }}</div>
-        <p v-else>
-          {{ info.order.sber_order_id }} Статус заказа: {{ info.bank.order_status }}
-          Расшифровка: <b>{{ info.bank.status_text }}</b> {{ info.bank.action_code_description }}
-          Платёж: {{ money(info.bank.amount) }} руб.
-          Возврат: {{ money(info.bank.refunded) }} руб.
-        </p>
+        <template v-else>
+          <p>
+            {{ info.order.sber_order_id }} Статус заказа: {{ info.bank.order_status }}
+            Расшифровка: <b>{{ info.bank.status_text }}</b> {{ info.bank.action_code_description }}
+            Платёж: {{ money(info.bank.amount) }} руб.
+            Возврат: {{ money(info.bank.refunded) }} руб.
+            <template v-if="info.bank.available !== undefined">
+              · Доступно к возврату по шлюзу: <b>{{ money(info.bank.available) }} руб.</b>
+            </template>
+            <template v-if="info.bank.payment_state">
+              · Состояние платежа: {{ info.bank.payment_state }}
+            </template>
+          </p>
+          <!--
+            Шлюз принимает возврат, пока расчёт по платежу не закрыт. На
+            проде возвраты в первый час проходили десятками, а попытка
+            вернуть удержание через 66 часов получила «Системная ошибка»
+            пять раз подряд. Поэтому предупреждаем ДО попытки.
+          -->
+          <p v-if="info.bank.stale" class="alert warn">
+            С оплаты прошло {{ info.bank.hours_since_paid }} ч. Шлюз может отказать в возврате:
+            расчёт по платежу уже закрыт. Если отказ придёт, в ответе будет вся техническая
+            информация — возвращать придётся через кассу или бухгалтерию.
+          </p>
+        </template>
+      </section>
+
+      <!--
+        Билеты заказа и что с каждым сделано. Главное, чего не хватало:
+        билет, по которому вернули ТОЛЬКО деньги (станция была недоступна),
+        ничем не отличался от остальных — место на станции числится
+        проданным, а по карточке этого не видно. Отсюда же переключение
+        между билетами, не закрывая окно.
+      -->
+      <section v-if="info.tickets && info.tickets.length" class="bt-block">
+        <h3>Билеты заказа</h3>
+        <table class="pages-table">
+          <thead>
+            <tr>
+              <th>Бланк</th>
+              <th>Место</th>
+              <th>Пассажир</th>
+              <th class="fm-num">Цена</th>
+              <th>Состояние</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="t in info.tickets"
+              :key="t.serial + t.number"
+              :class="{ 'bt-ticket-current': t.number === String(number), 'bt-ticket-warn': t.state === 'money_only' }"
+            >
+              <td class="nowrap">{{ t.serial }} {{ t.number }}</td>
+              <td>{{ t.place }}</td>
+              <td>{{ t.passenger }}</td>
+              <td class="fm-num">{{ money(t.price) }}</td>
+              <td>
+                <span v-if="t.state === 'active'" class="badge-on">действует</span>
+                <template v-else-if="t.state === 'money_only'">
+                  <span class="badge-off">деньги возвращены, на станции НЕ аннулирован</span>
+                  <br /><span class="muted small">место занято — дошлите аннулирование</span>
+                </template>
+                <template v-else-if="t.state === 'bank_pending'">
+                  <span class="badge-off">возвращён, деньги не ушли</span>
+                </template>
+                <template v-else-if="t.state === 'no_receipt'">
+                  <span class="badge-on">возвращён</span>
+                  <br /><span class="badge-off">чека нет</span>
+                </template>
+                <template v-else>
+                  <span class="badge-on">возвращён</span>
+                  <br /><span class="muted small">ФП {{ t.fiscal_sign }}</span>
+                </template>
+                <template v-if="t.refund_at">
+                  <br /><span class="muted small">{{ t.refund_at }}, {{ money(t.refund_amount) }} руб.</span>
+                </template>
+              </td>
+              <td class="fm-num">
+                <button
+                  v-if="t.number !== String(number)"
+                  class="btn small"
+                  type="button"
+                  @click="openTicket(t)"
+                >Открыть</button>
+                <span v-else class="muted small">открыт</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- Заказ и пассажиры (legacy показывал email + пароль ЛК) -->
@@ -431,6 +640,17 @@ onMounted(() => {
         </section>
 
 
+        <!--
+          Станция ответила отказом (билет уже возвращён, ведомость закрыта,
+          рейс ушёл). Карточка при этом работает: ниже есть и список
+          билетов, и прошлые возвраты — кассиру есть с чем работать.
+        -->
+        <section v-else-if="info.state === 'station_rejected'" class="bt-block">
+          <h3>Станция отказала в возврате</h3>
+          <p class="alert warn">{{ info.message }}</p>
+          <p class="muted bt-hint">Ответ станции: {{ info.station_error }} ({{ info.station_error_code }})</p>
+        </section>
+
         <section v-else-if="info.state === 'refundable'" class="bt-block">
           <h3>Возврат билета</h3>
           <p>
@@ -454,6 +674,12 @@ onMounted(() => {
             Рекомендуется: <b>{{ info.recommended_percent }} %</b>
           </p>
           <p>Для подтверждения операции кликните выполнить возврат.</p>
+          <p>
+            <label class="check" title="Чек можно пробить позже кнопкой у самой операции">
+              <input v-model="withoutReceipt" type="checkbox" />
+              без фискального чека
+            </label>
+          </p>
           <button v-if="can('back-ticket.refund')" class="btn primary" :disabled="confirming" @click="confirmRefund">
             {{ confirming ? 'Выполняется…' : 'Выполнить возврат' }}
           </button>
@@ -486,6 +712,12 @@ onMounted(() => {
               </option>
             </select>
             <span class="muted">станция рекомендуемый процент сейчас подсказать не может</span>
+          </p>
+          <p>
+            <label class="check">
+              <input v-model="withoutReceipt" type="checkbox" />
+              без фискального чека
+            </label>
           </p>
           <button
             v-if="can('back-ticket.refund')"
@@ -618,6 +850,12 @@ onMounted(() => {
         <!-- Все возвраты заказа и возврат удержания по ним -->
         <section v-if="info.refunds && info.refunds.length" class="bt-block">
           <h3>Возвраты по заказу</h3>
+          <p>
+            <label class="check" title="Действует на операции, запускаемые из этого блока">
+              <input v-model="withoutReceipt" type="checkbox" />
+              выполнять без фискального чека (чек можно пробить позже кнопкой «Пробить чек»)
+            </label>
+          </p>
           <table class="pages-table">
             <thead>
               <tr>
@@ -640,6 +878,25 @@ onMounted(() => {
                 <td>
                   <span v-if="r.money_refunded" class="badge-on">деньги возвращены</span>
                   <span v-else class="badge-off">{{ r.status === 'bank_failed' ? 'банк отказал' : 'ожидает банк' }}</span>
+                  <template v-if="r.money_refunded">
+                    <br />
+                    <span v-if="r.fiscal_sign" class="muted small">чек ФП {{ r.fiscal_sign }}</span>
+                    <span v-else class="badge-off">чека нет</span>
+                  </template>
+                  <template v-if="r.station_annul_pending">
+                    <br /><span class="badge-off">на станции не аннулирован</span>
+                  </template>
+                  <!-- Отказ банка: показываем ВСЮ технику, а не «Системную ошибку» -->
+                  <template v-if="r.bank_error">
+                    <br />
+                    <span class="muted small">{{ r.bank_error }}</span>
+                    <span v-if="r.attempts > 1" class="muted small"> · попыток: {{ r.attempts }}</span>
+                    <br />
+                    <button v-if="r.bank_response" class="btn small" type="button" @click="toggleDetails(r.id)">
+                      {{ openedDetails.has(r.id) ? 'Скрыть подробности' : 'Подробности отказа' }}
+                    </button>
+                    <pre v-if="r.bank_response && openedDetails.has(r.id)" class="bt-bank-details">{{ bankDetailsText(r.bank_response) }}</pre>
+                  </template>
                 </td>
                 <td class="fm-num">
                   <button
@@ -662,6 +919,18 @@ onMounted(() => {
                     </div>
                   </template>
                   <span v-else-if="r.penalty_returned" class="muted">удержание возвращено</span>
+
+                  <!--
+                    Чек по операции можно пробить вручную: очередь чеков
+                    запускается не всегда, да и ККТ могла отказать
+                    (закрытая смена, нет связи). Повторная команда второй
+                    чек не пробьёт — идемпотентность на стороне KKM API.
+                  -->
+                  <div v-if="r.receipt_needed && can('back-ticket.repair')" class="bt-row-action">
+                    <button class="btn small" :disabled="confirming" @click="registerReceipt(r)">
+                      Пробить чек
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -675,6 +944,41 @@ onMounted(() => {
 <style scoped>
 /* Ответ станции при недоступности — мелким, это служебная подробность. */
 .bt-hint { font-size: 12px; margin-top: -6px; }
+
+/*
+ * Сообщения карточки держатся у верхней кромки: карточка длинная, и
+ * прокрутив её, кассир не видел ни ошибки, ни подтверждения.
+ */
+.bt-messages {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-top: 6px;
+  background: var(--bg, #f5f6f8);
+}
+.bt-messages .alert { display: flex; align-items: flex-start; gap: 10px; }
+.bt-msg-close { margin-left: auto; flex: none; }
+
+/* Техника отказа шлюза: моноширинно, с переносами, не растягивает таблицу. */
+.bt-bank-details {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: #fafafa;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 420px;
+}
+.bt-row-action { margin-top: 6px; }
+
+/* Открытый билет выделен, а билет «вернули только деньги» — заметен:
+   по нему место на станции до сих пор числится проданным. */
+.bt-ticket-current td { box-shadow: inset 0 0 0 1px var(--accent); }
+.bt-ticket-warn td { background: #ffe3c2; }
+.nowrap { white-space: nowrap; }
+.small { font-size: 11px; }
 .bt-block { margin: 14px 0; padding: 12px 16px; background: #fff; border: 1px solid var(--line, #d8dee8); border-radius: 8px; }
 .bt-block h3 { margin: 0 0 8px; }
 .bt-passengers { list-style: none; padding-left: 0; }

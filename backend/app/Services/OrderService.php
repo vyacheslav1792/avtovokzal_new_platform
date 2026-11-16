@@ -128,7 +128,9 @@ class OrderService
 
         $payment = $this->payments->register(
             str_replace('-', '', $order->id), // шлюз не принимает UUID с дефисами
-            (int) floor($total * 100),
+            // round: floor на суммах вида 486.26 терял копейку, и заказ
+            // регистрировался в шлюзе дешевле, чем показан покупателю.
+            (int) round($total * 100),
             $this->paymentDescription($order),
             $this->normalizePhone($data['phone'] ?? ''),
         );
