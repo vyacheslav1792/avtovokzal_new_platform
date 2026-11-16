@@ -46,6 +46,13 @@ class AdminRefundController extends Controller
             'serial' => ['required', 'string', 'max:20'],
             'number' => ['required', 'string', 'max:20'],
             'percent' => ['required', 'integer'],
+            /*
+             * Возврат при недоступной базе станции: деньги покупателю
+             * возвращаем сразу, аннулирование бланка досылаем позже
+             * (кнопка «Дослать аннулирование»). Сервер сам проверит, что
+             * станция действительно не отвечает.
+             */
+            'without_station' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->confirm(
@@ -53,7 +60,34 @@ class AdminRefundController extends Controller
             $data['serial'],
             $data['number'],
             (int) $data['percent'],
+            (bool) ($data['without_station'] ?? false),
         )]);
+    }
+
+    /**
+     * Дослать на станцию аннулирование по возврату, сделанному без неё.
+     * Право то же, что у возврата денег: операция меняет ведомость станции.
+     */
+    public function annul(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+            'refund_id' => ['required', 'uuid'],
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->refunds->annulAtStation(
+            $data['order_id'],
+            $data['refund_id'],
+        )]);
+    }
+
+    /** Возвраты, ждущие аннулирования на станции (раздел АИС). */
+    public function pending(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => ['items' => $this->refunds->pendingAnnulments()],
+        ]);
     }
 
     /**

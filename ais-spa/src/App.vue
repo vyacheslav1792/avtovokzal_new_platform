@@ -126,9 +126,12 @@ watch(isAuthenticated, (yes) => {
 
           <!-- Не только отчёты: сюда переезжают админские функции сайта.
                Пункт показывается, если у сотрудника есть право его открыть. -->
-          <template v-if="canAny('customers.view', 'contacts.view', 'pages.view', 'news.view', 'blocks.view', 'menu.view', 'feedback.view', 'spam-rules.view')">
+          <template v-if="canAny('customers.view', 'back-ticket.inspect', 'contacts.view', 'pages.view', 'news.view', 'blocks.view', 'menu.view', 'feedback.view', 'spam-rules.view')">
             <div class="nav-group-title">Администрирование</div>
             <router-link v-if="can('customers.view')" class="nav-item" to="/customers">Покупатели сайта</router-link>
+            <router-link v-if="can('back-ticket.inspect')" class="nav-item" to="/refunds-pending">
+              Возвраты без станции
+            </router-link>
             <router-link v-if="can('contacts.view')" class="nav-item" to="/contacts">Контакты сайта</router-link>
             <router-link v-if="can('pages.view')" class="nav-item" to="/pages">Страницы сайта</router-link>
             <router-link v-if="can('news.view')" class="nav-item" to="/news">Новости сайта</router-link>

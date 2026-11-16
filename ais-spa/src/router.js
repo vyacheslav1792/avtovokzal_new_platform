@@ -15,6 +15,7 @@ import NewsEditView from './views/NewsEditView.vue'
 import NewsListView from './views/NewsListView.vue'
 import PageEditView from './views/PageEditView.vue'
 import PagesView from './views/PagesView.vue'
+import PendingRefundsView from './views/PendingRefundsView.vue'
 import ProfileView from './views/ProfileView.vue'
 import ReportView from './views/ReportView.vue'
 import RolesView from './views/RolesView.vue'
@@ -46,6 +47,9 @@ import StationsView from './views/StationsView.vue'
 const routes = [
   { path: '/', component: HomeView },
   { path: '/back-ticket', component: BackTicketView },
+  // Возвраты, по которым станция ещё не знает об аннулировании (у станции
+  // не было связи в момент возврата денег).
+  { path: '/refunds-pending', component: PendingRefundsView },
   { path: '/customers', component: CustomersView },
   // Гость — это адрес, а не запись в базе, поэтому у него свой маршрут:
   // в адресах бывают точки и плюсы, и путать их с номером кабинета нельзя.

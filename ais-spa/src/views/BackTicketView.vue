@@ -26,6 +26,7 @@ const info = ref(null)       // ответ inspect
 const loading = ref(false)
 const error = ref('')
 const done = ref(null)       // результат confirm/repair
+const notice = ref('')       // итог досылки аннулирования на станцию
 const percent = ref(-1)      // -1 = «Не выбран» (как в legacy)
 const confirming = ref(false)
 
@@ -69,6 +70,56 @@ async function confirmRefund() {
       number: number.value,
       percent: percent.value,
     })
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/**
+ * Возврат ДЕНЕГ при недоступной базе станции: аннулирование билета
+ * досылается позже кнопкой. Сервер сам проверит, что станция правда не
+ * отвечает, — обойти обычный путь этой кнопкой нельзя.
+ */
+async function confirmWithoutStation() {
+  if (percent.value < 0) {
+    error.value = 'Не выбран процент удержаний!'
+    return
+  }
+  const ok = window.confirm(
+    'Вернуть деньги, не аннулируя билет на станции?\n\n'
+    + 'Покупатель получит деньги сейчас. На станции билет останется проданным, '
+    + 'а место — занятым, пока вы не дошлёте аннулирование (появится в разделе '
+    + '«Возвраты без станции»).',
+  )
+  if (!ok) return
+
+  confirming.value = true
+  error.value = ''
+  try {
+    done.value = await req('confirm', {
+      order_id: orderId.value,
+      serial: serial.value,
+      number: number.value,
+      percent: percent.value,
+      without_station: true,
+    })
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/** Дослать аннулирование на станцию (станция снова на связи). */
+async function annulAtStation(refundId) {
+  confirming.value = true
+  error.value = ''
+  try {
+    const result = await req('annul', { order_id: orderId.value, refund_id: refundId })
+    notice.value = result.message
+    await load()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -237,6 +288,7 @@ onMounted(() => {
 
     <div v-if="loading" class="muted loading">Загрузка данных заказа…</div>
     <div v-if="error" class="alert">{{ error }}</div>
+    <div v-if="notice" class="alert ok">{{ notice }}</div>
 
     <template v-if="info">
       <!--
@@ -345,6 +397,82 @@ onMounted(() => {
           <p>Для подтверждения операции кликните выполнить возврат.</p>
           <button v-if="can('back-ticket.refund')" class="btn primary" :disabled="confirming" @click="confirmRefund">
             {{ confirming ? 'Выполняется…' : 'Выполнить возврат' }}
+          </button>
+        </section>
+
+        <!--
+          База станции не отвечает (например, у станции нет интернета).
+          Деньги покупателю вернуть всё равно надо — аннулирование билета
+          дошлём, когда связь появится.
+        -->
+        <section v-else-if="info.state === 'refundable_without_station'" class="bt-block">
+          <h3>Возврат билета — станция недоступна</h3>
+          <p class="alert warn">{{ info.message }}</p>
+          <p>
+            Билет Серия {{ info.ticket.serial }} Номер {{ info.ticket.number }}<br />
+            Пассажир: {{ info.ticket.passenger }}<br />
+            Место: {{ info.ticket.place }}.<br />
+            Цена: {{ money(info.ticket.price) }} руб.<br />
+            Багажных мест: {{ info.ticket.baggage }} шт. по {{ money(info.ticket.price_bag) }} руб<br />
+            на рейс <b>{{ info.trip_name }}</b><br />
+            от <b>{{ info.order.from_name }}</b> до <b>{{ info.order.to_name }}</b>
+          </p>
+          <p class="muted bt-hint">Ответ станции: {{ info.station_error }}</p>
+          <p>
+            Процент удержаний:
+            <select v-model.number="percent">
+              <option :value="-1">Не выбран</option>
+              <option v-for="v in info.variants" :key="v.percent" :value="v.percent">
+                {{ v.percent }}% — к возврату {{ money(v.amount) }} руб.
+              </option>
+            </select>
+            <span class="muted">станция рекомендуемый процент сейчас подсказать не может</span>
+          </p>
+          <button
+            v-if="can('back-ticket.refund')"
+            class="btn primary"
+            :disabled="confirming"
+            @click="confirmWithoutStation"
+          >
+            {{ confirming ? 'Выполняется…' : 'Вернуть деньги без аннулирования' }}
+          </button>
+        </section>
+
+        <!--
+          Деньги вернули раньше, станция тогда не отвечала: теперь можно
+          дослать аннулирование — место на станции освободится.
+        -->
+        <section v-else-if="info.state === 'station_annul_pending'" class="bt-block">
+          <h3>Ждёт аннулирования на станции</h3>
+          <p class="alert warn">{{ info.message }}</p>
+          <p>
+            Возврат от {{ info.refund.refunded_at }} на {{ money(info.refund.amount) }} руб.
+            (удержано {{ info.refund.penalty_percent }}%).
+            <template v-if="info.refund.money_refunded_at">
+              <br />Деньги возвращены: {{ info.refund.money_refunded_at }}.
+            </template>
+            <template v-if="info.refund.station_annul_attempted_at">
+              <br />Последняя попытка досылки: {{ info.refund.station_annul_attempted_at }}.
+            </template>
+            <template v-if="info.refund.station_annul_error">
+              <br /><span class="muted">Причина: {{ info.refund.station_annul_error }}</span>
+            </template>
+          </p>
+          <button
+            v-if="can('back-ticket.refund')"
+            class="btn primary"
+            :disabled="confirming"
+            @click="annulAtStation(info.refund.id)"
+          >
+            {{ confirming ? 'Выполняется…' : 'Дослать аннулирование на станцию' }}
+          </button>
+          <button
+            v-if="can('back-ticket.repair') && !info.refund.money_refunded_at"
+            class="btn"
+            :disabled="confirming"
+            @click="repairMoney"
+          >
+            Вернуть деньги по банку
           </button>
         </section>
 
@@ -486,6 +614,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Ответ станции при недоступности — мелким, это служебная подробность. */
+.bt-hint { font-size: 12px; margin-top: -6px; }
 .bt-block { margin: 14px 0; padding: 12px 16px; background: #fff; border: 1px solid var(--line, #d8dee8); border-radius: 8px; }
 .bt-block h3 { margin: 0 0 8px; }
 .bt-passengers { list-style: none; padding-left: 0; }

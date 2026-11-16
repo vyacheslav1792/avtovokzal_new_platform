@@ -33,6 +33,14 @@ class RefundController extends Controller
             'tickets' => ['required', 'array', 'min:1', 'max:20'],
             'tickets.*.serial' => ['required', 'string', 'max:20'],
             'tickets.*.number' => ['required', 'string', 'max:20'],
+            /*
+             * Дата, на которую перенести запись возврата в журнале станции.
+             * Нужна для возвратов, сделанных при недоступной станции:
+             * деньги покупателю вернули тогда, а аннулирование дошло
+             * позже — см. BusterGateway::backdateRefundRows. Только с
+             * admin_mode: это инструмент кассира, не продажа через сайт.
+             */
+            'backdate' => ['sometimes', 'nullable', 'date', 'before_or_equal:now'],
         ]);
 
         $agent = $request->attributes->get('agent');
@@ -57,6 +65,8 @@ class RefundController extends Controller
             (int) $data['operation'],
             $preview,
             $adminMode,
+            // Переносить дату вправе только админский возврат.
+            $adminMode ? ($data['backdate'] ?? null) : null,
         );
 
         $refund = Refund::create([
@@ -80,6 +90,8 @@ class RefundController extends Controller
                 'penalties' => $result['penalties'],
                 'trip_name' => $result['trip_name'],
                 'datetime_start' => $result['datetime_start'],
+                // Итог переноса даты в журнале станции (null — не просили).
+                'backdate' => $result['backdate'] ?? null,
             ],
         ], 201);
     }

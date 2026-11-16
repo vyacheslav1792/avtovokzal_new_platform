@@ -191,6 +191,16 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:back-ticket.refund');
     Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair'])
         ->middleware('ais.can:back-ticket.repair');
+    /*
+     * Досылка аннулирования на станцию по возврату, сделанному при её
+     * недоступности (деньги покупателю уже вернули). Право — как у
+     * возврата: операция меняет ведомость станции. Список ожидающих
+     * доступен на просмотр.
+     */
+    Route::post('admin/refunds/annul', [AdminRefundController::class, 'annul'])
+        ->middleware('ais.can:back-ticket.refund');
+    Route::get('admin/refunds/pending', [AdminRefundController::class, 'pending'])
+        ->middleware('ais.can:back-ticket.inspect');
 
     /*
      * Покупатели сайта: кабинеты и покупавшие без регистрации.

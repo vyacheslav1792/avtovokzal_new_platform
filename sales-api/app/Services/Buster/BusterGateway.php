@@ -626,8 +626,14 @@ SQL;
      * @param  bool  $adminMode  админский возврат (legacy admin_mode):
      *                           разрешён и после отправления рейса (IS_PRN)
      */
-    public function refund(int $awtcod, array $tickets, int $operation, bool $preview, bool $adminMode = false): array
-    {
+    public function refund(
+        int $awtcod,
+        array $tickets,
+        int $operation,
+        bool $preview,
+        bool $adminMode = false,
+        ?string $backdate = null,
+    ): array {
         $nTickets = '';
         $dobTickets = '';
         $conditions = [];
@@ -650,6 +656,11 @@ SQL;
             }
         }
 
+        // Время станции ДО вызова: по нему потом находим записи, которые
+        // создала именно эта операция (у SALE нет суррогатного ключа —
+        // первичный ключ составной и начинается с даты и времени продажи).
+        $startedAt = $backdate === null || $preview ? null : $this->stationNow();
+
         $this->db->begin();
 
         try {
@@ -662,6 +673,12 @@ SQL;
         } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
+        }
+
+        $backdated = null;
+
+        if ($startedAt !== null) {
+            $backdated = $this->backdateRefundRows($tickets, $startedAt, $backdate);
         }
 
         $row = $rows[0] ?? [];
@@ -688,7 +705,99 @@ SQL;
             )),
             'trip_name' => implode('–', array_slice($marshParts, 0, 2)),
             'datetime_start' => $dateTimeStart[0] ?? null,
+            // Итог переноса даты возврата в журнале станции: сколько
+            // записей сдвинуто и почему не вышло (null — не просили).
+            'backdate' => $backdated,
             'raw' => $row,
+        ];
+    }
+
+    /** Текущие дата и время ПО ЧАСАМ СТАНЦИИ, а не нашего сервера. */
+    private function stationNow(): string
+    {
+        $row = $this->db->select('select cast(current_timestamp as timestamp) as now from rdb$database');
+
+        return (string) ($row[0]['NOW'] ?? date('Y-m-d H:i:s'));
+    }
+
+    /**
+     * Перенести дату возврата в журнале станции на дату, когда деньги
+     * покупателю реально вернули (возврат при недоступной станции: деньги
+     * отдали сразу, аннулирование дослали позже).
+     *
+     * ЧТО ВАЖНО ЗНАТЬ ПРО ЭТУ ПРАВКУ:
+     *  - `DATESALE` и `TIMESALE` входят в ПЕРВИЧНЫЙ КЛЮЧ SALE, то есть это
+     *    изменение ключа. Внешних ключей на SALE в базе нет, поэтому связи
+     *    не рвутся, но при совпадении ключа с существующей записью
+     *    обновление будет отклонено — тогда просто оставляем дату как есть;
+     *  - финансовые итоги станции (КСР) пишет триггер SALE_FINKSR_AI0 при
+     *    ВСТАВКЕ записи и по дате вставки; UPDATE их не переносит
+     *    (UPDATE-триггер финитогов срабатывает лишь в узком случае
+     *    kkm_ok=0, recmove=2, type_tick=6). Значит журнал возвратов
+     *    сдвинется, а финитоги останутся на дате фактического
+     *    аннулирования — расхождение, о котором сказано в описании
+     *    выключателя в АИС;
+     *  - правим ТОЛЬКО записи, созданные этим вызовом: отбираем по номерам
+     *    бланков, типу операции (возврат) и времени не раньше начала
+     *    операции. Старые возвраты и чужие записи не трогаем.
+     *
+     * @param  array<int, array<string, mixed>>  $tickets
+     * @return array<string, mixed>
+     */
+    private function backdateRefundRows(array $tickets, string $startedAt, string $target): array
+    {
+        $date = date('Y-m-d', strtotime($target));
+        $time = date('H:i:s', strtotime($target));
+
+        $updated = 0;
+        $errors = [];
+
+        foreach ($tickets as $t) {
+            /*
+             * «Не раньше начала операции» сравниваем датой и временем
+             * ОТДЕЛЬНО: в SALE это два поля (DATE и TIME), а складывать
+             * timestamp со time Firebird 2.5 не умеет.
+             */
+            $rows = $this->db->select(
+                'select DATESALE, TIMESALE, AWTCODSALE, WRKCOD, TYPE_OPER, N_TICKET, DOB_N_TICKET, DATESTART
+                 from SALE
+                 where N_TICKET = ? and DOB_N_TICKET = ? and TYPE_OPER <> 0
+                   and DATESALE >= ? and (DATESALE > ? or TIMESALE >= ?)',
+                [
+                    (int) $t['number'],
+                    (int) $t['serial'],
+                    date('Y-m-d', strtotime($startedAt)),
+                    date('Y-m-d', strtotime($startedAt)),
+                    date('H:i:s', strtotime($startedAt)),
+                ],
+            );
+
+            foreach ($rows as $row) {
+                try {
+                    $this->db->begin();
+                    $this->db->execute(
+                        'update SALE set DATESALE = ?, TIMESALE = ?
+                         where DATESALE = ? and TIMESALE = ? and AWTCODSALE = ? and WRKCOD = ?
+                           and TYPE_OPER = ? and N_TICKET = ? and DOB_N_TICKET = ? and DATESTART = ?',
+                        [
+                            $date, $time,
+                            $row['DATESALE'], $row['TIMESALE'], $row['AWTCODSALE'], $row['WRKCOD'],
+                            $row['TYPE_OPER'], $row['N_TICKET'], $row['DOB_N_TICKET'], $row['DATESTART'],
+                        ],
+                    );
+                    $this->db->commit();
+                    $updated++;
+                } catch (\Throwable $e) {
+                    $this->db->rollBack();
+                    $errors[] = mb_substr($e->getMessage(), 0, 180);
+                }
+            }
+        }
+
+        return [
+            'requested' => $target,
+            'updated_rows' => $updated,
+            'errors' => $errors,
         ];
     }
 

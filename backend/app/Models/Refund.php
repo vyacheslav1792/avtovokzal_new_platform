@@ -24,6 +24,15 @@ class Refund extends Model
         'money_refunded_at' => 'datetime',
         'legacy' => 'array',
         'baggage_count' => 'int',
+        /*
+         * Состояние на станции — отдельно от денег: возврат, сделанный при
+         * недоступной станции, деньги покупателю отдаёт сразу, а
+         * аннулирование бланка получает позже (досылка из АИС).
+         */
+        'station_annulled_at' => 'datetime',
+        'station_annul_pending' => 'bool',
+        'station_annul_attempted_at' => 'datetime',
+        'station_backdated_at' => 'datetime',
     ];
 
     /** Возврат билета: место освобождается, багаж едет вместе с ним. */

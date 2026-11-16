@@ -197,7 +197,16 @@ export async function impersonateCustomer(id) {
 /* Админский возврат билета (страница /back-ticket) */
 
 /**
- * Одно действие возврата: inspect | confirm | baggage | penalty | repair.
+ * Возвраты, ждущие аннулирования на станции (деньги отданы, станция была
+ * недоступна). Рабочий список раздела «Возвраты без станции».
+ */
+export async function fetchPendingRefunds() {
+  return (await req(`${API}/admin/refunds/pending`)).data
+}
+
+/**
+ * Одно действие возврата: inspect | confirm | baggage | penalty | repair |
+ * annul (досылка аннулирования на станцию).
  * Ходит через общий слой запросов, поэтому код подтверждения (возврат денег
  * и починка зависшего возврата помечены `confirm` в каталоге прав)
  * спрашивается окном, а не превращается в ошибку «Действие требует

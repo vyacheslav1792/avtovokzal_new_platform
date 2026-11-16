@@ -163,6 +163,10 @@ class SiteRefundsReport implements Report
                 'r.id', 'r.kind', 'r.serial', 'r.number', 'r.place', 'r.penalty_percent',
                 'r.ticket_price', 'r.baggage_price', 'r.amount', 'r.status',
                 'r.money_refunded_at', 'r.fiscal_sign', 'r.created_at',
+                // Аннулирован ли бланк в ведомости станции: возврат при
+                // недоступной станции отдаёт деньги сразу, а аннулирование
+                // досылается позже из АИС.
+                'r.station_annul_pending', 'r.station_annulled_at',
                 'o.id as order_id', 'o.from_name', 'o.to_name', 'o.date_start',
                 'o.email', 'o.phone', 'o.awtcod',
                 DB::raw('p.id is not null as penalty_returned'),
@@ -312,6 +316,9 @@ class SiteRefundsReport implements Report
                 // быть не должно, подсвечивать нечего.
                 $this->isBlankMark($r) => '',
                 ! $r['money_refunded_at'] => 'row-red',
+                // Ждёт досылки аннулирования: с деньгами порядок, но место
+                // на станции занято — дело не закрыто.
+                ! empty($r['station_annul_pending']) && empty($r['station_annulled_at']) => 'row-station',
                 ! $r['fiscal_sign'] => 'row-orange',
                 default => 'row-blue',
             },
@@ -333,6 +340,18 @@ class SiteRefundsReport implements Report
     {
         if ($this->isBlankMark($r)) {
             return 'бланк аннулирован, деньги возвращены с билетом';
+        }
+
+        /*
+         * Деньги вернули, когда база станции была недоступна: в ведомости
+         * станции билет ещё числится проданным, место занято. Это главное,
+         * что нужно сказать про такую строку — аннулирование досылают
+         * кнопкой в АИС («Возвраты без станции»).
+         */
+        if (! empty($r['station_annul_pending']) && empty($r['station_annulled_at'])) {
+            return $r['money_refunded_at']
+                ? 'деньги возвращены, на станции НЕ аннулирован'
+                : 'на станции не аннулирован, деньги не возвращены';
         }
 
         return match ($r['status']) {

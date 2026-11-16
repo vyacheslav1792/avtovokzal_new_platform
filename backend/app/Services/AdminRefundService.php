@@ -7,6 +7,7 @@ use App\Jobs\SendRefundEmail;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Ticket;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -51,6 +52,8 @@ class AdminRefundService
     public function __construct(
         private readonly SalesApiClient $salesApi,
         private readonly PaymentGateway $payments,
+        // Настройка «переносить дату возврата в журнале станции» (АИС).
+        private readonly SettingService $settings,
     ) {}
 
     /**
@@ -95,12 +98,44 @@ class AdminRefundService
             return $result + $this->refundState($refund);
         }
 
-        // Предпросмотр возврата на станции (ONLY_SHOW, admin_mode).
-        $preview = $this->stationRefund($order, $ticket, preview: true);
+        /*
+         * Предпросмотр возврата на станции (ONLY_SHOW, admin_mode). Если
+         * база станции не отвечает (у Кром, например, нет интернета),
+         * карточка не должна превращаться в ошибку: деньги покупателю
+         * вернуть всё равно нужно, поэтому предлагаем возврат без станции
+         * и честно пишем, чем он отличается.
+         */
+        try {
+            $preview = $this->stationRefund($order, $ticket, preview: true);
+        } catch (SalesApiException $e) {
+            if ($e->errorCode !== 'station_unavailable') {
+                throw $e;
+            }
+
+            return $result + [
+                'state' => 'refundable_without_station',
+                'station_unavailable' => true,
+                'station_error' => $e->getMessage(),
+                'trip_name' => $order->trip_name,
+                'datetime_start' => null,
+                // Станция процент не подскажет — выбирает кассир.
+                'recommended_percent' => -1,
+                'variants' => array_map(fn (int $p) => [
+                    'percent' => $p,
+                    'amount' => $this->refundAmount($order, $ticket, $p),
+                ], self::PERCENTS),
+                'message' => 'База станции недоступна. Можно вернуть покупателю деньги сейчас, '
+                    .'а аннулирование билета на станции дослать позже — место до этого '
+                    .'останется занятым, и сумму станция не подскажет: процент удержания '
+                    .'выбирается вручную.',
+            ];
+        }
+
         $recommended = (int) round((float) ($preview['penalties'][0] ?? 0));
 
         return $result + [
             'state' => 'refundable',
+            'station_unavailable' => false,
             'trip_name' => $preview['trip_name'] ?: $order->trip_name,
             'datetime_start' => $preview['datetime_start'],
             'recommended_percent' => $recommended,
@@ -118,8 +153,13 @@ class AdminRefundService
      * до процедуры KS_ANN_TICKET_FROM_AW не доходил) — процент админа
      * влияет только на сумму, возвращаемую покупателю на карту.
      */
-    public function confirm(string $orderId, string $serial, string $number, int $percent): array
-    {
+    public function confirm(
+        string $orderId,
+        string $serial,
+        string $number,
+        int $percent,
+        bool $withoutStation = false,
+    ): array {
         // Legacy: PROC<0 → «Не выбран процент удержаний!»; варианты — из формы.
         if (! in_array($percent, self::PERCENTS, true)) {
             throw ValidationException::withMessages(['percent' => 'Не выбран процент удержаний!']);
@@ -130,6 +170,21 @@ class AdminRefundService
 
         if ($this->findRefund($order, $ticket)) {
             throw ValidationException::withMessages(['ticket' => 'Билет уже возвращён']);
+        }
+
+        /*
+         * Станция недоступна (у Кром, например, нет интернета), а покупатель
+         * просит деньги. Тогда возвращаем ДЕНЬГИ сразу, а аннулирование
+         * бланка в ведомости станции досылаем позже кнопкой в АИС.
+         *
+         * Разрешаем это только когда станция ДЕЙСТВИТЕЛЬНО не отвечает:
+         * обычный путь надёжнее (сумму и процент подсказывает станция, место
+         * сразу освобождается), и подменять его «быстрым» нельзя.
+         */
+        if ($withoutStation) {
+            $this->assertStationUnavailable($order, $ticket);
+
+            return $this->confirmWithoutStation($order, $ticket, $percent);
         }
 
         // Аннулирование в ведомости станции (back=true, admin_mode).
@@ -151,6 +206,8 @@ class AdminRefundService
             'baggage_price' => $this->baggageToRefund($order, $ticket) * (float) $ticket->price_bag,
             'amount' => $amount,
             'status' => Refund::STATUS_REFUNDED,
+            // Бланк аннулирован сейчас же — обычный путь.
+            'station_annulled_at' => now(),
         ]);
         $order->touch();
 
@@ -165,6 +222,195 @@ class AdminRefundService
             'amount' => $amount,
             'bank_error' => $bankError,
         ];
+    }
+
+    /**
+     * Убедиться, что база станции действительно не отвечает.
+     *
+     * Спрашиваем станцию предварительным расчётом (preview — он ничего не
+     * меняет): ответила — значит возврат надо делать обычным путём, и
+     * «возврат без станции» мы не разрешаем. Отказала недоступностью —
+     * путь открыт.
+     */
+    private function assertStationUnavailable(Order $order, Ticket $ticket): void
+    {
+        try {
+            $this->stationRefund($order, $ticket, preview: true);
+        } catch (SalesApiException $e) {
+            if ($e->errorCode === 'station_unavailable') {
+                return;
+            }
+
+            /*
+             * Станция ответила, но возврат отклонила (билет уже возвращён,
+             * бланк не найден). Это НЕ повод обходить станцию — причину
+             * показываем как есть.
+             */
+            throw $e;
+        }
+
+        throw ValidationException::withMessages([
+            'ticket' => 'Станция отвечает — выполните обычный возврат, он надёжнее: '
+                .'станция подскажет сумму и сразу освободит место.',
+        ]);
+    }
+
+    /**
+     * Возврат ДЕНЕГ без аннулирования на станции.
+     *
+     * Сумму считаем по своим данным (цена билета, багаж, процент админа) —
+     * станцию спросить не можем. Место на станции до досылки остаётся
+     * проданным: его не продадут второй раз, но и свободным оно не станет.
+     * Это осознанная плата за то, чтобы покупатель получил деньги сегодня,
+     * а не «когда появится интернет».
+     *
+     * @return array<string, mixed>
+     */
+    private function confirmWithoutStation(Order $order, Ticket $ticket, int $percent): array
+    {
+        $amount = $this->refundAmount($order, $ticket, $percent);
+
+        $refund = Refund::create([
+            'order_id' => $order->id,
+            'serial' => (string) $ticket->serial,
+            'number' => (string) $ticket->number,
+            'place' => (int) $ticket->place,
+            'penalty_percent' => $percent,
+            'ticket_price' => (float) $ticket->price,
+            'baggage_price' => $this->baggageToRefund($order, $ticket) * (float) $ticket->price_bag,
+            'amount' => $amount,
+            'status' => Refund::STATUS_REFUNDED,
+            // Главное отличие: на станции бланк ещё НЕ аннулирован.
+            'station_annulled_at' => null,
+            'station_annul_pending' => true,
+            'station_annul_error' => 'База станции недоступна на момент возврата денег',
+            'station_annul_attempted_at' => now(),
+        ]);
+        $order->touch();
+
+        $bankError = $this->refundMoney($refund, $order);
+
+        SendRefundEmail::dispatch($refund->id)->onQueue('emails');
+
+        Log::warning('Возврат денег без аннулирования на станции', [
+            'order_id' => $order->id,
+            'refund_id' => $refund->id,
+            'awtcod' => $order->awtcod,
+            'ticket' => $ticket->serial.'/'.$ticket->number,
+            'amount' => $amount,
+        ]);
+
+        return [
+            'trip_name' => $order->trip_name,
+            'datetime_start' => null,
+            'amount' => $amount,
+            'bank_error' => $bankError,
+            'station_annul_pending' => true,
+            'message' => 'Деньги возвращены. На станции билет ПОКА НЕ аннулирован — '
+                .'дошлите аннулирование, когда у станции появится связь '
+                .'(раздел «Возвраты без станции»). До этого место остаётся занятым.',
+        ];
+    }
+
+    /**
+     * Дослать аннулирование на станцию по возврату, сделанному без неё.
+     *
+     * Дата возврата в журнале станции переносится на дату, когда деньги
+     * реально вернули, — если это включено настройкой
+     * `refund_station_backdate` (там же сказано, что сводные финансовые
+     * итоги станции при этом остаются на дате досылки).
+     *
+     * @return array<string, mixed>
+     */
+    public function annulAtStation(string $orderId, string $refundId): array
+    {
+        $order = $this->findOrder($orderId);
+        $refund = Refund::where('order_id', $order->id)->find($refundId);
+
+        if (! $refund) {
+            throw ValidationException::withMessages(['refund' => 'Возврат не найден в этом заказе']);
+        }
+
+        if (! $refund->station_annul_pending || $refund->station_annulled_at) {
+            throw ValidationException::withMessages([
+                'refund' => 'Этот возврат на станции уже аннулирован — досылать нечего.',
+            ]);
+        }
+
+        if ($refund->kind === Refund::KIND_PENALTY) {
+            throw ValidationException::withMessages([
+                'refund' => 'Возврат удержания станции не касается: аннулировать нечего.',
+            ]);
+        }
+
+        $ticket = $this->findTicket($order, (string) $refund->serial, (string) $refund->number);
+        $backdate = $this->settings->get('refund_station_backdate')
+            ? ($refund->money_refunded_at ?? $refund->created_at)->format('Y-m-d H:i:s')
+            : null;
+
+        try {
+            $result = $this->salesApi->refund(array_filter([
+                'awtcod' => $order->awtcod,
+                'operation' => 1,
+                'preview' => false,
+                'admin_mode' => true,
+                'tickets' => $this->blanksToAnnul($order, $ticket),
+                // Ключ не передаём вовсе, когда перенос выключен: пустое
+                // значение API продаж отвергает проверкой «date».
+                'backdate' => $backdate,
+            ], fn ($v) => $v !== null))['data'];
+        } catch (SalesApiException $e) {
+            // Станция всё ещё недоступна — это не ошибка оператора, просто
+            // ждём дальше. Остальные отказы показываем как есть.
+            $refund->update([
+                'station_annul_attempted_at' => now(),
+                'station_annul_error' => mb_substr($e->getMessage(), 0, 500),
+            ]);
+
+            throw $e;
+        }
+
+        $backdateResult = $result['backdate'] ?? null;
+
+        $refund->update([
+            'station_annulled_at' => now(),
+            'station_annul_pending' => false,
+            'station_annul_attempted_at' => now(),
+            'station_annul_error' => null,
+            'station_backdated_at' => ($backdateResult['updated_rows'] ?? 0) > 0 ? now() : null,
+        ]);
+        $order->touch();
+
+        return [
+            'annulled_at' => $refund->station_annulled_at?->format('d.m.Y H:i'),
+            'total_refund' => (float) ($result['total_refund'] ?? 0),
+            'backdate' => $backdateResult,
+            'message' => $this->annulMessage($refund, $backdate, $backdateResult),
+        ];
+    }
+
+    /** @param  array<string, mixed>|null  $backdateResult */
+    private function annulMessage(Refund $refund, ?string $backdate, ?array $backdateResult): string
+    {
+        $base = 'Билет аннулирован на станции, место освободилось.';
+
+        if ($backdate === null) {
+            return $base.' Дата возврата в журнале станции — сегодняшняя '
+                .'(перенос даты выключен в настройках сайта).';
+        }
+
+        $rows = (int) ($backdateResult['updated_rows'] ?? 0);
+        $errors = $backdateResult['errors'] ?? [];
+
+        if ($rows > 0) {
+            return $base.' Дата возврата в журнале станции перенесена на '
+                .($refund->money_refunded_at ?? $refund->created_at)->format('d.m.Y H:i')
+                .'. Сводные финансовые итоги станции (КСР) остались на сегодняшней дате.';
+        }
+
+        return $base.' Перенести дату возврата не удалось'
+            .($errors ? ': '.implode('; ', (array) $errors) : '')
+            .' — в журнале станции осталась сегодняшняя дата.';
     }
 
     /**
@@ -342,6 +588,23 @@ class AdminRefundService
     /** Состояние существующего возврата (ветки «Проверка возврата» legacy). */
     private function refundState(Refund $refund): array
     {
+        /*
+         * Возврат сделан при недоступной станции: деньги могли уже уйти, но
+         * бланк на станции не аннулирован. Это главное, что нужно показать
+         * кассиру — остальные состояния (чек, банк) ниже.
+         */
+        if ($refund->station_annul_pending && ! $refund->station_annulled_at) {
+            return [
+                'state' => 'station_annul_pending',
+                'message' => $refund->money_refunded_at
+                    ? 'Деньги возвращены, но на станции билет НЕ аннулирован — место занято. '
+                        .'Дошлите аннулирование, когда у станции появится связь.'
+                    : 'На станции билет не аннулирован, и деньги по банку не прошли. '
+                        .'Нужно и дослать аннулирование, и вернуть платёж.',
+                'refund' => $this->refundInfo($refund),
+            ];
+        }
+
         if (! $refund->money_refunded_at && (float) $refund->amount > 0) {
             return [
                 'state' => 'repair_money',
@@ -756,7 +1019,57 @@ class AdminRefundService
             'money_refunded_at' => $refund->money_refunded_at?->format('Y-m-d H:i:s'),
             'fiscal_sign' => $refund->fiscal_sign,
             'bank_error' => $refund->bank_error,
+            'id' => $refund->id,
+            'kind' => $refund->kind,
+            // Состояние на станции — независимо от денег.
+            'station_annulled_at' => $refund->station_annulled_at?->format('d.m.Y H:i'),
+            'station_annul_pending' => (bool) $refund->station_annul_pending,
+            'station_annul_error' => $refund->station_annul_error,
+            'station_annul_attempted_at' => $refund->station_annul_attempted_at?->format('d.m.Y H:i'),
+            'station_backdated_at' => $refund->station_backdated_at?->format('d.m.Y H:i'),
         ];
+    }
+
+    /**
+     * Возвраты, по которым станция ещё не знает об аннулировании: деньги
+     * покупателю отданы, бланк на станции числится проданным.
+     *
+     * Это рабочий список раздела «Возвраты без станции» в АИС: пока он не
+     * пуст, у станции заняты места под билеты, за которые уже вернули
+     * деньги.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function pendingAnnulments(): array
+    {
+        return Refund::query()
+            ->where('station_annul_pending', true)
+            ->whereNull('station_annulled_at')
+            ->with('order')
+            ->orderBy('created_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (Refund $r) => [
+                'refund_id' => $r->id,
+                'order_id' => $r->order_id,
+                'kind' => $r->kind,
+                'serial' => $r->serial,
+                'number' => $r->number,
+                'place' => $r->place,
+                'amount' => (float) $r->amount,
+                'status' => $r->status,
+                'money_refunded_at' => $r->money_refunded_at?->format('d.m.Y H:i'),
+                'created_at' => $r->created_at?->format('d.m.Y H:i'),
+                'attempted_at' => $r->station_annul_attempted_at?->format('d.m.Y H:i'),
+                'error' => $r->station_annul_error,
+                'awtcod' => $r->order?->awtcod,
+                'station' => $r->order?->from_name,
+                'trip' => trim((string) $r->order?->from_name.' → '.(string) $r->order?->to_name),
+                'date_start' => $r->order?->date_start?->format('d.m.Y'),
+                // Ссылка на карточку возврата — оттуда и досылают.
+                'refund_url' => '/back-ticket?order_id='.$r->order_id
+                    .'&serial='.$r->serial.'&number='.$r->number,
+            ])->all();
     }
 
     private function stationRefund(Order $order, Ticket $ticket, bool $preview): array
