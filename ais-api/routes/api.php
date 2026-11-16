@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\ImpersonationController;
 use App\Http\Controllers\Api\KkmServerController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
@@ -20,7 +21,7 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/token-login', [AuthController::class, 'tokenLogin']);
     });
 
-    Route::middleware('employee')->group(function () {
+    Route::middleware(['employee', 'employee.not-impersonated'])->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
@@ -93,6 +94,18 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('id')->middleware('employee.can:employees.reset');
         Route::post('employees/{id}/logout', [EmployeeController::class, 'logoutSessions'])
             ->whereNumber('id')->middleware('employee.can:employees.reset');
+
+        /*
+         * Работа от имени сотрудника: администратор получает его короткую
+         * сессию, чтобы увидеть АИС его глазами (роль на словах не
+         * проверишь). Право помечено в каталоге как опасное — сервер
+         * спросит код подтверждения. Возврат к себе (`stop`) права не
+         * требует: он доступен только тому, у кого в cookie лежит своя
+         * прежняя сессия.
+         */
+        Route::post('employees/{id}/impersonate', [ImpersonationController::class, 'start'])
+            ->whereNumber('id')->middleware('employee.can:employees.impersonate');
+        Route::post('impersonation/stop', [ImpersonationController::class, 'stop']);
 
         Route::get('roles', [RoleController::class, 'index'])
             ->middleware('employee.can:roles.view');

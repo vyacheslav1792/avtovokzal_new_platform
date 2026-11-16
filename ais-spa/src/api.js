@@ -154,6 +154,21 @@ export function deleteEmployeeFastToken(id) {
   return request(`${API}/employees/${id}/fast-token`, { method: 'DELETE', headers: { Accept: 'application/json' } })
 }
 
+/**
+ * Работа от имени сотрудника: сервер выдаёт его короткую сессию, а свою
+ * кладёт во вторую httpOnly-cookie — по ней и возвращаемся. Опасное
+ * действие, поэтому сервер спросит код подтверждения (его спрашивает
+ * общий слой запросов, см. http.js).
+ */
+export function impersonateEmployee(id) {
+  return request(`${API}/employees/${id}/impersonate`, { method: 'POST', headers: { Accept: 'application/json' } })
+}
+
+/** Вернуться к себе. Права на это не нужно — нужна своя прежняя сессия. */
+export function stopImpersonation() {
+  return request(`${API}/impersonation/stop`, { method: 'POST', headers: { Accept: 'application/json' } })
+}
+
 export function logoutEmployeeSessions(id) {
   return request(`${API}/employees/${id}/logout`, { method: 'POST', headers: { Accept: 'application/json' } })
 }

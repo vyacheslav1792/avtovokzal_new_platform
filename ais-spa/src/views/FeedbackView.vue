@@ -317,30 +317,9 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.fb-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
-.fb-tab {
-  padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
-  background: #fff; cursor: pointer; font: inherit; font-size: 13px;
-}
-.fb-tab.active { background: var(--accent); color: #fff; border-color: transparent; }
-.fb-count { margin-left: 6px; opacity: .7; font-size: 12px; }
-
-.fb-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 14px; }
-.fb-field { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
-.fb-grow { flex: 1 1 260px; }
-.fb-label { font-size: 12px; color: var(--muted); }
-.fb-field input, .fb-field textarea {
-  padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px;
-  font-size: 14px; font-family: inherit; background: #fff; width: 100%;
-}
-.fb-field textarea { resize: vertical; }
-
-.fb-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.fb-table th, .fb-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.fb-row { cursor: pointer; }
-.fb-row:hover td { background: #eaf1ff; }
-.fb-row.current td { box-shadow: inset 0 0 0 1px var(--accent); }
-
+/* Вкладки, фильтры, таблица и пагинатор — общие со страницей
+   «Покупатели сайта», поэтому живут в style.css. Здесь только то, что
+   есть у обращений: подсветка статусов и карточка сообщения. */
 /* Статус строки — теми же цветами, что подсветка отчётов АИС */
 .fb-row.st-new td { background: #dcdcff; }
 .fb-row.st-progress td { background: #fff7cf; }
@@ -348,9 +327,6 @@ onMounted(() => {
 .fb-row.st-spam td { background: #e8e8e8; color: #666; }
 .fb-preview { max-width: 520px; }
 .fb-reason { font-size: 12px; }
-.nowrap { white-space: nowrap; }
-
-.fb-pager { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
 
 .fb-card { margin: 18px 0 40px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 .fb-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

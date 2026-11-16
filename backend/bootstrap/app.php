@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AisEmployeeCan;
+use App\Http\Middleware\DenyImpersonated;
 use App\Http\Middleware\SiteFeatureEnabled;
 use App\Services\SalesApiException;
 use Illuminate\Foundation\Application;
@@ -44,6 +45,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'ais.can' => AisEmployeeCan::class,
             // Выключатели сайта из АИС: продажа и возврат билетов.
             'site.enabled' => SiteFeatureEnabled::class,
+            // Сессия «вход в кабинет от имени покупателя» — только чтение:
+            // деньги и данные покупателя из неё не трогаем.
+            'not.impersonated' => DenyImpersonated::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

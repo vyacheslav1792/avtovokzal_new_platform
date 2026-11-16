@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AuthenticateEmployee;
+use App\Http\Middleware\DenyImpersonatedEmployee;
 use App\Http\Middleware\EmployeeCan;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -40,6 +41,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'employee' => AuthenticateEmployee::class,
             'employee.can' => EmployeeCan::class,
+            // Работа «от имени сотрудника» — только наблюдение: изменяющие
+            // запросы из такой сессии не пропускаем (кроме запуска отчётов
+            // и возврата к себе).
+            'employee.not-impersonated' => DenyImpersonatedEmployee::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -103,6 +103,13 @@ async function signOut() {
     -->
     <AccessibilityPanel v-if="a11yEnabled" />
 
+    <!--
+      Сотрудник АИС, вошедший в кабинет покупателя: признак режима, а не
+      уведомление — закрыть его нельзя. Стоит ВЫШЕ шапки: та закреплена
+      `sticky top-0`, и будь полоса под ней, они перекрывали бы друг друга.
+    -->
+    <ImpersonationNotice />
+
     <header class="bg-neutral-900 text-white sticky top-0 z-40">
       <UContainer class="flex items-center gap-3 lg:gap-5 py-3">
         <!--

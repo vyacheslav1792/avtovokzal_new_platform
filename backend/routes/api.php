@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminContactController;
+use App\Http\Controllers\Api\AdminCustomerController;
 use App\Http\Controllers\Api\AdminDataSyncController;
 use App\Http\Controllers\Api\AdminFeedbackController;
 use App\Http\Controllers\Api\AdminMenuController;
@@ -72,7 +73,8 @@ Route::prefix('v1')->group(function () {
     // Продажу можно выключить из АИС (раздел «Настройки»). Дооформление
     // уже оплаченного заказа (confirm) выключателю НЕ подчиняется: деньги
     // у нас, билеты обязаны появиться.
-    Route::post('orders', [OrderController::class, 'store'])->middleware('site.enabled:sales');
+    Route::post('orders', [OrderController::class, 'store'])
+        ->middleware(['site.enabled:sales', 'not.impersonated']);
     Route::post('orders/confirm', [OrderController::class, 'confirm']);
     // Незавершённые покупки (покупатель ушёл на шлюз и не вернулся).
     // Ходит с каждой страницы сайта и дёргает шлюз — поэтому throttle.
@@ -83,14 +85,15 @@ Route::prefix('v1')->group(function () {
     Route::get('orders/{id}', [OrderController::class, 'show'])->where('id', Order::ID_PATTERN);
     // Отказ от неоплаченного заказа: снимает бронь мест и отменяет платёж.
     Route::post('orders/{id}/cancel', [OrderController::class, 'cancel'])
-        ->where('id', Order::ID_PATTERN)->middleware('throttle:20,1');
+        ->where('id', Order::ID_PATTERN)->middleware(['throttle:20,1', 'not.impersonated']);
     Route::get('orders/{id}/print', [OrderController::class, 'printData'])->where('id', Order::ID_PATTERN);
     Route::get('orders/{id}/pdf', [OrderController::class, 'pdf'])->where('id', Order::ID_PATTERN);
 
     // Возврат по коду тоже выключается из АИС; возврат через АИС
     // (admin/refunds/*) при этом продолжает работать — это инструмент кассира.
     Route::post('refunds/preview', [RefundController::class, 'preview'])->middleware('site.enabled:refunds');
-    Route::post('refunds/confirm', [RefundController::class, 'confirm'])->middleware('site.enabled:refunds');
+    Route::post('refunds/confirm', [RefundController::class, 'confirm'])
+        ->middleware(['site.enabled:refunds', 'not.impersonated']);
 
     // Личный кабинет: вход/регистрация/восстановление пароля.
     // throttle — защита от перебора паролей и рассылки писем.
@@ -107,6 +110,15 @@ Route::prefix('v1')->group(function () {
         // Вход через VK ID: сюда ходит сервер Nuxt, а не браузер.
         Route::post('auth/vk/start', [VkAuthController::class, 'start']);
         Route::post('auth/vk/callback', [VkAuthController::class, 'callback']);
+
+        /*
+         * Вход в кабинет от имени покупателя: сотрудник получает в АИС
+         * одноразовый код (customers.impersonate), сервер Nuxt меняет его
+         * здесь на токен кабинета и кладёт в свою httpOnly-cookie. Токен
+         * помечен способностью `impersonated` — покупать, возвращать и
+         * менять данные им нельзя (middleware not.impersonated).
+         */
+        Route::post('auth/impersonate', [AuthController::class, 'impersonate']);
     });
 
     /*
@@ -126,17 +138,25 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
-        Route::put('auth/profile', [AuthController::class, 'updateProfile']);
-        Route::post('auth/password/change', [AuthController::class, 'changePassword']);
-        Route::post('auth/email', [AuthController::class, 'requestEmail']);
-        // Подтверждение добавленного адреса кодом — только своему кабинету.
-        Route::post('auth/email/confirm', [AuthController::class, 'confirmEmail']);
+        /*
+         * Всё, что МЕНЯЕТ кабинет, закрыто для сессии «вход от имени
+         * покупателя»: сотрудник в ней только смотрит. Сам выход
+         * (auth/logout) разрешён — иначе из режима было бы не выйти.
+         */
+        Route::middleware('not.impersonated')->group(function () {
+            Route::put('auth/profile', [AuthController::class, 'updateProfile']);
+            Route::post('auth/password/change', [AuthController::class, 'changePassword']);
+            Route::post('auth/email', [AuthController::class, 'requestEmail']);
+            // Подтверждение добавленного адреса кодом — только своему кабинету.
+            Route::post('auth/email/confirm', [AuthController::class, 'confirmEmail']);
+
+            Route::post('cabinet/passengers', [CabinetPassengerController::class, 'store']);
+            Route::put('cabinet/passengers/{id}', [CabinetPassengerController::class, 'update'])->whereNumber('id');
+            Route::delete('cabinet/passengers/{id}', [CabinetPassengerController::class, 'destroy'])->whereNumber('id');
+        });
 
         // Сохранённые пассажиры: подставляются в форму покупки.
         Route::get('cabinet/passengers', [CabinetPassengerController::class, 'index']);
-        Route::post('cabinet/passengers', [CabinetPassengerController::class, 'store']);
-        Route::put('cabinet/passengers/{id}', [CabinetPassengerController::class, 'update'])->whereNumber('id');
-        Route::delete('cabinet/passengers/{id}', [CabinetPassengerController::class, 'destroy'])->whereNumber('id');
 
         Route::get('cabinet/orders', [CabinetController::class, 'orders']);
         Route::get('cabinet/orders/{id}', [CabinetController::class, 'order'])->where('id', Order::ID_PATTERN);
@@ -146,7 +166,7 @@ Route::prefix('v1')->group(function () {
         Route::post('cabinet/refunds/preview', [CabinetController::class, 'refundPreview'])
             ->middleware('site.enabled:refunds');
         Route::post('cabinet/refunds/confirm', [CabinetController::class, 'refundConfirm'])
-            ->middleware('site.enabled:refunds');
+            ->middleware(['site.enabled:refunds', 'not.impersonated']);
     });
 
     /*
@@ -171,6 +191,25 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:back-ticket.refund');
     Route::post('admin/refunds/repair', [AdminRefundController::class, 'repair'])
         ->middleware('ais.can:back-ticket.repair');
+
+    /*
+     * Покупатели сайта: кабинеты и покупавшие без регистрации.
+     * `assist` — помощь со входом (обратимо), `edit` — смена e-mail и
+     * отвязка VK, `impersonate` — вход в кабинет от имени покупателя;
+     * последние два помечены в каталоге прав как требующие кода.
+     */
+    Route::get('admin/customers', [AdminCustomerController::class, 'index'])
+        ->middleware('ais.can:customers.view');
+    Route::post('admin/customers/guest', [AdminCustomerController::class, 'guest'])
+        ->middleware('ais.can:customers.view');
+    Route::get('admin/customers/{customer}', [AdminCustomerController::class, 'show'])
+        ->whereNumber('customer')->middleware('ais.can:customers.view');
+    Route::post('admin/customers/{customer}/assist', [AdminCustomerController::class, 'assist'])
+        ->whereNumber('customer')->middleware('ais.can:customers.assist');
+    Route::put('admin/customers/{customer}', [AdminCustomerController::class, 'update'])
+        ->whereNumber('customer')->middleware('ais.can:customers.edit');
+    Route::post('admin/customers/{customer}/impersonate', [AdminCustomerController::class, 'impersonate'])
+        ->whereNumber('customer')->middleware('ais.can:customers.impersonate');
 
     // Редактирование контактов сайта из админки АИС.
     Route::get('admin/contacts', [AdminContactController::class, 'index'])

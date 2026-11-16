@@ -1,10 +1,13 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ConfirmCodeDialog from './components/ConfirmCodeDialog.vue'
 import { applyUpdate, updateAvailable } from './version'
 import LoginView from './views/LoginView.vue'
 import { fetchReports } from './api'
-import { authReady, can, canAny, employee, isAuthenticated, signOut } from './auth'
+import {
+  authReady, can, canAny, employee, impersonated, impersonatedBy,
+  impersonationExpiresAt, isAuthenticated, signOut, stopImpersonation,
+} from './auth'
 
 const reports = ref([])
 const err = ref('')
@@ -38,6 +41,33 @@ async function logout() {
   reports.value = []
 }
 
+/*
+ * Работа от имени другого сотрудника (право employees.impersonate):
+ * полоса сверху и возврат к себе. Полоса обязательна — иначе
+ * администратор забудет, в чьей учётной записи находится, и будет
+ * удивляться пропавшим разделам.
+ */
+const leaving = ref(false)
+
+async function backToSelf() {
+  leaving.value = true
+  err.value = ''
+  try {
+    await stopImpersonation()
+  } catch (e) {
+    err.value = e.message
+    leaving.value = false
+  }
+}
+
+/** До какого времени действует режим (сессия живёт от выдачи, час). */
+const impersonationUntil = computed(() => {
+  const at = impersonationExpiresAt.value
+  if (!at) return ''
+
+  return new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+})
+
 // Список отчётов спрашиваем только у вошедшего: до входа запрос вернул бы
 // 401, и в меню осталось бы сообщение об ошибке.
 watch(isAuthenticated, (yes) => {
@@ -53,6 +83,21 @@ watch(isAuthenticated, (yes) => {
   <LoginView v-else-if="!isAuthenticated" />
 
   <div v-else class="app">
+    <!-- Признак режима «работаю от имени сотрудника», а не уведомление:
+         закрыть его нельзя, пока не вернёшься к себе. -->
+    <div v-if="impersonated" class="imp-bar">
+      <span>
+        Вы работаете от имени сотрудника
+        <b>{{ employee.full_name || employee.login }}</b>
+        (<code>{{ employee.login }}</code>)<template v-if="impersonatedBy">
+          — вход выполнил <b>{{ impersonatedBy }}</b></template>.
+        Только просмотр<template v-if="impersonationUntil">, до {{ impersonationUntil }}</template>.
+      </span>
+      <button class="btn small" type="button" :disabled="leaving" @click="backToSelf">
+        Вернуться к себе
+      </button>
+    </div>
+
     <header class="topbar">
       <button class="burger" @click="toggleNav" :title="collapsed ? 'Показать меню' : 'Скрыть меню'">☰</button>
       <div class="topbar-title">АИС</div>
@@ -81,8 +126,9 @@ watch(isAuthenticated, (yes) => {
 
           <!-- Не только отчёты: сюда переезжают админские функции сайта.
                Пункт показывается, если у сотрудника есть право его открыть. -->
-          <template v-if="canAny('contacts.view', 'pages.view', 'news.view', 'blocks.view', 'menu.view', 'feedback.view', 'spam-rules.view')">
+          <template v-if="canAny('customers.view', 'contacts.view', 'pages.view', 'news.view', 'blocks.view', 'menu.view', 'feedback.view', 'spam-rules.view')">
             <div class="nav-group-title">Администрирование</div>
+            <router-link v-if="can('customers.view')" class="nav-item" to="/customers">Покупатели сайта</router-link>
             <router-link v-if="can('contacts.view')" class="nav-item" to="/contacts">Контакты сайта</router-link>
             <router-link v-if="can('pages.view')" class="nav-item" to="/pages">Страницы сайта</router-link>
             <router-link v-if="can('news.view')" class="nav-item" to="/news">Новости сайта</router-link>

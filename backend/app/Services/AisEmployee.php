@@ -16,6 +16,15 @@ class AisEmployee
         public readonly bool $isAdmin,
         public readonly array $permissions,
         public readonly ?string $confirmCodeHash,
+        /**
+         * Сессия выдана администратором «от имени» этого сотрудника
+         * (АИС, право employees.impersonate). Такая сессия приходит и
+         * сюда — cookie одна на SPA и оба API, — поэтому админские
+         * маршруты сайта из неё только читают: правка страницы или
+         * возврат денег оказались бы в журнале на имя сотрудника,
+         * который их не делал.
+         */
+        public readonly bool $isImpersonated = false,
     ) {}
 
     /** Право вида "<модуль>.<право>" (например `pages.edit`). */

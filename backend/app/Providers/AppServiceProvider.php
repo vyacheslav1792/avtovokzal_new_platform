@@ -53,6 +53,19 @@ class AppServiceProvider extends ServiceProvider
                     return false;
                 }
 
+                /*
+                 * Сессия «вход в кабинет от имени покупателя» (АИС выдаёт
+                 * её сотруднику) живёт от ВЫДАЧИ, а не от последней
+                 * активности: это чужие персональные данные, и продлевать
+                 * доступ самим фактом работы в нём нельзя.
+                 */
+                if ($token->can('impersonated')) {
+                    return $token->created_at !== null
+                        && $token->created_at->gt(
+                            now()->subMinutes((int) config('site.impersonate_ttl_minutes')),
+                        );
+                }
+
                 $lastUsed = $token->last_used_at ?? $token->created_at;
 
                 return $lastUsed !== null

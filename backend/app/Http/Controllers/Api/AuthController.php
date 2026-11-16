@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserIdentity;
 use App\Services\AuthService;
+use App\Services\CustomerAdminService;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -144,9 +145,46 @@ class AuthController extends Controller
     /** Текущий пользователь (проверка сессии фронтом). */
     public function me(Request $request): JsonResponse
     {
+        $token = $request->user()->currentAccessToken();
+        $impersonated = $token !== null && $token->can('impersonated');
+
         return response()->json([
             'success' => true,
-            'data' => $this->presentUser($request->user()),
+            // Сайт показывает полосу «вы в кабинете покупателя», чтобы
+            // сотрудник не принял чужой кабинет за свой и видел, что
+            // покупка и возврат отсюда запрещены.
+            'data' => $this->presentUser($request->user()) + [
+                'impersonated' => $impersonated,
+                // В имени токена лежит логин сотрудника: 'impersonate:<логин>'.
+                'impersonated_by' => $impersonated
+                    ? (string) str($token->name)->after('impersonate:')
+                    : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Обмен одноразового кода АИС на сессию кабинета («войти от имени
+     * покупателя»). Сюда ходит сервер Nuxt, а не браузер: код живёт две
+     * минуты и обменивается один раз, а сам токен в адресную строку не
+     * попадает — иначе он осел бы в истории браузера и журналах nginx.
+     */
+    public function impersonate(Request $request, CustomerAdminService $customers): JsonResponse
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:128'],
+        ]);
+
+        $result = $customers->consumeImpersonationCode($data['code']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'token' => $result['token'],
+                'user' => $this->presentUser($result['user']),
+                'employee' => $result['employee'],
+                'ttl_minutes' => (int) config('site.impersonate_ttl_minutes'),
+            ],
         ]);
     }
 

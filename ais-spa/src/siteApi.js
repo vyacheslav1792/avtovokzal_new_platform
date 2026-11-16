@@ -149,6 +149,51 @@ export async function saveSpamRules(rules) {
   return (await req(`${API}/admin/spam-rules`, json('PUT', { rules }))).data
 }
 
+/* Покупатели сайта (кабинеты и покупавшие без регистрации) */
+
+export async function fetchCustomers(params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+  )
+
+  return (await req(`${API}/admin/customers?${query}`)).data
+}
+
+export async function fetchCustomer(id) {
+  return (await req(`${API}/admin/customers/${id}`)).data
+}
+
+/**
+ * Карточка покупавшего без кабинета. Адрес уходит в ТЕЛЕ запроса, а не в
+ * пути: в адресах встречаются точки, плюсы и знаки, которые в пути пришлось
+ * бы кодировать и которые ломали бы маршрут.
+ */
+export async function fetchGuestCustomer(email) {
+  return (await req(`${API}/admin/customers/guest`, json('POST', { email }))).data
+}
+
+/**
+ * Помощь со входом: reset_password | verify_email | logout_all.
+ * У reset_password можно передать пароль, который задаёт сотрудник; пусто —
+ * пароль гасится, и покупатель задаёт его сам через «Забыли пароль».
+ */
+export async function assistCustomer(id, action, payload = {}) {
+  return (await req(`${API}/admin/customers/${id}/assist`, json('POST', { action, ...payload }))).data
+}
+
+/** Смена e-mail и отвязка VK — сервер спросит код подтверждения. */
+export async function updateCustomer(id, payload) {
+  return (await req(`${API}/admin/customers/${id}`, json('PUT', payload))).data
+}
+
+/** Ссылка входа в кабинет от имени покупателя (одноразовая, 2 минуты). */
+export async function impersonateCustomer(id) {
+  return (await req(`${API}/admin/customers/${id}/impersonate`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  })).data
+}
+
 /* Админский возврат билета (страница /back-ticket) */
 
 /**

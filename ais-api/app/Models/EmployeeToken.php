@@ -16,11 +16,27 @@ use Illuminate\Support\Str;
  */
 class EmployeeToken extends Model
 {
-    protected $fillable = ['employee_id', 'token_hash', 'kind', 'ip', 'user_agent'];
+    protected $fillable = [
+        'employee_id', 'token_hash', 'kind', 'ip', 'user_agent',
+        // Работа от имени сотрудника: кем выдана сессия и до какого
+        // времени действует (см. EmployeeImpersonation).
+        'impersonated_by', 'expires_at',
+    ];
 
     protected $hidden = ['token_hash'];
 
-    protected $casts = ['last_used_at' => 'datetime'];
+    protected $casts = [
+        'last_used_at' => 'datetime',
+        'expires_at' => 'datetime',
+    ];
+
+    /** Сессия, выданная администратором «от имени» этого сотрудника. */
+    public const KIND_IMPERSONATE = 'impersonate';
+
+    public function isImpersonated(): bool
+    {
+        return $this->impersonated_by !== null;
+    }
 
     public function employee(): BelongsTo
     {
@@ -61,6 +77,15 @@ class EmployeeToken extends Model
      */
     public function isAlive(): bool
     {
+        /*
+         * Жёсткий срок — у сессий «от имени сотрудника»: он считается от
+         * выдачи, а не от активности, поэтому проверяется раньше всего
+         * (работа в чужой учётной записи не должна продлеваться сама собой).
+         */
+        if ($this->expires_at !== null && $this->expires_at->lt(now())) {
+            return false;
+        }
+
         $idle = (int) config('ais_auth.session_idle_minutes');
         $max = (int) config('ais_auth.session_max_minutes');
         $lastUsed = $this->last_used_at ?? $this->created_at;

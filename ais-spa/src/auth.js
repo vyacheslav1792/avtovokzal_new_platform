@@ -22,12 +22,21 @@ const state = reactive({
   // мигала бы на каждой перезагрузке у уже вошедшего.
   ready: false,
   error: '',
+  // Работа от имени другого сотрудника (право employees.impersonate):
+  // кто мы сейчас, видно в `employee`, а здесь — чья это сессия и до
+  // какого времени она действует.
+  impersonated: false,
+  impersonatedBy: null,
+  impersonationExpiresAt: null,
 })
 
 export const employee = computed(() => state.employee)
 export const authReady = computed(() => state.ready)
 export const authError = computed(() => state.error)
 export const isAuthenticated = computed(() => state.employee !== null)
+export const impersonated = computed(() => state.impersonated)
+export const impersonatedBy = computed(() => state.impersonatedBy)
+export const impersonationExpiresAt = computed(() => state.impersonationExpiresAt)
 
 /** Право вида "<модуль>.<право>"; у администратора есть всё. */
 export function can(permission) {
@@ -63,7 +72,7 @@ export async function bootstrap() {
   }
 
   try {
-    state.employee = (await api.fetchMe()).employee
+    applyMe(await api.fetchMe())
   } catch (e) {
     state.employee = null
   } finally {
@@ -71,9 +80,20 @@ export async function bootstrap() {
   }
 }
 
+/** Ответ /auth/me: кто вошёл и не работаем ли мы от имени сотрудника. */
+function applyMe(data) {
+  state.employee = data.employee
+  state.impersonated = data.impersonated === true
+  state.impersonatedBy = data.impersonated_by ?? null
+  state.impersonationExpiresAt = data.impersonation_expires_at ?? null
+}
+
 export async function signIn(login, password) {
   const data = await api.login(login, password)
   state.employee = data.employee
+  state.impersonated = false
+  state.impersonatedBy = null
+  state.impersonationExpiresAt = null
   state.error = ''
 }
 
@@ -91,7 +111,26 @@ export function setEmployee(data) {
 }
 
 export async function refresh() {
-  state.employee = (await api.fetchMe()).employee
+  applyMe(await api.fetchMe())
+}
+
+/**
+ * Начать работу от имени сотрудника и перезагрузить приложение.
+ *
+ * Именно перезагрузить, а не обновить состояние: у другого сотрудника
+ * другие права, другое меню и другой список отчётов, а открытая страница
+ * может быть ему вовсе недоступна. Полная перезагрузка даёт ровно тот
+ * вид АИС, который он видит у себя, — а посмотреть на это и зовут.
+ */
+export async function startImpersonation(id) {
+  await api.impersonateEmployee(id)
+  window.location.assign(import.meta.env.BASE_URL || '/')
+}
+
+/** Вернуться к себе (та же причина для перезагрузки). */
+export async function stopImpersonation() {
+  await api.stopImpersonation()
+  window.location.assign(import.meta.env.BASE_URL || '/')
 }
 
 // Сессия кончилась посреди работы (её мог погасить администратор) — любой

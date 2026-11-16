@@ -232,9 +232,19 @@ export function clearOfflineShell(): void {
  */
 export function useOfflineTickets() {
   const api = useApi()
+  const { user } = useAuth()
+
+  /*
+   * Сессия «сотрудник в кабинете покупателя» (из АИС) ничего на устройство
+   * не кладёт: в офлайн-копии лежат ФИО и номера документов, и оставлять
+   * их на рабочей машине сотрудника нельзя — он смотрит чужой кабинет.
+   */
+  const impersonated = computed(() => user.value?.impersonated === true)
 
   /** Скачать печатную форму заказа и положить на устройство. */
   async function capture(orderId: string): Promise<OfflineOrderData | null> {
+    if (impersonated.value) return null
+
     try {
       const resp = await api<{ success: boolean, data: OfflineOrderData }>(`/orders/${orderId}/print`)
 
@@ -262,7 +272,7 @@ export function useOfflineTickets() {
    * поездки из кабинета (у вошедшего покупателя — с любого устройства).
    */
   async function sync(options: { withCabinet?: boolean } = {}): Promise<void> {
-    if (!import.meta.client || !navigator.onLine) return
+    if (!import.meta.client || !navigator.onLine || impersonated.value) return
 
     await pruneOfflineOrders()
 

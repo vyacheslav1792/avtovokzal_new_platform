@@ -37,6 +37,24 @@ class Employee extends Model
         'last_login_at' => 'datetime',
     ];
 
+    /**
+     * Сессия текущего запроса. Её кладёт EmployeeAuth::resolve
+     * (setRelation), поэтому проверяем именно загруженность связи —
+     * метода-отношения с таким именем у модели нет.
+     */
+    public function currentSession(): ?EmployeeToken
+    {
+        return $this->relationLoaded('currentToken')
+            ? $this->getRelation('currentToken')
+            : null;
+    }
+
+    /** Это сессия «работа от имени сотрудника», выданная администратором. */
+    public function isImpersonated(): bool
+    {
+        return (bool) $this->currentSession()?->isImpersonated();
+    }
+
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class, 'employee_role');

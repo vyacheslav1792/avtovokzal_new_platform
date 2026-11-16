@@ -37,6 +37,22 @@ class AisEmployeeCan
             ], 401);
         }
 
+        /*
+         * Сессия «работа от имени сотрудника» (её выдаёт АИС администратору,
+         * право employees.impersonate) — наблюдательная: смотреть можно
+         * всё, что доступно сотруднику, менять нельзя ничего. Иначе правка
+         * страницы сайта или возврат денег попали бы в журнал на имя того,
+         * кто их не делал.
+         */
+        if ($employee->isImpersonated && ! $this->readOnly($permission)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Вы работаете от имени сотрудника — в этом режиме доступен только просмотр. '
+                    .'Вернитесь к себе, чтобы выполнить это действие.',
+                'impersonation_readonly' => true,
+            ], 403);
+        }
+
         if (! $employee->can($permission)) {
             return response()->json([
                 'success' => false,
@@ -71,6 +87,20 @@ class AisEmployeeCan
         $request->setUserResolver(fn () => $employee);
 
         return $next($request);
+    }
+
+    /**
+     * Право только на чтение. Список короткий и явный: `view` — просмотр
+     * раздела, `inspect` — поиск билета в возврате (он ничего не меняет).
+     * Всё остальное считаем изменением, в том числе права, которых ещё
+     * нет: безопаснее запретить новое действие, чем пропустить его в
+     * наблюдательном режиме.
+     */
+    private function readOnly(string $permission): bool
+    {
+        [, $action] = array_pad(explode('.', $permission, 2), 2, '');
+
+        return in_array($action, ['view', 'inspect'], true);
     }
 
     /** Требует ли право кода подтверждения (каталог shared/ais_permissions.php). */

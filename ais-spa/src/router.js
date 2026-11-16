@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import BackTicketView from './views/BackTicketView.vue'
 import BlocksView from './views/BlocksView.vue'
 import ContactsView from './views/ContactsView.vue'
+import CustomerView from './views/CustomerView.vue'
+import CustomersView from './views/CustomersView.vue'
 import DataSyncView from './views/DataSyncView.vue'
 import EmployeesView from './views/EmployeesView.vue'
 import FeedbackView from './views/FeedbackView.vue'
@@ -22,6 +24,8 @@ import StationsView from './views/StationsView.vue'
 // Маршрутизация без # (history mode): / — список отчётов, /<slug> — отчёт.
 // Админские страницы объявляем ДО catch-all, иначе их съест ReportView:
 // /back-ticket — возврат билета (legacy back_bilet.php),
+// /customers — покупатели сайта: кабинеты и покупавшие без регистрации
+//   (в legacy такой страницы не было — АИС работала без авторизации),
 // /contacts — контакты сайта (legacy avtovokzal57/url/contacts.php),
 // /pages и /menu — страницы и меню сайта (legacy url/<slug>.php + index.php),
 // /news — новости и объявления, /blocks — блоки сайта (legacy vidjets/*.php),
@@ -40,6 +44,11 @@ import StationsView from './views/StationsView.vue'
 const routes = [
   { path: '/', component: HomeView },
   { path: '/back-ticket', component: BackTicketView },
+  { path: '/customers', component: CustomersView },
+  // Гость — это адрес, а не запись в базе, поэтому у него свой маршрут:
+  // в адресах бывают точки и плюсы, и путать их с номером кабинета нельзя.
+  { path: '/customers/guest/:email', component: CustomerView, props: true },
+  { path: '/customers/:id', component: CustomerView, props: true },
   { path: '/contacts', component: ContactsView },
   { path: '/pages', component: PagesView },
   { path: '/pages/:id', component: PageEditView, props: true },

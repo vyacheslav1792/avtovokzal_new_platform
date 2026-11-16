@@ -75,6 +75,7 @@ class AisAuth
             isAdmin: $this->isAdmin((int) $row->id),
             permissions: $this->permissions((int) $row->id),
             confirmCodeHash: $row->confirm_code !== null ? (string) $row->confirm_code : null,
+            isImpersonated: $session->impersonated_by !== null,
         );
     }
 
@@ -99,6 +100,16 @@ class AisAuth
     /** Сроки те же, что у ais-api — shared/ais_auth.php. */
     private function sessionAlive(object $session): bool
     {
+        /*
+         * У сессии «работа от имени сотрудника» срок жёсткий и считается
+         * от выдачи (колонка expires_at) — проверяем его раньше простоя,
+         * как это делает EmployeeToken::isAlive в ais-api.
+         */
+        if (($session->expires_at ?? null) !== null
+            && strtotime((string) $session->expires_at) < now()->timestamp) {
+            return false;
+        }
+
         $idle = (int) config('ais_auth.session_idle_minutes');
         $max = (int) config('ais_auth.session_max_minutes');
 

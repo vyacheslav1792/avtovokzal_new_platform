@@ -63,10 +63,22 @@ class AuthController extends Controller
     {
         /** @var Employee $employee */
         $employee = $request->user();
+        $session = $employee->currentSession();
 
         return response()->json([
             'ok' => true,
             'employee' => $this->presenter->self($employee),
+            /*
+             * Работа от имени сотрудника: SPA показывает полосу «вы
+             * работаете как …» с кнопкой возврата и скрывает кнопки
+             * изменений — менять что-либо в этом режиме сервер всё равно
+             * не даст (middleware employee.not-impersonated).
+             */
+            'impersonated' => $employee->isImpersonated(),
+            'impersonated_by' => $session?->isImpersonated()
+                ? Employee::find($session->impersonated_by)?->login
+                : null,
+            'impersonation_expires_at' => $session?->expires_at?->toIso8601String(),
         ]);
     }
 

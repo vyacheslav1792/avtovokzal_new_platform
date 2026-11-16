@@ -10,6 +10,15 @@ export interface AuthUser {
   has_password: boolean
   /** Привязан ли вход через VK. */
   has_vk: boolean
+  /**
+   * Сотрудник АИС вошёл в этот кабинет от своего имени
+   * (`customers.impersonate`). В таком режиме сайт показывает полосу
+   * ImpersonationNotice, а backend запрещает покупку, возврат и правку
+   * данных — смотреть можно, менять нельзя.
+   */
+  impersonated?: boolean
+  /** Логин сотрудника, который вошёл в кабинет. */
+  impersonated_by?: string | null
 }
 
 export interface RegisterPayload {

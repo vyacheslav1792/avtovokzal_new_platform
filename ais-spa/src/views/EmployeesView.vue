@@ -11,7 +11,7 @@ import {
   logoutEmployeeSessions, resetEmployeeConfirmCode, resetEmployeeFastToken,
   resetEmployeePassword, updateEmployee,
 } from '../api'
-import { can, employee as me } from '../auth'
+import { can, employee as me, startImpersonation } from '../auth'
 
 const employees = ref([])
 const roles = ref([])
@@ -30,6 +30,7 @@ const issued = ref(null)
 const canEdit = computed(() => can('employees.edit'))
 const canReset = computed(() => can('employees.reset'))
 const canDelete = computed(() => can('employees.delete'))
+const canImpersonate = computed(() => can('employees.impersonate'))
 
 async function load() {
   loading.value = true
@@ -159,6 +160,32 @@ async function remove(row) {
   if (!window.confirm(`Удалить сотрудника «${row.login}»? Отменить это нельзя.`)) return
 
   await act(`Сотрудник «${row.login}» удалён.`, () => deleteEmployee(row.id))
+}
+
+/**
+ * Поработать в АИС от имени сотрудника: увидеть его меню, его отчёты, его
+ * кнопки. Роль на словах не проверишь, а «у меня этого нет» — самая
+ * частая жалоба.
+ *
+ * Режим наблюдательный: сервер не даст из него ничего изменить. После
+ * старта приложение перезагружается — у сотрудника другие права и другое
+ * меню (см. auth.js).
+ */
+async function impersonate(row) {
+  const ok = window.confirm(
+    `Работать в АИС от имени «${row.login}»?\n\n`
+    + 'Вы увидите АИС его глазами: его разделы, отчёты и кнопки. Изменять что-либо '
+    + 'в этом режиме нельзя — вернуться к себе можно кнопкой в полосе сверху. '
+    + 'Запись об этом попадёт в журнал.',
+  )
+  if (!ok) return
+
+  error.value = ''
+  try {
+    await startImpersonation(row.id)
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 function stamp(value) {
@@ -333,6 +360,15 @@ onMounted(() => {
               </button>
               <button v-if="canReset && row.sessions" class="btn small" type="button" @click="closeSessions(row)">
                 Сессии ({{ row.sessions }})
+              </button>
+              <button
+                v-if="canImpersonate && row.id !== me?.id && row.is_active"
+                class="btn small"
+                type="button"
+                title="Увидеть АИС глазами этого сотрудника (только просмотр)"
+                @click="impersonate(row)"
+              >
+                Войти как
               </button>
               <button v-if="canDelete && row.id !== me?.id" class="btn small" type="button" @click="remove(row)">
                 Удалить
