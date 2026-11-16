@@ -201,6 +201,13 @@ Route::prefix('v1')->group(function () {
         ->middleware('ais.can:back-ticket.refund');
     Route::get('admin/refunds/pending', [AdminRefundController::class, 'pending'])
         ->middleware('ais.can:back-ticket.inspect');
+    /*
+     * Отмена платежа по заказу без билетов: деньги списаны, оформление не
+     * состоялось. Право — как у возврата денег (операция с деньгами
+     * покупателя), и с кодом подтверждения.
+     */
+    Route::post('admin/refunds/cancel-payment', [AdminRefundController::class, 'cancelPayment'])
+        ->middleware('ais.can:back-ticket.refund');
 
     /*
      * Покупатели сайта: кабинеты и покупавшие без регистрации.

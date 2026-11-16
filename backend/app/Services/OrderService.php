@@ -441,6 +441,27 @@ class OrderService
     private const CONFLICT_CODES = ['already_sold', 'concurrent_sale', 'sale_in_progress'];
 
     /**
+     * Коды ВРЕМЕННЫХ помех: станция не ответила, API продаж недоступен.
+     * Деньги у нас, оформление просто не состоялось СЕЙЧАС — статус
+     * `paid` при этом трогать нельзя.
+     *
+     * Почему это важно: заказ со статусом `failed` выпадает сразу из двух
+     * нормальных путей — покупатель не может дооформить его по напоминанию
+     * («Заказ имеет недопустимый статус»), и команда `orders:cancel-abandoned`
+     * его не видит, потому что ищет `payment_registered`/`paid`. То есть
+     * деньги остаются у нас молча. Ровно это и случилось на проде
+     * 16.11.2026 с заказом 01a1e420-6c63-734c-b389-42c9b7037cca: Мценск был
+     * недоступен в момент дооформления, заказ стал `failed`, и 486,26 ₽
+     * повисли — покупатель десять раз получил отказ, а автоматика его не
+     * подхватила.
+     */
+    private const TEMPORARY_CODES = [
+        'station_unavailable',
+        'sales_api_unavailable',
+        'bad_response',
+    ];
+
+    /**
      * Дооформление оплаченного заказа.
      *
      * Всё тело — под блокировкой на заказ: страница результата способна
@@ -504,9 +525,18 @@ class OrderService
                 'tickets' => $order->passengers,
             ])['data'];
         } catch (SalesApiException $e) {
-            // Конфликт одновременной продажи — не повод портить заказ:
-            // билеты оформляет другой запрос.
-            if (! in_array($e->errorCode, self::CONFLICT_CODES, true)) {
+            /*
+             * Статус портим ТОЛЬКО если оформление действительно
+             * провалилось. Конфликт одновременной продажи — билеты
+             * оформляет другой запрос; временная помеха (станция не
+             * ответила) — оформим позже, заказ должен остаться оплаченным
+             * и не выпасть ни из напоминания покупателю, ни из возврата
+             * брошенных.
+             */
+            $keepStatus = in_array($e->errorCode, self::CONFLICT_CODES, true)
+                || in_array($e->errorCode, self::TEMPORARY_CODES, true);
+
+            if (! $keepStatus) {
                 // Условный UPDATE: если заказ всё же успели оформить,
                 // `completed` не затираем (страховка к блокировке).
                 Order::whereKey($order->id)
@@ -516,6 +546,24 @@ class OrderService
                         'status_reason' => $e->getMessage(),
                         'updated_at' => now(),
                     ]);
+            } elseif (in_array($e->errorCode, self::TEMPORARY_CODES, true)) {
+                /*
+                 * Причину всё равно сохраняем — её видно в АИС и покупателю
+                 * на странице результата, — но статус оставляем прежним,
+                 * чтобы заказ можно было дооформить или вернуть.
+                 */
+                Order::whereKey($order->id)
+                    ->where('status', '!=', Order::STATUS_COMPLETED)
+                    ->update([
+                        'status_reason' => $e->getMessage(),
+                        'updated_at' => now(),
+                    ]);
+
+                Log::warning('Оформление отложено: помеха на стороне станции', [
+                    'order_id' => $order->id,
+                    'error_code' => $e->errorCode,
+                    'error' => $e->getMessage(),
+                ]);
             } else {
                 Log::warning('Оформление заказа уже идёт в другом запросе', [
                     'order_id' => $order->id,

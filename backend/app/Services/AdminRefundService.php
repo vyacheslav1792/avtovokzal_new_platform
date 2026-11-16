@@ -73,11 +73,24 @@ class AdminRefundService
             'refunds' => $this->orderRefunds($order),
         ];
 
+        /*
+         * Заказ без билетов, но с деньгами: дооформление не состоялось
+         * (например, станция была недоступна), а платёж списан. Такому
+         * заказу нужен не возврат билета, а отмена платежа — и кассир
+         * должен иметь возможность сделать это руками, не дожидаясь
+         * автоматики (она ходит раз в 15 минут и только через час после
+         * создания заказа).
+         */
+        $unfinished = $this->unfinishedPayment($order);
+
         // Как legacy: без номера билета показываем только информацию по заказу.
         if (! $serial || ! $number) {
             return $result + [
-                'state' => 'no_ticket',
-                'message' => 'Не передан номер билета к возврату',
+                'state' => $unfinished ? 'unfinished_payment' : 'no_ticket',
+                'unfinished_payment' => $unfinished,
+                'message' => $unfinished
+                    ? $unfinished['message']
+                    : 'Не передан номер билета к возврату',
             ];
         }
 
@@ -221,6 +234,85 @@ class AdminRefundService
             'datetime_start' => $result['datetime_start'],
             'amount' => $amount,
             'bank_error' => $bankError,
+        ];
+    }
+
+    /**
+     * Заказ, по которому деньги списаны, а билетов нет.
+     *
+     * Возвращает null, если возвращать нечего: билеты оформлены, платежа
+     * не было или деньги уже вернули. Состояние платежа спрашиваем у
+     * шлюза — наш статус мог испортиться (так и было с заказом, где
+     * станция оказалась недоступна при дооформлении).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function unfinishedPayment(Order $order): ?array
+    {
+        if ($order->tickets()->exists() || ! $order->sber_order_id) {
+            return null;
+        }
+
+        $bank = $this->bankInfo($order);
+        $status = $bank['order_status'] ?? null;
+
+        // 2 = «успешно оплачен» в терминах шлюза: деньги у нас.
+        $paid = $status === 2;
+
+        return [
+            'paid' => $paid,
+            'amount' => (float) $order->total_price,
+            'gateway_status' => $status,
+            'gateway_status_text' => $bank['status_text'] ?? null,
+            'refunded_amount' => $bank['refunded'] ?? null,
+            'can_cancel' => $paid,
+            'message' => $paid
+                ? 'Билеты по этому заказу не оформлены, а деньги списаны ('
+                    .number_format((float) $order->total_price, 2, ',', ' ').' руб.). '
+                    .'Возвращать нечего — нужно отменить платёж: деньги вернутся покупателю, '
+                    .'бронь мест снимется, заказ закроется.'
+                : 'Билетов по заказу нет, и денег у нас тоже нет (шлюз: '
+                    .($bank['status_text'] ?? $bank['error'] ?? 'статус неизвестен').'). Возвращать нечего.',
+        ];
+    }
+
+    /**
+     * Отменить платёж по заказу без билетов — вручную, кнопкой кассира.
+     *
+     * Делает ровно то же, что автоматика брошенных покупок
+     * (`AbandonedPaymentService`): сначала отмену, при отказе — полный
+     * возврат, затем снимает бронь и закрывает заказ. Разойтись этим двум
+     * путям нельзя, поэтому логика одна.
+     *
+     * @return array<string, mixed>
+     */
+    public function cancelPayment(string $orderId, ?string $by = null): array
+    {
+        $order = $this->findOrder($orderId);
+
+        if ($order->tickets()->exists()) {
+            throw ValidationException::withMessages([
+                'order' => 'По заказу есть оформленные билеты — отменять платёж нельзя, '
+                    .'возвращайте билеты по одному.',
+            ]);
+        }
+
+        if (! $order->sber_order_id) {
+            throw ValidationException::withMessages([
+                'order' => 'У заказа нет платежа в шлюзе — отменять нечего.',
+            ]);
+        }
+
+        $result = app(AbandonedPaymentService::class)->resolve($order, $by);
+
+        Log::info('Платёж по неоформленному заказу отменён вручную', [
+            'order_id' => $order->id,
+            'by' => $by,
+            'action' => $result['action'],
+        ]);
+
+        return $result + [
+            'order' => $this->orderInfo($order->refresh()),
         ];
     }
 
@@ -939,6 +1031,10 @@ class AdminRefundService
         return [
             'id' => $order->id,
             'status' => $order->status,
+            // Почему заказ в этом статусе: «Автостанция … недоступна»,
+            // «Платёж не состоялся» и т.п. Без этого кассир видит только
+            // слово failed и не понимает, что произошло.
+            'status_reason' => $order->status_reason,
             'from_name' => $order->from_name,
             'to_name' => $order->to_name,
             'trip_name' => $order->trip_name,

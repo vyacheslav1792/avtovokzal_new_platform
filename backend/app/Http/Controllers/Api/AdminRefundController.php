@@ -81,6 +81,27 @@ class AdminRefundController extends Controller
         )]);
     }
 
+    /**
+     * Отменить платёж по заказу, у которого билетов нет (дооформление не
+     * состоялось, а деньги списаны). Делает то же, что автоматика
+     * брошенных покупок, но по кнопке кассира — не дожидаясь её запуска.
+     */
+    public function cancelPayment(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'string', 'max:36'],
+        ]);
+
+        $employee = $request->user();
+
+        return response()->json(['success' => true, 'data' => $this->refunds->cancelPayment(
+            $data['order_id'],
+            $employee instanceof \App\Services\AisEmployee
+                ? 'вручную, '.($employee->fullName ?: $employee->login)
+                : 'вручную',
+        )]);
+    }
+
     /** Возвраты, ждущие аннулирования на станции (раздел АИС). */
     public function pending(): JsonResponse
     {

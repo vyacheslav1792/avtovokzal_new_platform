@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -107,7 +108,21 @@ class SalesApiClient
 
     private function call(callable $request): array
     {
-        $response = $request();
+        try {
+            $response = $request();
+        } catch (ConnectionException $e) {
+            /*
+             * Сервис продаж не ответил вовсе (не поднят, перезапускается,
+             * сеть). Для вызывающего это ВРЕМЕННАЯ помеха: дооформление
+             * оплаченного заказа не должно из-за неё портить ему статус
+             * (OrderService::TEMPORARY_CODES), а покупателю нужен понятный
+             * текст вместо «cURL error 7».
+             */
+            throw new SalesApiException(
+                'Сервис продажи билетов сейчас недоступен. Попробуйте позже.',
+                'sales_api_unavailable',
+            );
+        }
 
         $data = $response->json();
 

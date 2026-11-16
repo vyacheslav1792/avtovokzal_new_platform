@@ -53,6 +53,8 @@ class SalesApiException extends \RuntimeException
         'already_sold',
         'sale_in_progress',
         'concurrent_sale',
+        // Сервис продаж не ответил вовсе — это наш сбой, не чужой ввод.
+        'sales_api_unavailable',
     ];
 
     /**

@@ -112,6 +112,35 @@ async function confirmWithoutStation() {
   }
 }
 
+/**
+ * Отменить платёж по заказу, у которого билетов нет: дооформление не
+ * состоялось, а деньги списаны. То же делает автоматика брошенных
+ * покупок, но её ждать до часа — кассиру нужна кнопка.
+ */
+async function cancelPayment() {
+  const sum = info.value?.unfinished_payment?.amount
+  const ok = window.confirm(
+    `Отменить платёж на ${money(sum)} руб.?\n\n`
+    + 'Билетов по заказу нет, деньги вернутся покупателю: сначала отменой платежа, '
+    + 'а если операционный день шлюза уже закрыт — полным возвратом (идёт дольше и '
+    + 'будет видён отдельной операцией по карте). Бронь мест снимется, заказ закроется.',
+  )
+  if (!ok) return
+
+  confirming.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await req('cancel-payment', { order_id: orderId.value })
+    notice.value = result.message
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
 /** Дослать аннулирование на станцию (станция снова на связи). */
 async function annulAtStation(refundId) {
   confirming.value = true
@@ -371,6 +400,34 @@ onMounted(() => {
         <section v-if="info.state === 'no_ticket'" class="bt-block alert warn">
           {{ info.message }}
         </section>
+        <!--
+          Билетов по заказу нет, а деньги списаны: дооформление не
+          состоялось (например, станция была недоступна). Возвращать нечего
+          — платёж надо отменить, и ждать автоматику (раз в 15 минут, не
+          раньше часа с момента заказа) кассир не обязан.
+        -->
+        <section v-else-if="info.state === 'unfinished_payment'" class="bt-block">
+          <h3>Заказ не оформлен, деньги списаны</h3>
+          <p class="alert warn">{{ info.message }}</p>
+          <p>
+            Шлюз: {{ info.unfinished_payment.gateway_status_text || '—' }}
+            <template v-if="info.unfinished_payment.refunded_amount">
+              · уже возвращено {{ money(info.unfinished_payment.refunded_amount) }} руб.
+            </template>
+            <template v-if="info.order.status_reason">
+              <br /><span class="muted">Причина: {{ info.order.status_reason }}</span>
+            </template>
+          </p>
+          <button
+            v-if="can('back-ticket.refund') && info.unfinished_payment.can_cancel"
+            class="btn primary"
+            :disabled="confirming"
+            @click="cancelPayment"
+          >
+            {{ confirming ? 'Выполняется…' : 'Отменить платёж и вернуть деньги' }}
+          </button>
+        </section>
+
 
         <section v-else-if="info.state === 'refundable'" class="bt-block">
           <h3>Возврат билета</h3>
