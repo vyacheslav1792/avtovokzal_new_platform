@@ -4,7 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Laravel\Sanctum\PersonalAccessToken;
+use App\Support\ImpersonationToken;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -33,7 +33,10 @@ class DenyImpersonated
          */
         $token = $request->user('sanctum')?->currentAccessToken();
 
-        if ($token instanceof PersonalAccessToken && $token->can('impersonated')) {
+        // Признак — через ImpersonationToken: `can('impersonated')` здесь
+        // не годится, обычный токен кабинета имеет способность `*`, и
+        // Sanctum отвечает на такой вопрос «да» ВСЕМ покупателям.
+        if (ImpersonationToken::is($token)) {
             return response()->json([
                 'success' => false,
                 'error' => 'Вы вошли в кабинет от имени покупателя — в этом режиме можно только '

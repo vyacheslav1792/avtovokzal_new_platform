@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\ImpersonationToken;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -59,7 +60,7 @@ class AppServiceProvider extends ServiceProvider
                  * активности: это чужие персональные данные, и продлевать
                  * доступ самим фактом работы в нём нельзя.
                  */
-                if ($token->can('impersonated')) {
+                if (ImpersonationToken::is($token)) {
                     return $token->created_at !== null
                         && $token->created_at->gt(
                             now()->subMinutes((int) config('site.impersonate_ttl_minutes')),

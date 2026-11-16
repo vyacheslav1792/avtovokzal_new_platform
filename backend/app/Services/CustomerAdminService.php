@@ -638,7 +638,7 @@ class CustomerAdminService
             ->map(fn ($t) => [
                 'id' => $t->id,
                 'name' => $t->name,
-                'impersonated' => in_array('impersonated', (array) $t->abilities, true),
+                'impersonated' => \App\Support\ImpersonationToken::is($t),
                 'created_at' => $this->date($t->created_at),
                 'last_used_at' => $t->last_used_at ? $this->date($t->last_used_at) : null,
                 'alive' => ($t->last_used_at ?? $t->created_at)?->gt(now()->subMinutes($idle)) ?? false,
@@ -943,7 +943,7 @@ class CustomerAdminService
 
         $token = $user->createToken(
             'impersonate:'.$data['employee_login'],
-            ['impersonated'],
+            [\App\Support\ImpersonationToken::ABILITY],
         )->plainTextToken;
 
         return [

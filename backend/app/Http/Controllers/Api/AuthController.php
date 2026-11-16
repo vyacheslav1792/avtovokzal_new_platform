@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\UserIdentity;
 use App\Services\AuthService;
 use App\Services\CustomerAdminService;
+use App\Support\ImpersonationToken;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -146,7 +147,7 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         $token = $request->user()->currentAccessToken();
-        $impersonated = $token !== null && $token->can('impersonated');
+        $impersonated = ImpersonationToken::is($token);
 
         return response()->json([
             'success' => true,
