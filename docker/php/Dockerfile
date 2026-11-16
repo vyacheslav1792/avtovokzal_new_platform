@@ -33,5 +33,8 @@ RUN groupmod -g "${GID}" www-data 2>/dev/null || true \
 # стартовал и без него.
 ENV PHP_FPM_MAX_CHILDREN=10
 
+# Показ ошибок PHP в веб-ответе: по умолчанию выключен (см. pool.conf).
+ENV PHP_DISPLAY_ERRORS=off
+
 WORKDIR /var/www/html
 USER www-data

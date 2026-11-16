@@ -2,8 +2,22 @@
 # Только bind mounts (точки монтирования), без именованных томов.
 # Прод-специфику вынесем позже в docker-compose.prod.yml.
 
+# Ротация журналов контейнеров (`docker compose logs`). Нужна потому, что
+# драйвер json-file по умолчанию не ограничен ничем: на проде эти файлы
+# набрали 295 МБ, крупнейший — 176 МБ. Значение этих журналов выросло:
+# ошибки PHP, не дошедшие до Laravel (падение при компиляции файла,
+# нехватка памяти), пишутся именно туда — см. docker/php/php.ini.
+# Задано у сервисов, а не в /etc/docker/daemon.json, чтобы не
+# перезапускать демон docker со всеми чужими контейнерами.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   db:
+    logging: *logging
     image: postgres:17
     # Сервер живёт в московском времени, как и станции: `now()`, журнал и
     # вывод timestamptz в psql — в +3, а не в UTC. Каждое приложение при этом
@@ -35,6 +49,7 @@ services:
   # Firebird 2.5 для разработки: восстановленные бэкапы наших баз (ais, site)
   # и одной вендорной базы продаж (Красная Заря / BUSTER). Файлы .fbk/.fdb — в ./databases.
   firebird:
+    logging: *logging
     # Свой Dockerfile: aliases.conf кладётся в скелет конфигов образа. Монтировать
     # его в /firebird/etc нельзя — так каталог создаётся заранее, и entrypoint
     # не раскладывает туда firebird.conf с SYSDBA.password (см. docker/firebird/Dockerfile).
@@ -57,6 +72,7 @@ services:
   # Legacy-окружение (сверка): PHP 5.6 + Apache, боевой код из ./htdocs.
   # db_work работает через odbc-shim -> нативный Firebird (локальный контейнер).
   legacy:
+    logging: *logging
     build:
       context: ./docker/legacy
     ports:
@@ -75,6 +91,7 @@ services:
 
   # Legacy-сайт avtovokzal57 (тот же образ/шим, но DocumentRoot = сайт).
   legacy_site:
+    logging: *logging
     build:
       context: ./docker/legacy
     ports:
@@ -93,6 +110,7 @@ services:
       - firebird
 
   app:
+    logging: *logging
     build:
       context: ./docker/php
       args:
@@ -115,6 +133,9 @@ services:
       # Одновременных запросов: у сайта их больше всех — поиск рейсов,
       # оформление, печать, возвраты (см. docker/php/pool.conf)
       PHP_FPM_MAX_CHILDREN: 24
+      # Показ ошибок PHP в веб-ответе (см. docker/php/pool.conf);
+      # по умолчанию выключен, включается в корневом .env
+      PHP_DISPLAY_ERRORS: ${PHP_DISPLAY_ERRORS:-off}
       # Подключение Laravel к Postgres (сервис db)
       DB_CONNECTION: pgsql
       DB_HOST: db
@@ -143,6 +164,7 @@ services:
   # `--max-time=3600` — перезапуск раз в час: Laravel-воркер держит код в
   # памяти, и после выкладки он иначе продолжал бы работать по старому.
   queue:
+    logging: *logging
     build:
       context: ./docker/php
       args:
@@ -173,6 +195,7 @@ services:
         condition: service_healthy
 
   web:
+    logging: *logging
     image: nginx:1.27-alpine
     ports:
       - "${WEB_PORT:-8088}:80"
@@ -185,6 +208,7 @@ services:
   # API продаж — отдельный сервис со своей БД (sales) и своим nginx.
   # Работает автономно от avtovokzal57: только базы автостанций (Firebird) + журнал.
   sales_app:
+    logging: *logging
     build:
       context: ./docker/php
       args:
@@ -201,6 +225,9 @@ services:
       # Одновременных запросов: сюда ходит backend по каждому запросу
       # сайта, плюс агенты напрямую
       PHP_FPM_MAX_CHILDREN: 24
+      # Показ ошибок PHP в веб-ответе (см. docker/php/pool.conf);
+      # по умолчанию выключен, включается в корневом .env
+      PHP_DISPLAY_ERRORS: ${PHP_DISPLAY_ERRORS:-off}
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: 5432
@@ -223,6 +250,7 @@ services:
         condition: service_started
 
   sales_web:
+    logging: *logging
     image: nginx:1.27-alpine
     ports:
       - "${SALES_WEB_PORT:-8085}:80"
@@ -233,6 +261,7 @@ services:
       - sales_app
 
   ais_app:
+    logging: *logging
     build:
       context: ./docker/php
       args:
@@ -257,6 +286,9 @@ services:
       # Одновременных запросов: сотрудников единицы, но отчёты по
       # станциям идут долго
       PHP_FPM_MAX_CHILDREN: 12
+      # Показ ошибок PHP в веб-ответе (см. docker/php/pool.conf);
+      # по умолчанию выключен, включается в корневом .env
+      PHP_DISPLAY_ERRORS: ${PHP_DISPLAY_ERRORS:-off}
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: 5432
@@ -279,6 +311,7 @@ services:
         condition: service_started
 
   ais_web:
+    logging: *logging
     image: nginx:1.27-alpine
     ports:
       - "${AIS_WEB_PORT:-8086}:80"
@@ -289,6 +322,7 @@ services:
       - ais_app
 
   kkm_app:
+    logging: *logging
     build:
       context: ./docker/php
       args:
@@ -304,6 +338,9 @@ services:
     environment:
       # Одновременных запросов: поток чеков ровный и небольшой
       PHP_FPM_MAX_CHILDREN: 8
+      # Показ ошибок PHP в веб-ответе (см. docker/php/pool.conf);
+      # по умолчанию выключен, включается в корневом .env
+      PHP_DISPLAY_ERRORS: ${PHP_DISPLAY_ERRORS:-off}
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: 5432
@@ -323,6 +360,7 @@ services:
   # Планировщик заданий: исполняет команды в чужих контейнерах через docker.sock
   # (см. docker/ofelia/config.ini) — как в проекте authserver.
   scheduler:
+    logging: *logging
     image: mcuadros/ofelia:latest
     environment:
       TZ: Europe/Moscow
@@ -334,6 +372,7 @@ services:
     restart: unless-stopped
 
   kkm_web:
+    logging: *logging
     image: nginx:1.27-alpine
     ports:
       - "${KKM_WEB_PORT:-8087}:80"
@@ -348,6 +387,7 @@ services:
   # способом, что и legacy pdf.php (wkhtmltopdf по URL print.php).
   # Наружу не публикуем: сервис ходит только по внутренней сети compose.
   gotenberg:
+    logging: *logging
     image: gotenberg/gotenberg:8
     command:
       - gotenberg
@@ -371,6 +411,7 @@ services:
   # не смогла бы ходить в http-API (mixed content).
   # Сертификат самоподписанный: браузер один раз предупредит.
   proxy:
+    logging: *logging
     image: caddy:2-alpine
     ports:
       - "${TLS_PORT:-443}:443"
@@ -385,6 +426,7 @@ services:
 
   # SPA отчётов АИС (Vue 3 + Vite, dev-сервер).
   ais_spa:
+    logging: *logging
     image: node:24-alpine
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /app
@@ -403,6 +445,7 @@ services:
       - web
 
   frontend:
+    logging: *logging
     image: node:24-alpine
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /app
