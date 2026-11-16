@@ -35,14 +35,21 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->get("stations/{$awtcod}/schedule"));
     }
 
-    /** Тариф рейса по остановкам (legacy action=tarif). */
+    /**
+     * Тариф рейса по остановкам (legacy action=tarif).
+     *
+     * ЛОВУШКА: отбрасываем только null. `array_filter` без колбэка
+     * выбрасывает и нули, поэтому `raicecod=0` исчезал из запроса, а
+     * станция отвечала «The raicecod field is required» — сообщение,
+     * по которому причину не найти. Так же сделано в trips().
+     */
     public function tariff(int $awtcod, int $napcod, int $raicecod, ?string $variant = null): array
     {
         return $this->call(fn () => $this->http()->get("stations/{$awtcod}/tariff", array_filter([
             'napcod' => $napcod,
             'raicecod' => $raicecod,
             'variant' => $variant,
-        ])));
+        ], fn ($v) => $v !== null)));
     }
 
     /** $date = null — «ближайшие» рейсы по всем датам (legacy blij=1). */

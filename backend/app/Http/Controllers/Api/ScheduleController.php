@@ -69,10 +69,18 @@ class ScheduleController extends Controller
      */
     public function tariff(Request $request): JsonResponse
     {
+        /*
+         * min:1 — ноль не идентификатор. Обрезанные ссылки на тариф
+         * (`/tarif?from=5701&napcod=35` без рейса) превращались во фронте
+         * в `raicecod=0`, уходили в API продаж и возвращались ошибкой
+         * «The raicecod field is required» — по сотне записей ERROR в
+         * сутки. Теперь такой запрос отсекается здесь и в журнал не
+         * попадает (ошибки проверки Laravel не логируются).
+         */
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
+            'awtcod' => ['required', 'integer', 'min:1'],
+            'napcod' => ['required', 'integer', 'min:1'],
+            'raicecod' => ['required', 'integer', 'min:1'],
             'variant' => ['sometimes', 'in:current,upcoming'],
         ]);
 

@@ -52,16 +52,28 @@ const napcod = computed(() => Number(route.query.napcod ?? 0))
 const raicecod = computed(() => Number(route.query.raicecod ?? 0))
 const variant = computed(() => route.query.variant === 'upcoming' ? 'upcoming' : 'current')
 
+/*
+ * Адрес обязан называть рейс целиком: станция + направление + рейс.
+ * Если чего-то нет (обрезанная ссылка вида `/tarif?from=5701&napcod=35` —
+ * таких приходит полторы сотни в сутки, их оставляют поисковики и старые
+ * ссылки), запрос НЕ делаем: `Number(undefined ?? 0)` давал ноль, сайт
+ * шёл в API с `raicecod=0`, получал 422 и писал ошибку в журнал — по
+ * сотне записей в сутки на пустом месте.
+ */
+const hasTrip = computed(() => awtcod.value > 0 && napcod.value > 0 && raicecod.value > 0)
+
 const { data, error } = await useAsyncData(
   'tariff',
-  () => api<{ success: boolean, awtname: string | null, data: Tariff }>('/tariff', {
-    query: {
-      awtcod: awtcod.value,
-      napcod: napcod.value,
-      raicecod: raicecod.value,
-      variant: variant.value,
-    },
-  }),
+  () => hasTrip.value
+    ? api<{ success: boolean, awtname: string | null, data: Tariff }>('/tariff', {
+        query: {
+          awtcod: awtcod.value,
+          napcod: napcod.value,
+          raicecod: raicecod.value,
+          variant: variant.value,
+        },
+      })
+    : Promise.resolve(null),
   { watch: [awtcod, napcod, raicecod, variant] },
 )
 
@@ -168,8 +180,19 @@ function download() {
   <UContainer class="py-8 max-w-5xl">
     <BackButton />
 
+    <!-- Рейс в адресе не указан: ссылка обрезана. Это не ошибка загрузки,
+         поэтому и текст другой — человеку надо вернуться в расписание. -->
     <UAlert
-      v-if="error || !tariff"
+      v-if="!hasTrip"
+      color="warning"
+      variant="subtle"
+      title="Рейс не указан"
+      description="Ссылка неполная: в ней нет рейса. Откройте тариф из расписания — нажмите время отправления нужного рейса."
+      :actions="[{ label: 'Перейти к расписанию', to: '/raspisanie-avtobusov', color: 'neutral' }]"
+    />
+
+    <UAlert
+      v-else-if="error || !tariff"
       color="error"
       variant="subtle"
       title="Не удалось показать тариф"
