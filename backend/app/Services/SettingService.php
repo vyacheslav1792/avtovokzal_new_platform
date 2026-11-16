@@ -102,6 +102,9 @@ class SettingService
                 'min' => $meta['min'] ?? null,
                 'max' => $meta['max'] ?? null,
                 'unit' => $meta['unit'] ?? null,
+                // Выключение этой настройки останавливает работу сайта —
+                // админка говорит об этом отдельной строкой наверху.
+                'stops_site' => (bool) ($meta['stops_site'] ?? false),
             ];
         }
 
