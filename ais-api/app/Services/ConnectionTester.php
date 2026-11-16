@@ -17,8 +17,10 @@ use Throwable;
  */
 class ConnectionTester
 {
-    /** Таймаут проверки: быстрее получить «нет связи», чем ждать минуту. */
+    /** Таймаут проверки KkmServer: быстрее получить «нет связи», чем ждать минуту. */
     private const TIMEOUT_SECONDS = 8;
+
+    public function __construct(private readonly SiteSettings $settings) {}
 
     /** Проверка базы станции: подключаемся и спрашиваем время у сервера. */
     public function station(StationProfile $profile): array
@@ -26,17 +28,21 @@ class ConnectionTester
         $started = microtime(true);
 
         try {
-            // Ограничиваем ожидание на уровне драйвера: недоступная
-            // станция иначе держит запрос до собственного таймаута.
-            ini_set('firebird.timestampformat', '%Y-%m-%d %H:%M:%S');
-
+            /*
+             * Ждём ровно столько, сколько ждёт продажа (настройка
+             * «Ожидание связи с базой станции» в АИС): иначе проверка
+             * показывала бы «связь есть» там, где покупателю её уже не
+             * хватает. Без ограничения недоступная станция держала бы
+             * кнопку «Проверить» около двух минут — pdo_firebird
+             * таймаута подключения не знает.
+             */
             $connection = new StationConnection([
                 'db_host' => $profile->db_host,
                 'db_port' => $profile->db_port,
                 'db_name' => $profile->db_name,
                 'db_user' => $profile->db_user,
                 'db_password' => $profile->db_password,
-            ]);
+            ], $this->settings->stationConnectTimeout());
 
             // Минимальный запрос, который есть в любой базе BUSTER.
             $rows = $connection->select('select first 1 current_timestamp as NOW from RDB$DATABASE');

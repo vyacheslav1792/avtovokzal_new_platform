@@ -201,6 +201,10 @@ services:
       # `stations`); sales-api читает его прямым запросом — см.
       # App\Services\Buster\StationCatalog.
       AIS_DB_DATABASE: ais
+      # Настройка «Ожидание связи с базой станции» правится в АИС и
+      # лежит в БД сайта (таблица `settings`) — читаем прямым запросом,
+      # см. App\Services\SiteSettings.
+      SITE_DB_DATABASE: avtovokzal
       TZ: Europe/Moscow
     depends_on:
       db:
@@ -329,6 +333,12 @@ services:
     command:
       - gotenberg
       - --chromium-allow-list=^https?://(frontend|web):.*
+      # Умолчание — 30 с, и его не хватало: 16.11.2026 при пропаже связи
+      # со станциями сайт отвечал медленно, рендер печатной формы не
+      # укладывался, gotenberg отдавал 503 «The request exceeded the time
+      # limit», и письмо о покупке уходило БЕЗ PDF билетов. В норме
+      # страница рендерится 1,3 с, так что запас ни на что не влияет.
+      - --api-timeout=60s
     environment:
       TZ: Europe/Moscow
     depends_on:

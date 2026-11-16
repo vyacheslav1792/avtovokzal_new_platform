@@ -1,6 +1,6 @@
 <script setup>
 /**
- * Настройки сайта: продажа и возврат билетов.
+ * Настройки сайта: продажа и возврат билетов, ожидание связи со станцией.
  *
  * В legacy выключателя не было вовсе — остановить продажу можно было только
  * правкой кода или снятием сайта целиком. При неполадках у станции это
@@ -9,6 +9,11 @@
  *
  * Правка требует кода подтверждения (право settings.edit помечено как
  * опасное): выключенная продажа останавливает выручку сайта.
+ *
+ * Состав полей задаёт СЕРВЕР (каталог backend/config/settings.php): он
+ * присылает тип, границы и подпись единицы, поэтому новая настройка
+ * появляется здесь сама, а границы числа не приходится держать второй
+ * копией.
  */
 import { computed, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
@@ -27,6 +32,29 @@ const dirty = computed(() => snapshot.value !== JSON.stringify(settings.value))
 /** Что сейчас выключено — об этом стоит сказать прямо наверху страницы. */
 const disabled = computed(() => settings.value.filter((s) => s.type === 'bool' && !s.value))
 
+/**
+ * Число зажимаем в границы сразу, не дожидаясь сохранения: сервер всё
+ * равно сделает это у себя (SettingService::cast), но молча — и сотрудник
+ * увидел бы «сохранено», а в поле другое значение.
+ */
+function clamp(setting) {
+  if (setting.type !== 'int') return
+
+  const value = Number(setting.value)
+
+  if (!Number.isFinite(value)) {
+    setting.value = setting.default
+    return
+  }
+
+  let result = Math.round(value)
+
+  if (setting.min != null) result = Math.max(setting.min, result)
+  if (setting.max != null) result = Math.min(setting.max, result)
+
+  setting.value = result
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -44,6 +72,7 @@ async function save() {
   saving.value = true
   error.value = ''
   saved.value = false
+  settings.value.forEach(clamp)
   try {
     settings.value = await saveSettings(
       settings.value.map((s) => ({ key: s.key, value: s.value })),
@@ -73,8 +102,9 @@ onMounted(() => {
   <div class="narrow">
     <h1>Настройки</h1>
     <p class="muted">
-      Выключатели сайта автовокзал57. Меняются сразу — ждать выкладки не нужно.
-      Кассы, АИС и возврат билета через АИС эти переключатели не затрагивают.
+      Настройки сайта автовокзал57. Меняются сразу — ждать выкладки не нужно.
+      Кассы, АИС и возврат билета через АИС переключатели продажи и возврата
+      не затрагивают.
     </p>
 
     <div v-if="error" class="alert">{{ error }}</div>
@@ -89,13 +119,33 @@ onMounted(() => {
       </div>
 
       <div v-for="setting in settings" :key="setting.key" class="panel setting-panel">
-        <label class="check setting-switch">
+        <label v-if="setting.type === 'bool'" class="check setting-switch">
           <input v-model="setting.value" type="checkbox" :disabled="!can('settings.edit')">
           <span class="setting-title">{{ setting.title }}</span>
           <span :class="setting.value ? 'badge-on' : 'badge-off'">
             {{ setting.value ? 'включено' : 'выключено' }}
           </span>
         </label>
+
+        <label v-else class="setting-number">
+          <span class="setting-title">{{ setting.title }}</span>
+          <span class="setting-number-row">
+            <input
+              v-model.number="setting.value"
+              type="number"
+              :min="setting.min ?? undefined"
+              :max="setting.max ?? undefined"
+              :disabled="!can('settings.edit')"
+              @blur="clamp(setting)"
+            >
+            <span v-if="setting.unit">{{ setting.unit }}</span>
+          </span>
+          <span class="muted setting-range">
+            допустимо {{ setting.min }}–{{ setting.max }}{{ setting.unit ? ' ' + setting.unit : '' }},
+            по умолчанию {{ setting.default }}{{ setting.unit ? ' ' + setting.unit : '' }}
+          </span>
+        </label>
+
         <p class="hint setting-hint">{{ setting.hint }}</p>
       </div>
 

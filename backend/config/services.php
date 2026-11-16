@@ -67,7 +67,13 @@ return [
     'gotenberg' => [
         'url' => env('GOTENBERG_URL', 'http://gotenberg:3000'),
         'print_base' => env('PRINT_BASE_URL', 'http://frontend:3000'),
-        'timeout' => (int) env('GOTENBERG_TIMEOUT', 60),
+        /*
+         * Ждём ЧУТЬ ДОЛЬШЕ, чем сам gotenberg (--api-timeout=60s в
+         * compose): иначе мы отваливаемся по своему таймауту первыми и в
+         * журнале остаётся «cURL error 28» вместо внятного ответа
+         * gotenberg о том, что рендер не уложился в срок.
+         */
+        'timeout' => (int) env('GOTENBERG_TIMEOUT', 70),
     ],
 
     // KKM API — отдельный сервис-прослойка к KkmServer (фискальные чеки).

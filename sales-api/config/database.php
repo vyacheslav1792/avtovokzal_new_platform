@@ -131,6 +131,29 @@ return [
             'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
         ],
 
+        /*
+         * База сайта (backend) — только на чтение: оттуда берётся
+         * настройка «ожидание связи с базой станции», которую сотрудник
+         * правит в АИС на странице «Настройки». Прямым соединением, как и
+         * справочник станций: спрашивать её по сети у backend на каждом
+         * запросе продаж незачем (а backend в этот момент как раз и ждёт
+         * нашего ответа).
+         */
+        'site' => [
+            'driver' => 'pgsql',
+            'host' => env('SITE_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('SITE_DB_PORT', env('DB_PORT', '5432')),
+            'database' => env('SITE_DB_DATABASE', 'avtovokzal'),
+            'username' => env('SITE_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('SITE_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'timezone' => env('APP_TIMEZONE', 'Europe/Moscow'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

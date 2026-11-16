@@ -2,6 +2,7 @@
 
 namespace App\Reports;
 
+use App\Services\SiteSettings;
 use App\Services\StationConnection;
 use App\Services\StationRegistry;
 
@@ -59,7 +60,10 @@ class AgentsReport implements Report
         ['key' => 'DATESALE_T', 'title' => 'Время возврата', 'type' => 'time'],
     ];
 
-    public function __construct(private readonly StationRegistry $stations) {}
+    public function __construct(
+        private readonly StationRegistry $stations,
+        private readonly SiteSettings $settings,
+    ) {}
 
     public function meta(): array
     {
@@ -103,9 +107,14 @@ class AgentsReport implements Report
                 $inved, $inved2211, 0, 'Не выбрано хозяйство', $filters);
         }
 
+        // Ждать связи столько же, сколько ждёт продажа: отчёт идёт по
+        // всем станциям хозяйства, и без ограничения один пропавший
+        // канал задерживал бы его на две минуты за станцию.
+        $connectTimeout = $this->settings->stationConnectTimeout();
+
         foreach ($this->stations->subset($stan) as $awtcod => $station) {
             try {
-                $db = new StationConnection($station);
+                $db = new StationConnection($station, $connectTimeout);
             } catch (\Throwable) {
                 $errors .= 'Нет соединения с базой '.$station['name'].'<br>';
 

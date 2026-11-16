@@ -29,6 +29,26 @@ class SendPurchaseEmail implements ShouldQueue
 
     public int $backoff = 120;
 
+    /**
+     * Сколько попыток дать РЕНДЕРУ PDF, прежде чем отправить письмо без
+     * вложения.
+     *
+     * Почему вообще повторяем: раньше первая же осечка gotenberg означала
+     * письмо без билетов в PDF — навсегда, второй раз мы его не слали.
+     * А осечка бывает не из-за заказа, а из-за минутной перегрузки: при
+     * пропаже связи со станциями сайт отвечал медленно, рендер не
+     * укладывался в срок и gotenberg отвечал 503 (16.11.2026, два
+     * письма). Повтор через полминуты такие случаи закрывает.
+     *
+     * Почему не все пять: письмо с билетами покупатель ждёт сейчас, а
+     * список билетов и код возврата в нём есть и без вложения — держать
+     * его десять минут из-за PDF нельзя.
+     */
+    private const PDF_ATTEMPTS = 3;
+
+    /** Пауза перед повторной попыткой рендера. */
+    private const PDF_RETRY_SECONDS = 30;
+
     public function __construct(public readonly string $orderId) {}
 
     public function handle(PdfRenderer $renderer): void
@@ -68,8 +88,23 @@ class SendPurchaseEmail implements ShouldQueue
                 rtrim((string) config('services.gotenberg.print_base'), '/').'/print/'.$order->id,
             );
         } catch (\Throwable $e) {
+            // Попытки ещё есть — отложим задание целиком, а не отправим
+            // письмо без вложения: чаще всего это минутная перегрузка.
+            if ($this->attempts() < self::PDF_ATTEMPTS) {
+                Log::warning('Не удалось собрать PDF билетов, пробуем ещё раз', [
+                    'order_id' => $order->id,
+                    'attempt' => $this->attempts(),
+                    'error' => $e->getMessage(),
+                ]);
+
+                $this->release(self::PDF_RETRY_SECONDS);
+
+                return;
+            }
+
             Log::warning('Письмо о покупке уходит без PDF билетов', [
                 'order_id' => $order->id,
+                'attempts' => $this->attempts(),
                 'error' => $e->getMessage(),
             ]);
         }

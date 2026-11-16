@@ -398,11 +398,15 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
 .block-excerpt { margin: 10px 0 0; font-size: 13px; }
 .block-opts { align-items: flex-end; margin: 12px 0; }
 
-/* Настройки: переключатель и описание последствий */
+/* Настройки: переключатель, числовое поле и описание последствий */
 .setting-panel { padding-bottom: 12px; }
 .setting-switch { gap: 10px; }
 .setting-title { font-weight: 600; }
 .setting-hint { margin: 8px 0 0; max-width: 680px; }
+.setting-number { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.setting-number-row { display: flex; align-items: center; gap: 8px; }
+.setting-number-row input { padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 14px; background: #fff; width: 100px; }
+.setting-range { font-size: 12px; }
 
 /* ── Обновление данных сайта ──────────────────────────────────────────── */
 

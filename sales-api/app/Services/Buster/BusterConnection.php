@@ -18,8 +18,19 @@ class BusterConnection
 {
     private PDO $pdo;
 
-    public function __construct(array $station)
+    /**
+     * @param  int  $connectTimeout  сколько секунд ждать связи (0 — не ограничивать)
+     */
+    public function __construct(array $station, int $connectTimeout = 0)
     {
+        if ($connectTimeout > 0) {
+            self::assertReachable(
+                (string) $station['db_host'],
+                (int) $station['db_port'],
+                $connectTimeout,
+            );
+        }
+
         $dsn = sprintf(
             'firebird:dbname=%s/%d:%s;charset=UTF8',
             $station['db_host'],
@@ -31,6 +42,52 @@ class BusterConnection
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
+    }
+
+    /**
+     * Проверка, что до станции вообще доходит TCP, — ДО создания PDO.
+     *
+     * Так приходится делать потому, что **pdo_firebird таймаут
+     * подключения не поддерживает**: `PDO::ATTR_TIMEOUT` он молча
+     * игнорирует (проверено — соединение с «чёрной дырой» висело больше
+     * двух минут), а ждать оно будет столько, сколько ждёт системный
+     * connect(), то есть около двух минут при потерянных пакетах. Всё это
+     * время запрос занимает обработчик php-fpm: 16.11.2026 связь со всеми
+     * станциями пропала на 13 минут, свободные обработчики кончились, и
+     * сайт отвечал «Server Error» даже там, где станции не нужны
+     * (печатная форма, PDF билетов в письме).
+     *
+     * Проба именно TCP, а не запрос к базе: разорванный канал виден уже
+     * здесь, а «Firebird ответил отказом» (неверный пароль, нет базы) —
+     * это уже ответ станции, его разбирает PDO обычным путём.
+     *
+     * Бросаем PDOException — тем самым отказ выглядит для вызывающего
+     * так же, как любая другая недоступность базы, и GatewayFactory
+     * превращает его в понятное «автостанция недоступна».
+     */
+    private static function assertReachable(string $host, int $port, int $timeout): void
+    {
+        $socket = @stream_socket_client(
+            "tcp://{$host}:{$port}",
+            $errno,
+            $error,
+            $timeout,
+            STREAM_CLIENT_CONNECT,
+        );
+
+        if ($socket !== false) {
+            fclose($socket);
+
+            return;
+        }
+
+        throw new \PDOException(sprintf(
+            'нет связи с %s:%d за %d с (%s)',
+            $host,
+            $port,
+            $timeout,
+            $error !== '' ? $error : 'код '.$errno,
+        ));
     }
 
     /** SELECT → массив ассоц. массивов (аналог db_work->inArray). */
