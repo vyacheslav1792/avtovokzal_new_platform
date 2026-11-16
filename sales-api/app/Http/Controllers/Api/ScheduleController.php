@@ -9,6 +9,7 @@ use App\Services\Schedule\RegularScheduleBuilder;
 use App\Services\Schedule\TariffCard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\VendorCode;
 
 /**
  * Регулярное расписание станции (перенос legacy action=raspisanie).
@@ -45,8 +46,8 @@ class ScheduleController extends Controller
     public function tariff(Request $request, int $awtcod): JsonResponse
     {
         $data = $request->validate([
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
             'variant' => ['sometimes', 'in:current,upcoming'],
         ]);
 

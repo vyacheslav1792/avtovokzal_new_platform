@@ -34,17 +34,49 @@ class SalesApiException extends \RuntimeException
     public function __construct(
         string $message,
         public readonly string $errorCode = 'sales_api_error',
+        /**
+         * Код ответа API продаж. 4xx значит «неверный запрос» — то есть
+         * виноваты входные данные, а не система; null — ответа не было
+         * (это как раз сбой).
+         */
+        public readonly ?int $httpStatus = null,
     ) {
         parent::__construct($message);
     }
 
     /**
-     * Штатный отказ, а не сбой. Конфликты продажи (`already_sold`,
-     * `sale_in_progress`, `concurrent_sale`) сюда НЕ входят сознательно:
-     * они про деньги покупателя, и их надо видеть в журнале.
+     * Конфликты продажи — всегда в журнал: они про деньги покупателя.
+     * Проверяется раньше статуса ответа, потому что приходят они тоже
+     * с 4xx.
+     */
+    private const ALWAYS_REPORT = [
+        'already_sold',
+        'sale_in_progress',
+        'concurrent_sale',
+    ];
+
+    /**
+     * Штатный отказ, а не сбой — такие в журнал не пишем.
+     *
+     * Кроме перечисленных кодов сюда попадает ЛЮБОЙ отказ с кодом 4xx:
+     * это ответ «неверный запрос», то есть виноваты пришедшие данные.
+     * Боты и люди присылают что угодно — от этого журнал ошибок расти не
+     * должен, иначе в нём не видно настоящих сбоев (на проде из 8023
+     * записей ERROR за сутки такими были больше половины).
+     *
+     * Технические сбои остаются в журнале: 5xx у API продаж, отсутствие
+     * ответа, нераспознанный формат — и конфликты продажи, см. выше.
      */
     public function isExpected(): bool
     {
-        return in_array($this->errorCode, self::EXPECTED, true);
+        if (in_array($this->errorCode, self::ALWAYS_REPORT, true)) {
+            return false;
+        }
+
+        if (in_array($this->errorCode, self::EXPECTED, true)) {
+            return true;
+        }
+
+        return $this->httpStatus !== null && $this->httpStatus >= 400 && $this->httpStatus < 500;
     }
 }

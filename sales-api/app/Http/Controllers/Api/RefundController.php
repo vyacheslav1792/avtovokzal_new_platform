@@ -8,6 +8,7 @@ use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\VendorCode;
 
 class RefundController extends Controller
 {
@@ -24,7 +25,7 @@ class RefundController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'operation' => ['required', 'integer', 'in:1,5'],
             'preview' => ['sometimes', 'boolean'],
             // Админский возврат (legacy admin_mode): разрешён после отправления.

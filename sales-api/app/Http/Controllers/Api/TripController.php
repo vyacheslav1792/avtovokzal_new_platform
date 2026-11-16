@@ -7,6 +7,7 @@ use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\VendorCode;
 
 class TripController extends Controller
 {
@@ -24,7 +25,7 @@ class TripController extends Controller
     public function index(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'station' => ['required', 'string', 'max:255'],
             'date' => ['nullable', 'date_format:Y-m-d'],
             'for_sale' => ['sometimes', 'boolean'],
@@ -91,10 +92,10 @@ class TripController extends Controller
     public function places(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
         ]);
 
         $gateway = $this->gateways->forStation($data['awtcod'], $request->attributes->get('agent'));
@@ -138,10 +139,10 @@ class TripController extends Controller
     public function status(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
         ]);
 
         $gateway = $this->gateways->forStation($data['awtcod'], $request->attributes->get('agent'));

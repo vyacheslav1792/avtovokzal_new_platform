@@ -6,6 +6,7 @@ use App\Models\BlockedEmail;
 use App\Services\PassengerDocument;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
+use App\Support\VendorCode;
 
 class StoreOrderRequest extends FormRequest
 {
@@ -33,10 +34,10 @@ class StoreOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'awtcod' => ['required', 'integer'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
-            'statcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
+            'statcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
             'to_name' => ['required', 'string', 'max:128'],
             // Гостю почта обязательна. У покупателя из кабинета она берётся

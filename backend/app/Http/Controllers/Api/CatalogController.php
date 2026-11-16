@@ -8,6 +8,7 @@ use App\Services\DestinationService;
 use App\Services\SalesApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\VendorCode;
 
 /** Справочные данные для фронта: станции, направления, рейсы, места. */
 class CatalogController extends Controller
@@ -70,7 +71,7 @@ class CatalogController extends Controller
     public function trips(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'to' => ['required', 'string', 'max:255'],
             'date' => ['nullable', 'date_format:Y-m-d'],
             'all' => ['sometimes', 'boolean'],
@@ -87,10 +88,10 @@ class CatalogController extends Controller
     public function places(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
         ]);
 
         return response()->json($this->salesApi->places(

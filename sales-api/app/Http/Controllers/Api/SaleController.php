@@ -11,6 +11,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Support\VendorCode;
 
 class SaleController extends Controller
 {
@@ -28,10 +29,10 @@ class SaleController extends Controller
         $data = $request->validate([
             'reservation_id' => ['required_without:id_time_places', 'uuid'],
             'id_time_places' => ['required_without:reservation_id', 'string', 'max:32'],
-            'awtcod' => ['required_without:reservation_id', 'integer'],
-            'napcod' => ['required_without:reservation_id', 'integer'],
-            'raicecod' => ['required_without:reservation_id', 'integer'],
-            'statcod' => ['required_without:reservation_id', 'integer'],
+            'awtcod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
+            'napcod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
+            'raicecod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
+            'statcod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
             'date' => ['required_without:reservation_id', 'date_format:Y-m-d'],
             'tickets' => ['required', 'array', 'min:1', 'max:20'],
             'tickets.*.place' => ['required'],

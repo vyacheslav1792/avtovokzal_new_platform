@@ -112,16 +112,42 @@ class SalesApiClient
         $data = $response->json();
 
         if (! is_array($data)) {
-            throw new SalesApiException('Некорректный ответ API продаж', 'bad_response');
+            throw new SalesApiException(
+                'Некорректный ответ API продаж',
+                'bad_response',
+                $response->status(),
+            );
         }
 
         if (! ($data['success'] ?? false)) {
+            /*
+             * Код ответа передаём в исключение: по нему видно, отказ это
+             * из-за присланных данных (4xx — тогда в журнал не пишем, боты
+             * шлют что угодно) или сбой системы (5xx, нет ответа).
+             * Сообщение берём и из `errors` — у ошибок проверки API продаж
+             * текст лежит именно там, а `error`/`message` даёт общее
+             * «The raicecod field is required», по которому причину не
+             * найти.
+             */
             throw new SalesApiException(
-                $data['error'] ?? $data['message'] ?? 'Ошибка API продаж',
+                $data['error'] ?? $this->firstValidationError($data) ?? $data['message'] ?? 'Ошибка API продаж',
                 $data['error_code'] ?? 'sales_api_error',
+                $response->status(),
             );
         }
 
         return $data;
+    }
+
+    /** Первая ошибка проверки из ответа API продаж, если она там есть. */
+    private function firstValidationError(array $data): ?string
+    {
+        foreach ((array) ($data['errors'] ?? []) as $messages) {
+            foreach ((array) $messages as $message) {
+                return (string) $message;
+            }
+        }
+
+        return null;
     }
 }

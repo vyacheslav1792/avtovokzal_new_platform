@@ -8,6 +8,7 @@ use App\Services\ScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Support\VendorCode;
 
 /**
  * Регулярное расписание для сайта (перенос страницы legacy
@@ -78,9 +79,9 @@ class ScheduleController extends Controller
          * попадает (ошибки проверки Laravel не логируются).
          */
         $data = $request->validate([
-            'awtcod' => ['required', 'integer', 'min:1'],
-            'napcod' => ['required', 'integer', 'min:1'],
-            'raicecod' => ['required', 'integer', 'min:1'],
+            'awtcod' => VendorCode::rules(),
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
             'variant' => ['sometimes', 'in:current,upcoming'],
         ]);
 

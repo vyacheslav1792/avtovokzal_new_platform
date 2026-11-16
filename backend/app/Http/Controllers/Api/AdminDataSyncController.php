@@ -9,6 +9,7 @@ use App\Services\ScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
+use App\Support\VendorCode;
 
 /**
  * Немедленное обновление данных, которые сайт держит у себя: регулярного
@@ -72,7 +73,7 @@ class AdminDataSyncController extends Controller
     private function awtcod(Request $request): ?int
     {
         $data = $request->validate([
-            'awtcod' => ['nullable', 'integer'],
+            'awtcod' => VendorCode::rules(required: false),
         ]);
 
         return $data['awtcod'] ?? null;

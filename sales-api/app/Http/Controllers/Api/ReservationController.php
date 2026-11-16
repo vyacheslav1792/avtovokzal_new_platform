@@ -8,6 +8,7 @@ use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\VendorCode;
 
 class ReservationController extends Controller
 {
@@ -23,10 +24,10 @@ class ReservationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => ['required', 'integer'],
-            'napcod' => ['required', 'integer'],
-            'raicecod' => ['required', 'integer'],
-            'statcod' => ['required', 'integer'],
+            'awtcod' => VendorCode::rules(),
+            'napcod' => VendorCode::rules(),
+            'raicecod' => VendorCode::rules(),
+            'statcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
             'places' => ['sometimes', 'array', 'min:1', 'max:20'],
             'places.*' => ['integer', 'min:1', 'max:200'],
