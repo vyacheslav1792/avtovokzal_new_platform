@@ -22,6 +22,25 @@ class GatewayFactory
      */
     private const OFFLINE_TTL_HOURS = 12;
 
+    /**
+     * Пауза перед следующей попыткой подключиться к станции, которая
+     * только что отказала.
+     *
+     * Зачем: таймаут спасает лишь от ОБРЫВА канала. У Кром, например,
+     * порт отвечает мгновенно (на 192.168.4.250 слушает туннель), а
+     * отказ «connection rejected by remote interface» приходит **через
+     * 21 секунду** — это ответ с другой стороны, и укоротить его нечем.
+     * Запросов к такой станции идёт по 150–190 в час, то есть обработчик
+     * php-fpm занят ею почти постоянно; при обрыве сразу у всех станций
+     * свободных обработчиков не осталось вовсе (16.11.2026).
+     *
+     * Поэтому к станции, которая только что отказала, мы минуту не
+     * ходим: покупатель получает «автостанция недоступна» сразу, а не
+     * через 21 секунду. Цена — станция, ожившая секунду назад, числится
+     * недоступной ещё до минуты.
+     */
+    private const RETRY_PAUSE_SECONDS = 60;
+
     public function __construct(
         private readonly StationRegistry $stations,
         private readonly SiteSettings $settings,
@@ -30,6 +49,17 @@ class GatewayFactory
     public function forStation(int|string $awtcod, array $agent): BusterGateway
     {
         $station = $this->stations->get($awtcod);
+        $offline = Cache::get(self::offlineKey($awtcod));
+
+        // Станция отказала только что — не ходим к ней снова, пока не
+        // вышла пауза: её отказ занимает обработчик на 21 секунду.
+        if (is_array($offline) && CarbonImmutable::now()->timestamp < (int) ($offline['retry_after'] ?? 0)) {
+            throw new StationUnavailableException(
+                (int) $awtcod,
+                (string) ($station['name'] ?? $awtcod),
+                (string) ($offline['reason'] ?? 'связи нет'),
+            );
+        }
 
         try {
             $connection = new BusterConnection(
@@ -46,7 +76,7 @@ class GatewayFactory
              * распознаваемый отказ, по которому сайт покажет покупателю
              * «станция недоступна», а не «Server Error».
              */
-            $this->noteOffline($station, $e);
+            $this->noteOffline($station, $e, is_array($offline) ? $offline : null);
 
             throw new StationUnavailableException(
                 (int) $awtcod,
@@ -55,7 +85,9 @@ class GatewayFactory
             );
         }
 
-        $this->noteOnline($station);
+        if (is_array($offline)) {
+            $this->noteOnline($station, $offline);
+        }
 
         return new BusterGateway(
             $connection,
@@ -74,19 +106,29 @@ class GatewayFactory
      * запросы идут сотнями в час, и прежний вариант (одна строка раз в
      * пять минут) всё равно засыпал журнал повторами об одном и том же.
      */
-    private function noteOffline(array $station, PDOException $e): void
+    /**
+     * @param  array<string, mixed>|null  $previous  прежняя отметка, если станция уже числилась недоступной
+     */
+    private function noteOffline(array $station, PDOException $e, ?array $previous): void
     {
-        $key = self::offlineKey($station['awtcod'] ?? 'unknown');
+        $now = CarbonImmutable::now();
+        $reason = mb_substr($e->getMessage(), 0, 200);
 
-        // add() ставит отметку только если её не было, то есть true
-        // здесь значит «до этого станция считалась доступной».
-        $fresh = Cache::add(
-            $key,
-            CarbonImmutable::now()->toDateTimeString(),
+        Cache::put(
+            self::offlineKey($station['awtcod'] ?? 'unknown'),
+            [
+                // Время ПЕРВОГО отказа не сдвигаем: по нему считается,
+                // сколько длился сбой.
+                'since' => (string) ($previous['since'] ?? $now->toDateTimeString()),
+                'retry_after' => $now->timestamp + self::RETRY_PAUSE_SECONDS,
+                'reason' => $reason,
+            ],
             now()->addHours(self::OFFLINE_TTL_HOURS),
         );
 
-        if (! $fresh) {
+        // В журнал — только ПЕРЕХОД: прежней отметки не было, значит до
+        // этого станция считалась доступной.
+        if ($previous !== null) {
             return;
         }
 
@@ -94,7 +136,7 @@ class GatewayFactory
             'awtcod' => $station['awtcod'] ?? null,
             'station' => $station['name'] ?? null,
             'host' => ($station['db_host'] ?? '?').':'.($station['db_port'] ?? '?'),
-            'reason' => mb_substr($e->getMessage(), 0, 200),
+            'reason' => $reason,
         ]);
     }
 
@@ -103,15 +145,11 @@ class GatewayFactory
      * журналу не понять, кончился сбой или просто перестали спрашивать
      * эту станцию.
      */
-    private function noteOnline(array $station): void
+    private function noteOnline(array $station, array $offline): void
     {
-        $since = Cache::pull(self::offlineKey($station['awtcod'] ?? 'unknown'));
+        Cache::forget(self::offlineKey($station['awtcod'] ?? 'unknown'));
 
-        if ($since === null) {
-            return;
-        }
-
-        $started = CarbonImmutable::parse((string) $since);
+        $started = CarbonImmutable::parse((string) ($offline['since'] ?? CarbonImmutable::now()));
         $seconds = (int) round($started->diffInSeconds(CarbonImmutable::now()));
 
         Log::info('Связь с базой станции восстановлена', [
