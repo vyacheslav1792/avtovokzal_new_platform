@@ -7,11 +7,11 @@ use App\Models\Reservation;
 use App\Models\TicketSale;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
+use App\Support\VendorCode;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use App\Support\VendorCode;
 
 class SaleController extends Controller
 {
@@ -35,17 +35,26 @@ class SaleController extends Controller
             'statcod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
             'date' => ['required_without:reservation_id', 'date_format:Y-m-d'],
             'tickets' => ['required', 'array', 'min:1', 'max:20'],
-            'tickets.*.place' => ['required'],
+            /*
+             * Место — SMALLINT в SALONINFO/SALE (N_PLACE). Без границ
+             * сюда проходило любое число, и станция отвечала «-303
+             * numeric overflow», то есть 500 вместо внятного отказа.
+             * Тип строковый сознательно (в запросах места приходят и
+             * строкой), поэтому границы — отдельным правилом.
+             */
+            'tickets.*.place' => ['required', 'integer', 'min:1', 'max:'.VendorCode::MAX],
             'tickets.*.type' => ['required', 'in:П,Д'],
             'tickets.*.price' => ['required', 'numeric', 'min:0'],
             'tickets.*.last_name' => ['required', 'string', 'max:40'],
             'tickets.*.first_name' => ['required', 'string', 'max:30'],
             'tickets.*.middle_name' => ['nullable', 'string', 'max:30'],
             'tickets.*.birth_date' => ['required', 'date'],
-            'tickets.*.doc_type' => ['sometimes', 'integer'],
+            // DOCUMCOD_PASS в SALE — SMALLINT.
+            'tickets.*.doc_type' => ['sometimes', ...VendorCode::boundsFrom(0)],
             'tickets.*.doc_series' => ['nullable', 'string', 'max:6'],
             'tickets.*.doc_number' => ['required', 'string', 'max:25'],
-            'tickets.*.citizenship' => ['sometimes', 'integer'],
+            // GRAGD_ID в SALE — SMALLINT.
+            'tickets.*.citizenship' => ['sometimes', ...VendorCode::boundsFrom(0)],
             'tickets.*.baggage' => ['sometimes', 'integer', 'min:0', 'max:5'],
             'tickets.*.price_bag' => ['sometimes', 'numeric', 'min:0'],
             'tickets.*.insurance_price' => ['sometimes', 'numeric', 'min:0'],

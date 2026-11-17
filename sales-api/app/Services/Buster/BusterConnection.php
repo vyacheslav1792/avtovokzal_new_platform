@@ -2,6 +2,7 @@
 
 namespace App\Services\Buster;
 
+use App\Exceptions\StationUnavailableException;
 use PDO;
 
 /**
@@ -17,6 +18,15 @@ use PDO;
 class BusterConnection
 {
     private PDO $pdo;
+
+    /**
+     * Код и название станции — нужны, чтобы обрыв связи ПОСРЕДИ запроса
+     * превратить во внятный отказ «автостанция недоступна», а не в
+     * «Server Error» (см. assertAlive).
+     */
+    private int $awtcod;
+
+    private string $stationName;
 
     /**
      * @param  int  $connectTimeout  сколько секунд ждать связи (0 — не ограничивать)
@@ -42,6 +52,9 @@ class BusterConnection
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
+
+        $this->awtcod = (int) ($station['awtcod'] ?? 0);
+        $this->stationName = (string) ($station['name'] ?? $this->awtcod);
     }
 
     /**
@@ -93,27 +106,94 @@ class BusterConnection
     /** SELECT → массив ассоц. массивов (аналог db_work->inArray). */
     public function select(string $sql, array $bindings = []): array
     {
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($bindings);
+        return $this->guard(function () use ($sql, $bindings) {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($bindings);
 
-        $rows = $stmt->fetchAll();
+            $rows = $stmt->fetchAll();
 
-        // Firebird отдаёт CHAR с хвостовыми пробелами — подчищаем.
-        return array_map(
-            fn (array $row) => array_map(
-                fn ($v) => is_string($v) ? rtrim($v) : $v,
-                $row,
-            ),
-            $rows,
-        );
+            // Firebird отдаёт CHAR с хвостовыми пробелами — подчищаем.
+            return array_map(
+                fn (array $row) => array_map(
+                    fn ($v) => is_string($v) ? rtrim($v) : $v,
+                    $row,
+                ),
+                $rows,
+            );
+        });
     }
 
     public function execute(string $sql, array $bindings = []): int
     {
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($bindings);
+        return $this->guard(function () use ($sql, $bindings) {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($bindings);
 
-        return $stmt->rowCount();
+            return $stmt->rowCount();
+        });
+    }
+
+    /**
+     * ОБРЫВ СВЯЗИ ПОСРЕДИ ЗАПРОСА — это «станция недоступна», а не сбой
+     * приложения.
+     *
+     * `GatewayFactory` ловит `PDOException` только при СОЗДАНИИ
+     * соединения: тогда получается понятный отказ 503 с кодом
+     * `station_unavailable`, который сайт показывает покупателю словами и
+     * не пишет в журнал ошибок. А если канал до станции рвётся уже после
+     * подключения, PDO бросал исключение прямо отсюда — и покупатель
+     * получал «Server Error».
+     *
+     * Ловилось на проде 17.11.2026 в 06:04: запрос рейсов к станции
+     * «Болхов КП» висел 19 секунд и упал с `-902 Error reading data from
+     * the connection`. Сбой был единичный (соседние запросы шли по
+     * 170–620 мс, через 2,5 минуты всё отвечало снова), но покупателю об
+     * этом сказать было нечем.
+     *
+     * Распознаём по КЛАССУ SQLSTATE «08» (connection exception): 08006
+     * «connection failure» (Firebird -902), 08003 «connection does not
+     * exist», 08001, 08S01. Остальные ошибки — наши или станционные, они
+     * идут наверх как есть и в журнал попадают.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $query
+     * @return T
+     */
+    private function guard(callable $query): mixed
+    {
+        try {
+            return $query();
+        } catch (\PDOException $e) {
+            if (! self::isConnectionLost($e)) {
+                throw $e;
+            }
+
+            throw new StationUnavailableException(
+                $this->awtcod,
+                $this->stationName,
+                $e->getMessage(),
+            );
+        }
+    }
+
+    /** Исключение PDO говорит об обрыве соединения, а не об ошибке запроса? */
+    private static function isConnectionLost(\PDOException $e): bool
+    {
+        $state = (string) $e->getCode();
+
+        if (str_starts_with($state, '08')) {
+            return true;
+        }
+
+        // Страховка на случай, когда драйвер не выставил SQLSTATE.
+        $text = $e->getMessage();
+
+        return str_contains($text, '-902')
+            || stripos($text, 'Error reading data from the connection') !== false
+            || stripos($text, 'Error writing data to the connection') !== false
+            || stripos($text, 'connection lost to database') !== false
+            || stripos($text, 'Unable to complete network request') !== false;
     }
 
     public function begin(): void
@@ -132,8 +212,22 @@ class BusterConnection
 
     public function rollBack(): void
     {
-        if ($this->pdo->inTransaction()) {
+        if (! $this->pdo->inTransaction()) {
+            return;
+        }
+
+        try {
             $this->pdo->rollBack();
+        } catch (\PDOException $e) {
+            /*
+             * Откат на оборванном соединении сам бросает исключение — и
+             * подменяет им исходную ошибку, из-за которой откат и
+             * понадобился. Сервер такую транзакцию всё равно отменит сам,
+             * поэтому молчим: наверх должна уйти настоящая причина.
+             */
+            if (! self::isConnectionLost($e)) {
+                throw $e;
+            }
         }
     }
 

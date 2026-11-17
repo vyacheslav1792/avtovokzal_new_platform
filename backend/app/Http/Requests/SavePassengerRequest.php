@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\PassengerDocument;
+use App\Support\VendorCode;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -36,7 +37,10 @@ class SavePassengerRequest extends FormRequest
                 'after_or_equal:'.StoreOrderRequest::oldestBirthDate(),
             ],
             'gender' => ['sometimes', 'in:М,Ж'],
-            'doc_type' => ['sometimes', 'integer'],
+            // DOCUMCOD_PASS в базе станции — SMALLINT: сохранённый
+            // пассажир потом уходит в продажу, и код вне диапазона
+            // станция встречает «-303 numeric overflow».
+            'doc_type' => ['sometimes', ...VendorCode::boundsFrom(0)],
             'doc_series' => ['nullable', 'string', 'max:10'],
             'doc_number' => ['required', 'string', 'min:4', 'max:25'],
             'citizenship' => ['sometimes', 'integer', 'exists:citizenships,code'],

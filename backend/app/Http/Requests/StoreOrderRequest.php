@@ -4,9 +4,9 @@ namespace App\Http\Requests;
 
 use App\Models\BlockedEmail;
 use App\Services\PassengerDocument;
+use App\Support\VendorCode;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
-use App\Support\VendorCode;
 
 class StoreOrderRequest extends FormRequest
 {
@@ -51,7 +51,10 @@ class StoreOrderRequest extends FormRequest
             'save_phone' => ['sometimes', 'boolean'],
             'agree_pd' => ['accepted'],
             'passengers' => ['required', 'array', 'min:1', 'max:10'],
-            'passengers.*.place' => ['required', 'integer', 'min:1'],
+            // Место — SMALLINT в базе станции (SALONINFO/SALE.N_PLACE):
+            // без верхней границы мусорный номер доходил до станции и она
+            // отвечала «-303 numeric overflow» (то есть 500 покупателю).
+            'passengers.*.place' => ['required', 'integer', 'min:1', 'max:'.VendorCode::MAX],
             'passengers.*.tariff' => ['sometimes', 'in:adult,child'],
             // Лимиты длины — как в базе станции (SALE: фамилия 20, имя/отчество 14),
             // иначе процедура молча обрежет. Символы: буквы, дефис, пробел, апостроф.
@@ -67,7 +70,8 @@ class StoreOrderRequest extends FormRequest
                 'after_or_equal:'.self::oldestBirthDate(),
             ],
             'passengers.*.gender' => ['sometimes', 'in:М,Ж'],
-            'passengers.*.doc_type' => ['sometimes', 'integer'],
+            // DOCUMCOD_PASS в SALE — SMALLINT.
+            'passengers.*.doc_type' => ['sometimes', ...VendorCode::boundsFrom(0)],
             'passengers.*.doc_series' => ['nullable', 'string', 'max:10'],
             'passengers.*.doc_number' => ['required', 'string', 'min:4', 'max:25'],
             'passengers.*.citizenship' => ['sometimes', 'integer', 'exists:citizenships,code'],
