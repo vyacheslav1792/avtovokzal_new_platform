@@ -61,6 +61,15 @@ class SalesApiException extends \RuntimeException
          * (это как раз сбой).
          */
         public readonly ?int $httpStatus = null,
+        /**
+         * Машиночитаемые подробности отказа API продаж (`details` в его
+         * ответе). У отклонённого возврата там результат по КАЖДОМУ
+         * бланку — по нему видно, какой именно бланк станция не приняла,
+         * а не только «возврат не прошёл».
+         *
+         * @var array<string, mixed>
+         */
+        public readonly array $details = [],
     ) {
         parent::__construct($message);
     }

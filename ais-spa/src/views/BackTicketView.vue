@@ -110,6 +110,45 @@ async function confirmRefund() {
 }
 
 /**
+ * Возврат ДЕНЕГ по билету, который на станции уже аннулирован, а денег
+ * покупатель не получил. Аннулировать нечего: на станцию не идём вовсе,
+ * дата аннулирования берётся из её журнала. Сервер сверяется с журналом
+ * станции сам — обойти обычный путь этой кнопкой нельзя.
+ */
+async function confirmAlreadyAnnulled() {
+  if (percent.value < 0) {
+    error.value = 'Не выбран процент удержаний!'
+    return
+  }
+  const a = info.value?.station_annulment || {}
+  const ok = window.confirm(
+    'Вернуть покупателю деньги по билету, аннулированному на станции '
+    + `${a.date || ''} ${a.time || ''}?\n\n`
+    + 'На станцию запрос не пойдёт — место там уже свободно. Будет создана запись '
+    + 'возврата с датой аннулирования из журнала станции и возвращены деньги.',
+  )
+  if (!ok) return
+
+  confirming.value = true
+  error.value = ''
+  try {
+    done.value = await req('confirm', {
+      order_id: orderId.value,
+      serial: serial.value,
+      number: number.value,
+      percent: percent.value,
+      already_annulled: true,
+      without_receipt: withoutReceipt.value,
+    })
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    confirming.value = false
+  }
+}
+
+/**
  * Возврат ДЕНЕГ при недоступной базе станции: аннулирование билета
  * досылается позже кнопкой. Сервер сам проверит, что станция правда не
  * отвечает, — обойти обычный путь этой кнопкой нельзя.
@@ -541,7 +580,11 @@ onMounted(() => {
             <tr
               v-for="t in info.tickets"
               :key="t.serial + t.number"
-              :class="{ 'bt-ticket-current': t.number === String(number), 'bt-ticket-warn': t.state === 'money_only' }"
+              :class="{
+                'bt-ticket-current': t.number === String(number),
+                'bt-ticket-warn': t.state === 'money_only',
+                'bt-ticket-alert': t.state === 'annulled_no_money',
+              }"
             >
               <td class="nowrap">{{ t.serial }} {{ t.number }}</td>
               <td>{{ t.place }}</td>
@@ -570,6 +613,19 @@ onMounted(() => {
               </td>
               <td>
                 <span v-if="t.state === 'active'" class="badge-on">действует</span>
+                <!--
+                  На станции бланк аннулирован, а записи возврата у нас нет:
+                  значит деньги покупателю НЕ возвращались. Раньше такой
+                  билет числился «действует» — ровно наоборот тому, что есть.
+                -->
+                <template v-else-if="t.state === 'annulled_no_money'">
+                  <span class="badge-off">на станции аннулирован, ДЕНЬГИ НЕ ВОЗВРАЩЕНЫ</span>
+                  <br /><span class="muted small">
+                    {{ t.station_annulled_at }},
+                    <template v-if="t.station_annulled_by_our_agent">наш возврат</template>
+                    <template v-else>агент {{ t.station_agent_code }} (не мы)</template>
+                  </span>
+                </template>
                 <template v-else-if="t.state === 'money_only'">
                   <span class="badge-off">деньги возвращены, на станции НЕ аннулирован</span>
                   <br /><span class="muted small">место занято — дошлите аннулирование</span>
@@ -698,6 +754,74 @@ onMounted(() => {
           <h3>Станция отказала в возврате</h3>
           <p class="alert warn">{{ info.message }}</p>
           <p class="muted bt-hint">Ответ станции: {{ info.station_error }} ({{ info.station_error_code }})</p>
+          <!--
+            Какие именно бланки станция не приняла. Без этого «Билет не
+            найден в БД вокзала» читалось про возвращаемый билет, а
+            относиться могло к его багажной квитанции (17.11.2026).
+          -->
+          <ul v-if="info.rejected_blanks && info.rejected_blanks.length" class="muted bt-hint">
+            <li v-for="b in info.rejected_blanks" :key="b.serial + b.number">
+              бланк {{ b.serial }} {{ b.number }} — {{ b.error }}
+            </li>
+          </ul>
+        </section>
+
+        <!--
+          Бланк на станции УЖЕ аннулирован, а денег покупатель не получил.
+          Аннулировать нечего — остаётся вернуть деньги. Если аннулировала
+          КАССА станции, деньги, скорее всего, выданы там, и кнопки нет:
+          сначала сверка.
+        -->
+        <section v-else-if="info.state === 'station_already_annulled'" class="bt-block">
+          <h3>На станции билет уже аннулирован</h3>
+          <p :class="['alert', info.annulled_by_our_agent ? 'warn' : 'err']">{{ info.message }}</p>
+          <p>
+            Билет Серия {{ info.ticket.serial }} Номер {{ info.ticket.number }}<br />
+            Пассажир: {{ info.ticket.passenger }}<br />
+            Место: {{ info.ticket.place }}.<br />
+            Цена: {{ money(info.ticket.price) }} руб.<br />
+            Багажных мест: {{ info.ticket.baggage }} шт. по {{ money(info.ticket.price_bag) }} руб
+          </p>
+          <p class="muted bt-hint">
+            Запись станции: возврат {{ info.station_annulment.date }} {{ info.station_annulment.time }},
+            {{ money(info.station_annulment.price) }} руб., удержание
+            {{ info.station_annulment.penalty_percent }}%, код агента
+            {{ info.station_annulment.agent_code }}<template v-if="info.station_annulment.worker_code">
+            / {{ info.station_annulment.worker_code }}</template>.
+          </p>
+          <p class="muted bt-hint">Ответ станции при попытке возврата: {{ info.station_error }}</p>
+          <template v-if="info.annulled_by_our_agent">
+            <p>
+              Процент удержаний:
+              <select v-model.number="percent">
+                <option :value="-1">Не выбран</option>
+                <option v-for="v in info.variants" :key="v.percent" :value="v.percent">
+                  {{ v.percent }}% — к возврату {{ money(v.amount) }} руб.
+                </option>
+              </select>
+              Станция посчитала: <b>{{ info.recommended_percent }} %</b>
+            </p>
+            <p>
+              <label class="check">
+                <input v-model="withoutReceipt" type="checkbox" />
+                без фискального чека
+              </label>
+            </p>
+            <button
+              v-if="can('back-ticket.refund')"
+              class="btn primary"
+              :disabled="confirming"
+              @click="confirmAlreadyAnnulled"
+            >
+              {{ confirming ? 'Выполняется…' : 'Вернуть деньги (на станции уже аннулирован)' }}
+            </button>
+          </template>
+          <p v-else class="muted bt-hint">
+            Кнопки возврата здесь нет сознательно: возврат оформлен не нами, и деньги
+            покупателю, вероятнее всего, уже выданы. Если после сверки с кассой возврат
+            на карту всё же нужен, вернуть его можно только после того, как станция
+            подтвердит, что деньги не выдавались.
+          </p>
         </section>
 
         <section v-else-if="info.state === 'refundable'" class="bt-block">
@@ -1026,6 +1150,11 @@ onMounted(() => {
    по нему место на станции до сих пор числится проданным. */
 .bt-ticket-current td { box-shadow: inset 0 0 0 1px var(--accent); }
 .bt-ticket-warn td { background: #ffe3c2; }
+/*
+ * Бланк аннулирован на станции, а деньги покупателю не возвращены — это
+ * то же ЧП, что «деньги у нас, билета нет», и красится так же красным.
+ */
+.bt-ticket-alert td { background: #ffd4d4; }
 .nowrap { white-space: nowrap; }
 .small { font-size: 11px; }
 .bt-block { margin: 14px 0; padding: 12px 16px; background: #fff; border: 1px solid var(--line, #d8dee8); border-radius: 8px; }

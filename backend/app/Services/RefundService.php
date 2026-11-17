@@ -7,6 +7,7 @@ use App\Jobs\SendRefundEmail;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Ticket;
+use App\Support\StationRefundResult;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\ValidationException;
 
@@ -126,9 +127,14 @@ class RefundService
 
         $result = $this->stationRefund($order, $ticket, preview: false);
 
-        if ((float) $result['total_refund'] <= 0) {
-            throw new SalesApiException('Не удалось вернуть, ошибка API автовокзала', 'refund_failed');
-        }
+        /*
+         * Признак успеха — принятые станцией бланки, а НЕ сумма возврата:
+         * ноль станция честно отдаёт за бесплатную багажную квитанцию и
+         * при полном удержании. Прежняя проверка `total_refund <= 0`
+         * бросала исключение уже ПОСЛЕ аннулирования бланка и без записи
+         * возврата — см. StationRefundResult.
+         */
+        StationRefundResult::assertAllBlanksAnnulled($result);
 
         $refund = Refund::create([
             'order_id' => $order->id,

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\AdminRefundService;
+use App\Services\AisEmployee;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -59,6 +60,13 @@ class AdminRefundController extends Controller
              * не нужен. Пробить его позже можно кнопкой в карточке.
              */
             'without_receipt' => ['sometimes', 'boolean'],
+            /*
+             * Бланк на станции УЖЕ аннулирован, а деньги покупателю не
+             * возвращены: аннулировать нечего, нужен только возврат денег
+             * и запись о нём. Сервер сам сверяется с журналом станции —
+             * этой кнопкой обычный путь не обойти.
+             */
+            'already_annulled' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(['success' => true, 'data' => $this->refunds->confirm(
@@ -68,6 +76,7 @@ class AdminRefundController extends Controller
             (int) $data['percent'],
             (bool) ($data['without_station'] ?? false),
             withReceipt: ! (bool) ($data['without_receipt'] ?? false),
+            alreadyAnnulled: (bool) ($data['already_annulled'] ?? false),
         )]);
     }
 
@@ -103,7 +112,7 @@ class AdminRefundController extends Controller
 
         return response()->json(['success' => true, 'data' => $this->refunds->cancelPayment(
             $data['order_id'],
-            $employee instanceof \App\Services\AisEmployee
+            $employee instanceof AisEmployee
                 ? 'вручную, '.($employee->fullName ?: $employee->login)
                 : 'вручную',
         )]);

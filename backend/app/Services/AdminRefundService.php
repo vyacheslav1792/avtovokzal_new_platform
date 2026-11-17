@@ -8,6 +8,8 @@ use App\Jobs\SendRefundEmail;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Ticket;
+use App\Support\StationRefundResult;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -50,6 +52,18 @@ class AdminRefundService
         5 => 'Инициирована авторизация через ACS банка-эмитента',
         6 => 'Заказ отклонён',
     ];
+
+    /**
+     * Состояние бланков заказа в журнале станции — один запрос на заказ.
+     *
+     * Карточка спрашивает его в нескольких местах (список билетов, разбор
+     * отказа станции, подбор бланков к аннулированию), а ходить на станцию
+     * за одним и тем же по три раза незачем. Ключ — id заказа: сервис
+     * живёт в контейнере и в одном процессе может обслужить разные заказы.
+     *
+     * @var array<string, array<string, array<string, mixed>>>
+     */
+    private array $stationBlanksCache = [];
 
     public function __construct(
         private readonly SalesApiClient $salesApi,
@@ -139,16 +153,7 @@ class AdminRefundService
              * строку и закрывал окно).
              */
             if ($e->errorCode !== 'station_unavailable') {
-                return $result + [
-                    'state' => 'station_rejected',
-                    'station_error' => $e->getMessage(),
-                    'station_error_code' => $e->errorCode,
-                    'message' => 'Станция отказала в возврате этого билета: '.$e->getMessage()
-                        .' Проверьте список билетов заказа ниже — возможно, он уже возвращён. '
-                        .'Если возврат всё же нужен, его оформляют на станции вручную: '
-                        .'`admin_mode` снимает только нашу проверку, правила станции (закрытая '
-                        .'ведомость, запрет возврата после отправления) он не обходит.',
-                ];
+                return $result + $this->stationRejectedState($order, $ticket, $e);
             }
 
             return $result + [
@@ -199,6 +204,7 @@ class AdminRefundService
         int $percent,
         bool $withoutStation = false,
         bool $withReceipt = true,
+        bool $alreadyAnnulled = false,
     ): array {
         // Legacy: PROC<0 → «Не выбран процент удержаний!»; варианты — из формы.
         if (! in_array($percent, self::PERCENTS, true)) {
@@ -212,7 +218,7 @@ class AdminRefundService
          * должны ни при каких обстоятельствах.
          */
         return $this->withBlankLock($orderId, $serial, $number, fn () => $this->confirmLocked(
-            $orderId, $serial, $number, $percent, $withoutStation, $withReceipt,
+            $orderId, $serial, $number, $percent, $withoutStation, $withReceipt, $alreadyAnnulled,
         ));
     }
 
@@ -224,6 +230,7 @@ class AdminRefundService
         int $percent,
         bool $withoutStation,
         bool $withReceipt,
+        bool $alreadyAnnulled = false,
     ): array {
 
         $order = $this->findOrder($orderId);
@@ -248,12 +255,28 @@ class AdminRefundService
             return $this->confirmWithoutStation($order, $ticket, $percent, $withReceipt);
         }
 
+        /*
+         * Бланк на станции УЖЕ аннулирован, а денег покупатель не получил.
+         * Аннулировать нечего — остаётся вернуть деньги и завести запись
+         * возврата, чтобы журнал и отчёты сошлись.
+         */
+        if ($alreadyAnnulled) {
+            return $this->confirmAlreadyAnnulled($order, $ticket, $percent, $withReceipt);
+        }
+
         // Аннулирование в ведомости станции (back=true, admin_mode).
         $result = $this->stationRefund($order, $ticket, preview: false);
 
-        if ((float) $result['total_refund'] <= 0) {
-            throw new SalesApiException('Не удалось вернуть, ошибка API автовокзала', 'refund_failed');
-        }
+        /*
+         * Успех — это «станция приняла ВСЕ бланки», а не «сумма возврата
+         * больше нуля». Прежняя проверка `total_refund <= 0` была опасной:
+         * станция честно отдаёт ноль там, где по её ведомости возвращать
+         * нечего (бесплатная багажная квитанция, полное удержание), — и мы
+         * бросали «не удалось вернуть» ПОСЛЕ того, как бланк на станции
+         * уже аннулирован, не создав записи возврата. Так 17.11.2026
+         * потерялся возврат по билету 112657019984/099900079.
+         */
+        StationRefundResult::assertAllBlanksAnnulled($result);
 
         $amount = $this->refundAmount($order, $ticket, $percent);
 
@@ -679,6 +702,10 @@ class AdminRefundService
                 // значение API продаж отвергает проверкой «date».
                 'backdate' => $backdate,
             ], fn ($v) => $v !== null))['data'];
+
+            // Станция приняла ВСЕ бланки? Иначе возврат пометился бы
+            // аннулированным, а бланк на станции остался проданным.
+            StationRefundResult::assertAllBlanksAnnulled($result);
         } catch (SalesApiException $e) {
             // Станция всё ещё недоступна — это не ошибка оператора, просто
             // ждём дальше. Остальные отказы показываем как есть.
@@ -920,15 +947,44 @@ class AdminRefundService
         );
     }
 
-    /** Сколько багажных мест билета ещё не возвращено отдельными квитанциями. */
+    /**
+     * Сколько багажных мест билета ещё не возвращено отдельными квитанциями.
+     *
+     * Кроме наших записей учитываются квитанции, аннулированные на станции
+     * ЧУЖИМ агентом (код агента не наш): их возврат оформила касса
+     * станции, деньги покупателю выданы там — второй раз за тот же багаж
+     * платить нельзя. Квитанция, аннулированная НАШИМ агентом без записи
+     * у нас, из суммы не вычитается: денег по ней покупатель не получал
+     * (ровно случай 17.11.2026, где запись потерялась после отказа).
+     */
     private function baggageToRefund(Order $order, Ticket $ticket): int
     {
-        $refunded = Refund::where('order_id', $order->id)
-            ->where('kind', Refund::KIND_BAGGAGE)
-            ->whereIn('number', array_column($ticket->baggageBlanks(), 'number'))
-            ->count();
+        $blanks = $ticket->baggageBlanks();
 
-        return max(0, (int) $ticket->baggage - $refunded);
+        $ourRefunds = Refund::where('order_id', $order->id)
+            ->where('kind', Refund::KIND_BAGGAGE)
+            ->whereIn('number', array_column($blanks, 'number'))
+            ->pluck('number')
+            ->map(fn ($n) => (string) $n)
+            ->all();
+
+        $settled = 0;
+
+        foreach ($blanks as $bag) {
+            if (in_array((string) $bag['number'], $ourRefunds, true)) {
+                $settled++;
+
+                continue;
+            }
+
+            $annulment = $this->stationAnnulment($order, (string) $bag['serial'], (string) $bag['number']);
+
+            if ($annulment !== null && ! ($annulment['by_our_agent'] ?? false)) {
+                $settled++;
+            }
+        }
+
+        return max(0, (int) $ticket->baggage - $settled);
     }
 
     private function findOrder(string $orderId): Order
@@ -1155,9 +1211,16 @@ class AdminRefundService
             ),
         ])['data'];
 
-        if ((float) ($result['total_refund'] ?? 0) <= 0) {
-            throw new SalesApiException('Не удалось вернуть багаж, ошибка API автовокзала', 'refund_failed');
-        }
+        /*
+         * Признак успеха — принятые станцией бланки, а НЕ сумма возврата.
+         * Именно здесь всё и началось 17.11.2026: багаж у заказа
+         * бесплатный (`price_bag = 0`), станция аннулировала квитанцию и
+         * честно ответила нулём, а мы сочли это ошибкой и не записали
+         * возврат. Дальше возврат самого билета натыкался на уже
+         * аннулированную квитанцию, и билет «пропал» со станции без денег
+         * покупателю.
+         */
+        StationRefundResult::assertAllBlanksAnnulled($result);
 
         // Строка возврата на КАЖДУЮ квитанцию: так в истории видно, какие
         // именно бланки вернули, и повторный возврат той же невозможен.
@@ -1536,8 +1599,19 @@ class AdminRefundService
             ->get()
             ->keyBy(fn (Refund $r) => $r->serial.'/'.$r->number);
 
-        return $order->tickets()->orderBy('position')->get()->map(function (Ticket $t) use ($refunds) {
+        /*
+         * Состояние бланков в журнале станции — одним запросом на заказ.
+         * Без него билет, аннулированный на станции без записи у нас,
+         * показывался «действует»: ровно наоборот тому, что есть, и
+         * кассир не видел ни того, что место свободно, ни того, что
+         * деньги покупателю не ушли.
+         */
+        $stationBlanks = $this->stationBlanks($order);
+
+        return $order->tickets()->orderBy('position')->get()->map(function (Ticket $t) use ($refunds, $stationBlanks) {
             $refund = $refunds->get($t->serial.'/'.$t->number);
+            $station = $stationBlanks[$t->serial.'/'.$t->number] ?? null;
+            $annulment = is_array($station['annulment'] ?? null) ? $station['annulment'] : null;
 
             return [
                 'serial' => $t->serial,
@@ -1563,7 +1637,23 @@ class AdminRefundService
                 // Деньги вернули, а на станции бланк ещё проданный: место
                 // занято, аннулирование надо дослать.
                 'station_annul_pending' => (bool) $refund?->station_annul_pending,
+                // Что про этот бланк знает станция (null — она не ответила).
+                'station_annulled' => $annulment === null ? null : true,
+                'station_annulled_at' => $annulment === null
+                    ? null
+                    : trim(($annulment['date'] ?? '').' '.($annulment['time'] ?? '')),
+                'station_annulled_by_our_agent' => $annulment === null
+                    ? null
+                    : (bool) ($annulment['by_our_agent'] ?? false),
+                'station_agent_code' => $annulment['agent_code'] ?? null,
                 'state' => match (true) {
+                    /*
+                     * На станции бланк аннулирован, а записи возврата у нас
+                     * нет — значит деньги покупателю НЕ возвращались. Это то
+                     * же ЧП, что «деньги у нас, билета нет», и выглядеть в
+                     * списке оно должно именно так, а не «действует».
+                     */
+                    $refund === null && $annulment !== null => 'annulled_no_money',
                     $refund === null => 'active',
                     (bool) $refund->station_annul_pending => 'money_only',
                     $refund->money_refunded_at === null => 'bank_pending',
@@ -1655,6 +1745,245 @@ class AdminRefundService
             ])->all();
     }
 
+    /**
+     * Состояние бланков заказа в журнале станции: продан, возвращён, кем.
+     *
+     * Своей таблицы `refunds` для этого НЕ достаточно. Во-первых, бланк
+     * может быть аннулирован на станции без записи у нас (отказ по
+     * другому бланку отменял нашу запись, но не аннулирование —
+     * 17.11.2026). Во-вторых, бланк мог вернуть кассир станции своими
+     * руками, и тогда деньги покупателю выданы там же — возврат на карту
+     * был бы вторым.
+     *
+     * Станция не ответила — состояние просто неизвестно, и карточка
+     * работает как раньше: это дополнительные сведения, а не условие.
+     *
+     * @return array<string, array<string, mixed>> ключ «серия/номер»
+     */
+    private function stationBlanks(Order $order): array
+    {
+        if (isset($this->stationBlanksCache[$order->id])) {
+            return $this->stationBlanksCache[$order->id];
+        }
+
+        $blanks = [];
+
+        foreach ($order->tickets as $ticket) {
+            $blanks[] = ['serial' => (string) $ticket->serial, 'number' => (string) $ticket->number];
+
+            foreach ($ticket->baggageBlanks() as $bag) {
+                $blanks[] = ['serial' => (string) $bag['serial'], 'number' => (string) $bag['number']];
+            }
+        }
+
+        if ($blanks === []) {
+            return $this->stationBlanksCache[$order->id] = [];
+        }
+
+        try {
+            $rows = $this->salesApi->blanks(
+                (int) $order->awtcod,
+                $blanks,
+                $order->date_start?->format('Y-m-d'),
+            )['data']['blanks'] ?? [];
+        } catch (SalesApiException $e) {
+            return $this->stationBlanksCache[$order->id] = [];
+        }
+
+        $map = [];
+
+        foreach ($rows as $row) {
+            $map[$row['serial'].'/'.$row['number']] = $row;
+        }
+
+        return $this->stationBlanksCache[$order->id] = $map;
+    }
+
+    /**
+     * Операция возврата бланка в журнале станции, если она там есть.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function stationAnnulment(Order $order, string $serial, string $number): ?array
+    {
+        $state = $this->stationBlanks($order)[$serial.'/'.$number] ?? null;
+
+        return is_array($state['annulment'] ?? null) ? $state['annulment'] : null;
+    }
+
+    /**
+     * Станция отказала в возврате — разобраться, почему, и сказать прямо.
+     *
+     * Прежде любой отказ давал один и тот же тупик: «Станция отказала»,
+     * и дальше кассир ничего сделать не мог. Но за этим текстом стоят
+     * РАЗНЫЕ случаи, и в одном из них деньги покупателя остаются у нас:
+     *
+     *  - бланк аннулирован НАШИМ агентом, записи возврата у нас нет —
+     *    это потерянный возврат (ровно случай 17.11.2026). Деньги надо
+     *    вернуть, аннулировать уже нечего;
+     *  - бланк аннулировала КАССА станции — деньги, скорее всего, выданы
+     *    там наличными. Возврат на карту был бы вторым, поэтому кнопки
+     *    нет: сначала сверка с кассой;
+     *  - бланк действует, а отказ про другое (ведомость закрыта, рейс
+     *    отправлен) — как раньше.
+     *
+     * @return array<string, mixed>
+     */
+    private function stationRejectedState(Order $order, Ticket $ticket, SalesApiException $e): array
+    {
+        $rejected = array_values(array_filter(
+            (array) ($e->details['blanks'] ?? []),
+            fn ($b) => is_array($b) && ! ($b['ok'] ?? false),
+        ));
+
+        $common = [
+            'station_error' => $e->getMessage(),
+            'station_error_code' => $e->errorCode,
+            // Какие именно бланки станция не приняла и почему.
+            'rejected_blanks' => $rejected,
+        ];
+
+        $annulment = $this->stationAnnulment($order, (string) $ticket->serial, (string) $ticket->number);
+
+        if ($annulment === null) {
+            return $common + [
+                'state' => 'station_rejected',
+                'message' => 'Станция отказала в возврате: '.$e->getMessage()
+                    .' Сам билет в журнале станции числится проданным, то есть дело не в нём. '
+                    .'Проверьте список билетов и бланков заказа ниже. Если возврат всё же нужен, '
+                    .'его оформляют на станции вручную: `admin_mode` снимает только нашу проверку, '
+                    .'правила станции (закрытая ведомость, запрет возврата после отправления) '
+                    .'он не обходит.',
+            ];
+        }
+
+        $byOurAgent = (bool) ($annulment['by_our_agent'] ?? false);
+        $when = trim(($annulment['date'] ?? '').' '.($annulment['time'] ?? ''));
+        $percent = (int) ($annulment['penalty_percent'] ?? 0);
+
+        return $common + [
+            'state' => 'station_already_annulled',
+            'station_annulment' => $annulment,
+            'annulled_by_our_agent' => $byOurAgent,
+            'trip_name' => $order->trip_name,
+            'datetime_start' => null,
+            // Процент станция уже посчитала при аннулировании — он и
+            // рекомендуется, менять его кассир может как обычно.
+            'recommended_percent' => in_array($percent, self::PERCENTS, true) ? $percent : -1,
+            'variants' => array_map(fn (int $p) => [
+                'percent' => $p,
+                'amount' => $this->refundAmount($order, $ticket, $p),
+            ], self::PERCENTS),
+            'message' => $byOurAgent
+                ? 'Билет на станции УЖЕ аннулирован нашим возвратом ('.$when.', удержание '
+                    .$percent.'%), а записи о возврате и денег покупателю нет. '
+                    .'Аннулировать больше нечего — остаётся вернуть деньги.'
+                : 'Билет на станции аннулирован НЕ нами: код агента '
+                    .($annulment['agent_code'] ?? '?').', '.$when.'. Скорее всего, возврат '
+                    .'оформила касса станции и деньги покупателю выданы там — тогда возврат '
+                    .'на карту будет вторым. Сверьтесь с кассой, прежде чем возвращать деньги.',
+        ];
+    }
+
+    /**
+     * Вернуть деньги по билету, который на станции уже аннулирован.
+     *
+     * Отличие от обычного возврата: на станцию не идём вовсе — там
+     * аннулировать нечего. Отличие от возврата при недоступной станции:
+     * досылать аннулирование тоже не надо, поэтому `station_annul_pending`
+     * НЕ ставится, а `station_annulled_at` берётся из записи станции —
+     * иначе отчёты показали бы дату, когда бланк аннулировали, неверно.
+     *
+     * @return array<string, mixed>
+     */
+    private function confirmAlreadyAnnulled(
+        Order $order,
+        Ticket $ticket,
+        int $percent,
+        bool $withReceipt,
+    ): array {
+        $annulment = $this->stationAnnulment($order, (string) $ticket->serial, (string) $ticket->number);
+
+        /*
+         * Проверяем по станции, а не на слово клиенту: этой кнопкой
+         * обходится обычный путь, и обходить его можно только когда
+         * аннулирование на станции действительно есть.
+         */
+        if ($annulment === null) {
+            throw ValidationException::withMessages([
+                'ticket' => 'В журнале станции нет аннулирования этого билета — '
+                    .'выполните обычный возврат.',
+            ]);
+        }
+
+        $amount = $this->refundAmount($order, $ticket, $percent);
+
+        $refund = Refund::create([
+            'order_id' => $order->id,
+            'serial' => (string) $ticket->serial,
+            'number' => (string) $ticket->number,
+            'place' => (int) $ticket->place,
+            'penalty_percent' => $percent,
+            'ticket_price' => (float) $ticket->price,
+            'baggage_price' => $this->baggageToRefund($order, $ticket) * (float) $ticket->price_bag,
+            'amount' => $amount,
+            'status' => Refund::STATUS_REFUNDED,
+            // Дата из журнала станции, а не now(): бланк аннулирован тогда.
+            'station_annulled_at' => $this->annulmentTime($annulment),
+            'station_annul_pending' => false,
+            'legacy' => [
+                // Чем именно подтверждается аннулирование — чтобы потом
+                // было видно, на основании чего вернули деньги.
+                'station_annulment' => $annulment,
+            ],
+        ]);
+        $order->touch();
+
+        $bankError = $this->refundMoney($refund, $order, $withReceipt);
+
+        SendRefundEmail::dispatch($refund->id)->onQueue('emails');
+
+        Log::warning('Возврат денег по билету, аннулированному на станции ранее', [
+            'order_id' => $order->id,
+            'refund_id' => $refund->id,
+            'awtcod' => $order->awtcod,
+            'ticket' => $ticket->serial.'/'.$ticket->number,
+            'amount' => $amount,
+            'station_annulment' => $annulment,
+        ]);
+
+        return [
+            'trip_name' => $order->trip_name,
+            'datetime_start' => null,
+            'amount' => $amount,
+            'bank_error' => $bankError,
+            'message' => 'Деньги возвращены. На станции билет был аннулирован ранее ('
+                .trim(($annulment['date'] ?? '').' '.($annulment['time'] ?? '')).'), '
+                .'место там уже свободно.',
+        ];
+    }
+
+    /**
+     * Время аннулирования из журнала станции.
+     *
+     * Часы станции и наши могут расходиться, а дата возврата попадает в
+     * отчёты — поэтому берём её у станции, а не now(). Не разобрали —
+     * лучше текущее время, чем пустое поле: пустое означает «ждёт
+     * аннулирования», а бланк уже аннулирован.
+     *
+     * @param  array<string, mixed>  $annulment
+     */
+    private function annulmentTime(array $annulment): Carbon
+    {
+        $raw = trim(($annulment['date'] ?? '').' '.($annulment['time'] ?? ''));
+
+        try {
+            return $raw === '' ? now() : Carbon::parse($raw);
+        } catch (\Throwable $e) {
+            return now();
+        }
+    }
+
     private function stationRefund(Order $order, Ticket $ticket, bool $preview): array
     {
         return $this->salesApi->refund([
@@ -1700,6 +2029,18 @@ class AdminRefundService
 
         foreach ($ticket->baggageBlanks() as $bag) {
             if (in_array($bag['serial'].'/'.$bag['number'], $refundedBaggage, true)) {
+                continue;
+            }
+
+            /*
+             * Квитанция уже аннулирована в журнале станции, а записи у нас
+             * нет: так бывает, когда отдельный возврат багажа дошёл до
+             * станции, но запись у нас не появилась. Передавать такую
+             * квитанцию процедуре нельзя — она откажет по ней, и ВОЗВРАТ
+             * БИЛЕТА не пройдёт вовсе (17.11.2026 именно так и вышло).
+             * Аннулировать её второй раз всё равно невозможно.
+             */
+            if ($this->stationAnnulment($order, (string) $bag['serial'], (string) $bag['number'])) {
                 continue;
             }
 

@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Refund;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
+use App\Support\VendorCode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Support\VendorCode;
 
 class RefundController extends Controller
 {
@@ -92,6 +92,13 @@ class RefundController extends Controller
                 'datetime_start' => $result['datetime_start'],
                 // Итог переноса даты в журнале станции (null — не просили).
                 'backdate' => $result['backdate'] ?? null,
+                /*
+                 * Результат по КАЖДОМУ бланку. Признаком успеха сумма
+                 * возврата быть не может: станция честно отдаёт ноль за
+                 * бесплатную багажную квитанцию и при полном удержании —
+                 * а вызывающей стороне нужно знать, что бланки приняты.
+                 */
+                'blanks' => $result['blanks'] ?? [],
             ],
         ], 201);
     }

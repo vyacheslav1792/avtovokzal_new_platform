@@ -661,6 +661,28 @@ SQL;
         // первичный ключ составной и начинается с даты и времени продажи).
         $startedAt = $backdate === null || $preview ? null : $this->stationNow();
 
+        /*
+         * ОТКАЗ ХОТЯ БЫ ПО ОДНОМУ БЛАНКУ ОТКАТЫВАЕТ ВСЮ ОПЕРАЦИЮ.
+         *
+         * KS_ANN_TICKET_FROM_AW идёт по бланкам в ЦИКЛЕ и обрабатывает
+         * каждый независимо: удачные аннулирует, по неудачным дописывает
+         * «#» и свой код в ERR_CODE_S (см. docs/buster-procedures/
+         * KS_ANN_TICKET_FROM_AW.sql). Пока проверка ERR_CODE_S стояла
+         * ПОСЛЕ commit(), частичный успех оставался на станции, а наружу
+         * уходил полный отказ — то есть бланк аннулирован, а записи о
+         * возврате и денег покупателю нет.
+         *
+         * Ровно так и вышло на проде 17.11.2026 (заказ
+         * c57035943d07716aebbe4384f0819f, билет 112657019984/099900079,
+         * АДАМЕНКО): на станцию ушли билет и его багажная квитанция,
+         * квитанция была аннулирована минутой раньше отдельной операцией,
+         * процедура отказала по ней — и мы сообщили «Билет не найден в БД
+         * вокзала», уже аннулировав САМ БИЛЕТ. Место освободилось, 6935 ₽
+         * у покупателя не вернулись, карточка возврата встала в тупик.
+         *
+         * Автономных транзакций процедура не открывает, поэтому rollBack
+         * снимает и то, что она успела записать.
+         */
         $this->db->begin();
 
         try {
@@ -669,7 +691,24 @@ SQL;
                 [$nTickets, $dobTickets, $preview ? 1 : 0, $operation, $this->agentCode, $this->workerCode],
             );
 
+            $row = $rows[0] ?? [];
+            $blanks = $this->refundBlankResults($tickets, $row);
+            $rejected = array_values(array_filter($blanks, fn (array $b) => ! $b['ok']));
+
+            if ($rejected !== []) {
+                $this->db->rollBack();
+
+                throw new BusterException(
+                    $this->refundRejectionMessage($rejected, $blanks),
+                    'refund_rejected',
+                    ['blanks' => $blanks],
+                );
+            }
+
             $this->db->commit();
+        } catch (BusterException $e) {
+            // Откат уже сделан там, где отказ обнаружен.
+            throw $e;
         } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
@@ -679,16 +718,6 @@ SQL;
 
         if ($startedAt !== null) {
             $backdated = $this->backdateRefundRows($tickets, $startedAt, $backdate);
-        }
-
-        $row = $rows[0] ?? [];
-
-        $errCodes = array_filter(explode('@', (string) ($row['ERR_CODE_S'] ?? '')));
-        $comments = explode('@', (string) ($row['COMMENT_FULL'] ?? ''));
-        foreach ($errCodes as $i => $code) {
-            if ((int) $code > 0) {
-                throw new BusterException('Возврат отклонён: '.($comments[$i] ?? 'ошибка станции'), 'refund_rejected');
-            }
         }
 
         $marshParts = array_values(array_filter(explode('@', (string) ($row['MARSH_NAME'] ?? ''))));
@@ -708,8 +737,219 @@ SQL;
             // Итог переноса даты возврата в журнале станции: сколько
             // записей сдвинуто и почему не вышло (null — не просили).
             'backdate' => $backdated,
+            /*
+             * Результат ПО КАЖДОМУ бланку в порядке запроса. Нужен
+             * вызывающей стороне: сумма возврата признаком успеха быть не
+             * может (станция честно отдаёт 0 за бесплатный багаж и при
+             * полном удержании), а «все бланки ok» — может.
+             */
+            'blanks' => $blanks,
             'raw' => $row,
         ];
+    }
+
+    /**
+     * Разобрать ответ процедуры в результат по каждому бланку.
+     *
+     * ERR_CODE_S и COMMENT_FULL — строки «значение@значение@» в порядке
+     * переданных бланков, по одному элементу на бланк. `array_filter` без
+     * колбэка здесь применять нельзя: он выбрасывает нули, то есть ровно
+     * признак успеха.
+     *
+     * @param  array[]  $tickets
+     * @param  array<string, mixed>  $row
+     * @return array<int, array<string, mixed>>
+     */
+    private function refundBlankResults(array $tickets, array $row): array
+    {
+        $codes = explode('@', (string) ($row['ERR_CODE_S'] ?? ''));
+        $comments = explode('@', (string) ($row['COMMENT_FULL'] ?? ''));
+        $prices = explode('@', (string) ($row['TICK_PRICE'] ?? ''));
+        $percents = explode('@', (string) ($row['TICK_SHTRAFPROC'] ?? ''));
+        $places = explode('@', (string) ($row['N_PLACES'] ?? ''));
+
+        $result = [];
+
+        foreach (array_values($tickets) as $i => $t) {
+            $code = isset($codes[$i]) && trim($codes[$i]) !== '' ? (int) $codes[$i] : null;
+            $ok = $code === 0;
+
+            $result[] = [
+                'serial' => (string) $t['serial'],
+                'number' => (string) $t['number'],
+                'ok' => $ok,
+                'error_code' => $code,
+                'error' => $ok ? null : (trim((string) ($comments[$i] ?? '')) ?: 'станция отклонила бланк'),
+                'place' => $ok ? (trim((string) ($places[$i] ?? '')) ?: null) : null,
+                'price' => $ok && isset($prices[$i]) && is_numeric($prices[$i]) ? (float) $prices[$i] : null,
+                'penalty_percent' => $ok && isset($percents[$i]) && is_numeric($percents[$i])
+                    ? (int) $percents[$i]
+                    : null,
+            ];
+        }
+
+        /*
+         * Процедура не вернула код ни по одному бланку — считать это
+         * успехом нельзя: на станции могло не произойти ничего.
+         */
+        if ($result !== [] && ! array_filter($result, fn (array $b) => $b['error_code'] !== null)) {
+            foreach ($result as $i => $b) {
+                $result[$i]['ok'] = false;
+                $result[$i]['error'] = 'станция не вернула результат по бланку';
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Текст отказа, в котором НАЗВАН БЛАНК.
+     *
+     * «Билет не найден в БД вокзала» без номера бланка читается про тот
+     * билет, который кассир и возвращает, — а относиться может к его
+     * багажной квитанции (так и случилось 17.11.2026). Поэтому в
+     * сообщении всегда стоит серия и номер отклонённого бланка.
+     *
+     * @param  array<int, array<string, mixed>>  $rejected
+     * @param  array<int, array<string, mixed>>  $blanks
+     */
+    private function refundRejectionMessage(array $rejected, array $blanks): string
+    {
+        $parts = array_map(
+            fn (array $b) => $b['serial'].'/'.$b['number'].' — '.$b['error'],
+            $rejected,
+        );
+
+        $message = 'Возврат отклонён станцией по '
+            .(count($parts) > 1 ? 'бланкам: ' : 'бланку: ').implode('; ', $parts);
+
+        // Операция откатывается целиком, и сказать об этом надо прямо:
+        // иначе кассир будет искать, что же из бланков всё-таки прошло.
+        if (count($blanks) > 1) {
+            $message .= '. Операция отменена полностью — остальные бланки заказа не тронуты.';
+        }
+
+        return $message;
+    }
+
+    /**
+     * Состояние бланков в журнале станции: продан, возвращён, кем и когда.
+     *
+     * Зачем нужен отдельный запрос, а не наша таблица возвратов: запись о
+     * возврате у нас может ОТСУТСТВОВАТЬ при аннулированном на станции
+     * бланке — так и случилось 17.11.2026, когда отказ по одному бланку
+     * отменил запись возврата, но не отменил аннулирование (см. refund()).
+     * Кроме того бланк мог вернуть кассир станции своими руками, и тогда
+     * деньги покупателю уже выданы — второй возврат на карту делать
+     * нельзя.
+     *
+     * `AWTCODSALE` в SALE — это код агента, и он отличает нас от прочих
+     * надёжно: 9984 — сайт, 5701 — кассы станции Орла, 9900 — другой
+     * интернет-агент (проверено на боевых возвратах).
+     *
+     * @param  array[]  $blanks  каждый: serial, number
+     * @param  string|null  $dateStart  дата рейса — сужает выборку по
+     *                                  индексируемому DATESTART; без неё
+     *                                  запрос идёт по всему журналу
+     * @return array<int, array<string, mixed>>
+     */
+    public function blankState(array $blanks, ?string $dateStart = null): array
+    {
+        if ($blanks === []) {
+            return [];
+        }
+
+        $conditions = [];
+
+        foreach ($blanks as $b) {
+            $conditions[] = '(N_TICKET='.((int) $b['number']).' and DOB_N_TICKET='.((int) $b['serial']).')';
+        }
+
+        $sql = 'select DATESALE, TIMESALE, AWTCODSALE, WRKCOD, TYPE_OPER, N_TICKET, DOB_N_TICKET,
+                       N_PLACE, PRICE_PLACE, PRICE_PL_ISX, PROC_BACK, DATESTART, KATPAS, TYPE_TICK,
+                       FIO_PAS, NAME1_PASS, NAME2_PASS, IS_PRN, INTERNET_SALE
+                from SALE
+                where ('.implode(' OR ', $conditions).')';
+        $bindings = [];
+
+        if ($dateStart !== null) {
+            $sql .= ' and DATESTART = ?';
+            $bindings[] = $dateStart;
+        }
+
+        $sql .= ' order by DATESALE, TIMESALE';
+
+        $rows = $this->db->select($sql, $bindings);
+
+        $result = [];
+
+        foreach ($blanks as $b) {
+            $serial = (string) $b['serial'];
+            $number = (string) $b['number'];
+
+            $own = array_values(array_filter(
+                $rows,
+                fn (array $r) => (int) $r['DOB_N_TICKET'] === (int) $serial
+                    && (int) $r['N_TICKET'] === (int) $number,
+            ));
+
+            $sold = null;
+            $annulments = [];
+
+            foreach ($own as $r) {
+                if ((int) ($r['TYPE_OPER'] ?? 0) === 0) {
+                    $sold = [
+                        'date' => trim((string) $r['DATESALE']),
+                        'time' => trim((string) $r['TIMESALE']),
+                        'place' => trim((string) $r['N_PLACE']) ?: null,
+                        'price' => (float) $r['PRICE_PLACE'],
+                        'price_original' => (float) $r['PRICE_PL_ISX'],
+                        'date_start' => trim((string) $r['DATESTART']),
+                        'passenger' => trim(implode(' ', array_filter([
+                            trim((string) $r['FIO_PAS']),
+                            trim((string) $r['NAME1_PASS']),
+                            trim((string) $r['NAME2_PASS']),
+                        ]))) ?: null,
+                        // Категория 9 — багажная квитанция, самостоятельный бланк.
+                        'kind' => (int) ($r['KATPAS'] ?? 0) === 9 ? 'baggage' : 'ticket',
+                        'agent_code' => (int) $r['AWTCODSALE'],
+                        'worker_code' => (int) $r['WRKCOD'],
+                        'internet_sale' => (bool) ($r['INTERNET_SALE'] ?? false),
+                        // Рейс отправлен: станция возврат уже не разрешит.
+                        'is_printed' => (bool) ($r['IS_PRN'] ?? false),
+                        'by_our_agent' => (int) $r['AWTCODSALE'] === $this->agentCode,
+                    ];
+
+                    continue;
+                }
+
+                $annulments[] = [
+                    'date' => trim((string) $r['DATESALE']),
+                    'time' => trim((string) $r['TIMESALE']),
+                    'type_oper' => (int) $r['TYPE_OPER'],
+                    'price' => (float) $r['PRICE_PLACE'],
+                    'penalty_percent' => (int) ($r['PROC_BACK'] ?? 0),
+                    'agent_code' => (int) $r['AWTCODSALE'],
+                    'worker_code' => (int) $r['WRKCOD'],
+                    // Аннулировали МЫ (наш агент) или касса станции: во
+                    // втором случае деньги, скорее всего, выданы там.
+                    'by_our_agent' => (int) $r['AWTCODSALE'] === $this->agentCode,
+                ];
+            }
+
+            $result[] = [
+                'serial' => $serial,
+                'number' => $number,
+                'found' => $own !== [],
+                'sold' => $sold,
+                'annulled' => $annulments !== [],
+                // Последняя операция возврата — она и описывает текущее состояние.
+                'annulment' => $annulments === [] ? null : $annulments[count($annulments) - 1],
+                'annulments' => $annulments,
+            ];
+        }
+
+        return $result;
     }
 
     /** Текущие дата и время ПО ЧАСАМ СТАНЦИИ, а не нашего сервера. */

@@ -95,6 +95,26 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->post('refunds', $payload));
     }
 
+    /**
+     * Состояние бланков в журнале станции (только чтение): продан,
+     * возвращён, кем и когда.
+     *
+     * Нужно карточке возврата в АИС: своей таблицы возвратов мало —
+     * бланк может быть аннулирован на станции БЕЗ записи у нас (отказ по
+     * другому бланку отменял запись, но не аннулирование), а ещё его мог
+     * вернуть кассир станции, и тогда деньги покупателю выданы там.
+     *
+     * @param  array<int, array{serial: string, number: string}>  $blanks
+     */
+    public function blanks(int $awtcod, array $blanks, ?string $dateStart = null): array
+    {
+        return $this->call(fn () => $this->http()->get('blanks', array_filter([
+            'awtcod' => $awtcod,
+            'date_start' => $dateStart,
+            'blanks' => array_values($blanks),
+        ], fn ($v) => $v !== null)));
+    }
+
     /** Строка EVRYRAICE (в т.ч. флаги CANCELED/DISRUPT — отменён/сорван). */
     public function tripStatus(int $awtcod, string $date, int $napcod, int $raicecod): array
     {
@@ -164,6 +184,7 @@ class SalesApiClient
                 $data['error'] ?? $this->firstValidationError($data) ?? $data['message'] ?? 'Ошибка API продаж',
                 $data['error_code'] ?? 'sales_api_error',
                 $response->status(),
+                (array) ($data['details'] ?? []),
             );
         }
 

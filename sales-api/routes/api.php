@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\BlankController;
 use App\Http\Controllers\Api\RefundController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\SaleController;
@@ -31,4 +32,13 @@ Route::prefix('v1')
             ->whereUuid('id')->name('reservations.destroy');
         Route::post('sales', [SaleController::class, 'store'])->name('sales.store');
         Route::post('refunds', [RefundController::class, 'store'])->name('refunds.store');
+
+        /*
+         * Состояние бланков в журнале станции (только чтение): продан,
+         * возвращён, кем и когда. Нужно карточке возврата в АИС, чтобы
+         * отличить «бланк уже аннулирован нашим же возвратом, а деньги не
+         * отданы» от «бланк вернула касса станции» — во втором случае
+         * деньги покупателю выданы там.
+         */
+        Route::get('blanks', [BlankController::class, 'index'])->name('blanks.index');
     });

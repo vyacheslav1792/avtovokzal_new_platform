@@ -1,9 +1,14 @@
 <?php
 
+use App\Exceptions\BusterException;
+use App\Exceptions\StationUnavailableException;
+use App\Http\Middleware\AuthenticateAgent;
+use App\Http\Middleware\JournalApiRequest;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -14,8 +19,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'agent.auth' => \App\Http\Middleware\AuthenticateAgent::class,
-            'journal' => \App\Http\Middleware\JournalApiRequest::class,
+            'agent.auth' => AuthenticateAgent::class,
+            'journal' => JournalApiRequest::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -23,12 +28,19 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*'),
         );
 
-        $exceptions->render(function (\App\Exceptions\BusterException $e, Request $request) {
-            return response()->json([
+        $exceptions->render(function (BusterException $e, Request $request) {
+            return response()->json(array_filter([
                 'success' => false,
                 'error' => $e->getMessage(),
                 'error_code' => $e->errorCode,
-            ], 422);
+                /*
+                 * Подробности отказа (результат по каждому бланку
+                 * возврата): по ним вызывающая сторона видит, какой
+                 * именно бланк станция отклонила, а не только «возврат
+                 * не прошёл».
+                 */
+                'details' => $e->details ?: null,
+            ], fn ($v) => $v !== null), 422);
         });
 
         /*
@@ -37,7 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
          * `station_unavailable` показывает понятный текст вместо
          * «Server Error».
          */
-        $exceptions->render(function (\App\Exceptions\StationUnavailableException $e, Request $request) {
+        $exceptions->render(function (StationUnavailableException $e, Request $request) {
             return response()->json([
                 'success' => false,
                 'error' => $e->getMessage(),
@@ -54,8 +66,8 @@ return Application::configure(basePath: dirname(__DIR__))
          * отказ попадал в ERROR со стектрейсом на 9 КБ
          * (ловилось на проде 16.11.2026: «Место5 - ведомость закрыта»).
          */
-        $exceptions->reportable(function (\App\Exceptions\BusterException $e) {
-            \Illuminate\Support\Facades\Log::notice('Станция отклонила операцию', [
+        $exceptions->reportable(function (BusterException $e) {
+            Log::notice('Станция отклонила операцию', [
                 'error_code' => $e->errorCode,
                 'message' => $e->getMessage(),
             ]);
@@ -71,6 +83,6 @@ return Application::configure(basePath: dirname(__DIR__))
          * пропал интернет) — за сутки это были десятки мегабайт журнала.
          */
         $exceptions->dontReport([
-            \App\Exceptions\StationUnavailableException::class,
+            StationUnavailableException::class,
         ]);
     })->create();

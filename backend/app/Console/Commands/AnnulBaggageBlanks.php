@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Ticket;
 use App\Services\SalesApiClient;
+use App\Support\StationRefundResult;
 use Illuminate\Console\Command;
 
 /**
@@ -71,6 +72,10 @@ class AnnulBaggageBlanks extends Command
                         $blanks,
                     ),
                 ])['data'];
+
+                // Станция приняла ВСЕ бланки? Иначе отметки «аннулировано»
+                // появились бы у бланков, которых она не тронула.
+                StationRefundResult::assertAllBlanksAnnulled($result);
             } catch (\Throwable $e) {
                 $this->error('  не вышло: '.$e->getMessage());
                 $failed++;
