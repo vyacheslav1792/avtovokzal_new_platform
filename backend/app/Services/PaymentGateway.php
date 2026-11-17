@@ -24,6 +24,13 @@ class PaymentGateway
             'currency' => 643,
             'httpClient' => new CurlClient([
                 CURLOPT_CAINFO => config('services.sberbank.ca_bundle'),
+                // Таймауты ОБЯЗАТЕЛЬНЫ: без них действует умолчание
+                // libcurl — 300 с на одно подключение, и залипший адрес
+                // шлюза держит обработчик php-fpm все пять минут, пока
+                // покупатель уже получил 504 от nginx. Почему именно
+                // такие значения — в config/services.php.
+                CURLOPT_CONNECTTIMEOUT => (int) config('services.sberbank.connect_timeout'),
+                CURLOPT_TIMEOUT => (int) config('services.sberbank.timeout'),
             ]),
         ]);
     }
