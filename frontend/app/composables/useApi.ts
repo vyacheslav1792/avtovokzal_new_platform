@@ -78,6 +78,15 @@ export interface Trip {
   date_start: string
   time_start: string
   time_end: string
+  /**
+   * Время в пути в минутах. Прибытие считается ТОЛЬКО по нему, а не по
+   * `time_end`: в базе станции это TIME, то есть время суток, и при пути
+   * дольше суток оно оборачивается. У рейса Орёл–Симферополь в пути
+   * 1535 минут, и `time_end` равен 12:50 — ровно как если бы автобус
+   * приезжал в день отправления. null — у рейса нет расписания
+   * остановок, прибытие неизвестно.
+   */
+  time_way_minutes: number | null
   price_full: number
   price_child: number
   price_baggage: number

@@ -46,6 +46,21 @@ const trip = computed(() =>
 const fromName = computed(() => tripsResp.value?.awtname ?? '')
 
 /*
+ * Прибытие — отправление плюс время в пути (общий `tripArrival`). Ни
+ * время, ни дату прибытия нельзя взять из рейса напрямую: `time_end` —
+ * это время суток и у рейсов дольше суток пути оборачивается, а даты
+ * прибытия в данных рейса нет вовсе.
+ */
+const arrivesAt = computed(() => (trip.value ? tripArrival(trip.value) : null))
+const arrivalDate = computed(() => {
+  const at = arrivesAt.value
+
+  return at
+    ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
+    : ''
+})
+
+/*
  * Продажу билетов на сайте выключают из АИС (раздел «Настройки») — например
  * на время работ у станции. Проверка на сервере всё равно есть
  * (middleware site.enabled), здесь — чтобы покупатель не заполнял форму
@@ -637,6 +652,10 @@ async function submit() {
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' })
 }
+
+function formatTime(d: Date) {
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
 </script>
 
 <template>
@@ -691,8 +710,25 @@ function formatDate(d: string) {
         </div>
         <UIcon name="i-lucide-arrow-right" class="size-6 text-muted" />
         <div>
-          <div class="text-2xl font-semibold">{{ trip.time_end?.slice(0, 5) }}</div>
-          <div class="text-sm text-muted">{{ formatDate(trip.date_start) }}</div>
+          <!--
+            Прибытие считается от отправления плюс время в пути: `time_end`
+            в базе станции — время СУТОК, и у рейса дольше суток пути оно
+            оборачивается (Орёл–Симферополь: 11:15 + 25 ч 35 мин = 12:50).
+            Под ним стояла дата ОТПРАВЛЕНИЯ, то есть покупатель видел
+            «12:50, 18 ноября» у рейса, приезжающего 19-го.
+          -->
+          <div class="text-2xl font-semibold">
+            <template v-if="arrivesAt">{{ formatTime(arrivesAt) }}</template>
+            <!-- У рейса нет времени в пути до этой остановки: `time_end`
+                 равен времени ОТПРАВЛЕНИЯ, показывать его нельзя. -->
+            <span v-else class="text-muted">—</span>
+          </div>
+          <div class="text-sm text-muted">
+            <template v-if="arrivesAt">{{ formatDate(arrivalDate) }}</template>
+            <!-- Прибытие неизвестно (у рейса нет расписания остановок) —
+                 дату отправления здесь показывать нельзя, она обманывает. -->
+            <template v-else>время прибытия уточняйте на станции</template>
+          </div>
           <div class="font-medium">{{ toName }}</div>
         </div>
         <div class="ml-auto text-sm text-muted">

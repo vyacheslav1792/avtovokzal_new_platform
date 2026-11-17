@@ -111,8 +111,19 @@ class TariffCard
     /** Строка остановки: расстояние в км, время прибытия и время в пути. */
     private function stop(array $row, string $timeStart): array
     {
-        $minutes = (int) $row['TIME_TO_STAT'];
-        $arrivalAt = strtotime($timeStart) + $minutes * 60;
+        /*
+         * Времени в пути до остановки может не быть вовсе: `tracetime`
+         * присоединён LEFT JOIN, и у части остановок строки в расписании
+         * нет. Legacy приводил NULL к нулю (`tarif.php`: `date('H:i',
+         * strtotime(TIMESTART) + TIME_TO_STAT*60)`) и печатал «прибытие =
+         * время отправления, время в пути 0 ч. 0 мин.» — то есть автобус
+         * будто приезжает, не выехав. Такие остановки честнее оставить без
+         * времени: страница поставит прочерк.
+         */
+        $minutes = isset($row['TIME_TO_STAT']) && trim((string) $row['TIME_TO_STAT']) !== ''
+            ? (int) $row['TIME_TO_STAT']
+            : null;
+        $arrivalAt = $minutes === null ? null : strtotime($timeStart) + $minutes * 60;
 
         return [
             'name' => $row['STATNAME'],
@@ -123,9 +134,24 @@ class TariffCard
             'price_child' => (float) $row['PAYHARDCHD'],
             'price_baggage' => (float) $row['PAYHARDBAG'],
             'insurance' => (float) $row['DOBRSTR'],
-            'arrival' => date('H:i', $arrivalAt),
+            'arrival' => $arrivalAt === null ? null : date('H:i', $arrivalAt),
+            /*
+             * На какие сутки от отправления приходится прибытие: 0 — в
+             * день отправления, 1 — на следующие. Время само по себе
+             * этого не говорит, а рейсы бывают дольше суток (Орёл–
+             * Симферополь: 1535 минут, отправление 11:15, прибытие 12:50
+             * СЛЕДУЮЩЕГО дня). Legacy печатал одно время (`tarif.php`:
+             * `date('H:i', strtotime(TIMESTART) + TIME_TO_STAT*60)`),
+             * и на таких рейсах таблицу было не прочитать.
+             */
+            'arrival_day_offset' => $minutes === null ? 0 : intdiv(
+                (int) date('H', strtotime($timeStart)) * 3600
+                + (int) date('i', strtotime($timeStart)) * 60
+                + $minutes * 60,
+                86400,
+            ),
             'time_way_minutes' => $minutes,
-            'time_way' => intdiv($minutes, 60).' ч. '.($minutes % 60).' мин.',
+            'time_way' => $minutes === null ? null : intdiv($minutes, 60).' ч. '.($minutes % 60).' мин.',
             'stop_minutes' => (int) $row['TIME_OF_STOP'],
         ];
     }

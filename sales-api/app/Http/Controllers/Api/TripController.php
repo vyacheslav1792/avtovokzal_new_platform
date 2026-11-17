@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
+use App\Support\VendorCode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Support\VendorCode;
 
 class TripController extends Controller
 {
@@ -60,6 +60,13 @@ class TripController extends Controller
             'date_start' => $r['DATESTART'],
             'time_start' => $r['TIMESTART'],
             'time_end' => $r['TIME_TO_END'],
+            /*
+             * Время в пути в минутах. Прибытие считается ТОЛЬКО по нему:
+             * `time_end` — время суток, и за сутками пути оно уже ничего
+             * не говорит (11:15 + 25:35 = 12:50). null — у рейса нет
+             * расписания остановок, прибытие неизвестно.
+             */
+            'time_way_minutes' => isset($r['TIME_WAY_MINUTES']) ? (int) $r['TIME_WAY_MINUTES'] : null,
             'price_full' => (float) $r['PAYHARDALL'],
             'price_child' => (float) $r['PAYHARDCHD'],
             'price_baggage' => (float) $r['PAYHARDBAG'],

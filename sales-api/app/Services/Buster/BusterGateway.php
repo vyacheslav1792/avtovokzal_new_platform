@@ -181,11 +181,37 @@ class BusterGateway
                 evryraice.sale_bound_after,
                 evryraice.internet_sale_available,
                 evryraice.RAICE_CATEGORY AS FRAHT,
-                (evryraice.martypcod * naplst.reg_pasp_data) reg_pas_data
+                (evryraice.martypcod * naplst.reg_pasp_data) reg_pas_data,
+                %TIME_WAY% time_way_minutes
 SQL;
 
-        $fieldsWithArrival = str_replace('%TIME_TO_END%', '(evryraice.timestart + tracetime.time_to_stat*60)', $fields);
-        $fieldsNoArrival = str_replace('%TIME_TO_END%', 'evryraice.timestart', $fields);
+        /*
+         * ВРЕМЯ В ПУТИ (минуты) отдаём отдельным полем, и без него
+         * прибытие посчитать НЕЛЬЗЯ: `time_to_end` — это TIME, то есть
+         * время суток, и Firebird при сложении оборачивает его через
+         * 24 часа. У рейса Орёл–Симферополь в пути 1535 минут
+         * (25 ч 35 мин), и 11:15 + 25:35 даёт 12:50 — то же самое, что
+         * «прибытие в 12:50 в день отправления». Сайт из этого делал
+         * вывод «прибытие раньше отправления? плюс сутки», а раз
+         * 12:50 > 11:15, сутки не добавлялись вовсе: пассажиру
+         * показывалось 18.11 вместо 19.11.
+         *
+         * Источник — `tracetime.time_to_stat`, та же величина, по которой
+         * считается «время в пути» на странице тарифа. У рейсов без
+         * расписания остановок (вторая ветка UNION, `tracetimecod is
+         * null`) её нет: там и `time_to_end` равен времени отправления,
+         * то есть прибытие неизвестно в принципе.
+         */
+        $fieldsWithArrival = str_replace(
+            ['%TIME_TO_END%', '%TIME_WAY%'],
+            ['(evryraice.timestart + tracetime.time_to_stat*60)', 'tracetime.time_to_stat'],
+            $fields,
+        );
+        $fieldsNoArrival = str_replace(
+            ['%TIME_TO_END%', '%TIME_WAY%'],
+            ['evryraice.timestart', 'cast(null as integer)'],
+            $fields,
+        );
 
         $sql = "
             select {$limit} {$fieldsWithArrival},
@@ -211,6 +237,38 @@ SQL;
                 and RAICETYPCOD<>3
                 and not((evryraice.canceled = 5))
                 and TARIFS2D.startstatcode=0)
+            /*
+             * ВТОРАЯ ВЕТВЬ — рейсы, у которых времени в пути до этой
+             * остановки НЕТ.
+             *
+             * ДЕФЕКТ LEGACY, который здесь исправлен: в legacy
+             * (`ais/api/api2.php`) условие было
+             * `evryraice.tracetimecod is null`, то есть вторая ветвь
+             * ловила только рейсы вообще без расписания остановок. А
+             * первая требует строку `tracetime` ИМЕННО для запрошенной
+             * остановки (`left outer join` + условие в `where` работает
+             * как inner). Между ними оставалась мёртвая зона: у рейса
+             * расписание есть (`tracetimecod` задан), но строки для этой
+             * остановки в нём нет — и рейс не попадал в список ВООБСЕ,
+             * хотя билет до неё продаётся (`TARIFS2D.paysoftall > 0`,
+             * `prim = 1`).
+             *
+             * На боевых данных станции Орел за 18.11.2026 так выпадали
+             * 78 пар «рейс × остановка» из 6506 — например «Орел →
+             * Дв.спорта» не показывал ни одного рейса до Моховицы,
+             * «Орел → Госуниверситет-УНПК» — до Маслово.
+             *
+             * Поэтому условие заменено на «подходящей строки tracetime
+             * нет»: оно покрывает и прежний случай (`tracetimecod is
+             * null` — тогда равенство с ним ложно для любой строки), и
+             * мёртвую зону. Ветви остаются взаимоисключающими: первая
+             * требует существования строки, вторая — её отсутствия.
+             *
+             * Прибытие у таких рейсов неизвестно: `time_to_end` равен
+             * времени отправления, `time_way_minutes` — null, и сайт
+             * обязан писать «уточняйте на станции», а не выдавать время
+             * отправления за время прибытия.
+             */
             union
             select {$limit} {$fieldsNoArrival},
                 (evryraice.platnom+1) time_kind
@@ -228,7 +286,12 @@ SQL;
                 and ({$dateWhere}){$extraWhere}
                 and (evryraice.awtcod = ?)
                 and (evryraice.napcod = traces.napcod) and (evryraice.awtcod = traces.awtcod)
-                and ((evryraice.tracetimecod is null))
+                and (not exists (
+                    select 1 from tracetime tt
+                    where tt.awtcod = traces.awtcod and tt.napcod = traces.napcod
+                      and tt.statcod = traces.statcod
+                      and tt.traicetimecod = evryraice.tracetimecod
+                ))
                 and (TARIFS2D.prim = 1)
                 and RAICETYPCOD<>3
                 and not((evryraice.canceled = 5))

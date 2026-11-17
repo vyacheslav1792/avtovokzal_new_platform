@@ -19,9 +19,17 @@ interface TariffStop {
   price_child: number
   price_baggage: number
   insurance: number
-  arrival: string
-  time_way: string
-  time_way_minutes: number
+  /** null — времени в пути до остановки в расписании нет, прибытие неизвестно. */
+  arrival: string | null
+  /**
+   * На какие сутки от отправления приходится прибытие: 0 — в день
+   * отправления. Одного времени мало: рейсы бывают дольше суток
+   * (Орёл–Симферополь — 25 ч 35 мин), и «Прибытие 12:50» без пометки
+   * читается как «в тот же день».
+   */
+  arrival_day_offset?: number
+  time_way: string | null
+  time_way_minutes: number | null
   stop_minutes: number
 }
 
@@ -148,6 +156,13 @@ function printPage() {
  * «Скачать тариф» — как в legacy: та же таблица файлом, который открывается
  * в Word (там это был HTML с расширением .rtf через атрибут download).
  */
+/** Пометка «+N сут.» у времени прибытия; пусто — приезжает в день отправления. */
+function dayNote(stop: TariffStop) {
+  const offset = stop.arrival_day_offset ?? 0
+
+  return offset > 0 ? ` (+${offset} сут.)` : ''
+}
+
 function download() {
   const t = tariff.value
   if (!t) return
@@ -156,7 +171,8 @@ function download() {
     <td>${s.name}</td><td>${s.km.toFixed(2).replace('.', ',')}</td>
     <td>${s.price_full.toFixed(2)}</td><td>${s.price_child.toFixed(2)}</td>
     <td>${s.price_baggage.toFixed(2)}</td><td>${s.insurance.toFixed(2)}</td>
-    <td>${s.arrival}</td><td>${s.time_way}</td></tr>`).join('')
+    <td>${s.arrival ? s.arrival + dayNote(s) : '—'}</td>
+    <td>${s.time_way ?? '—'}</td></tr>`).join('')
 
   const html = `<html><head><meta charset="utf-8"></head><body>
     <h2>Тариф стоимости проезда, провоза багажа/ручной клади${validityNote.value}
@@ -291,11 +307,14 @@ function download() {
             </div>
             <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <dt class="text-muted">Прибытие</dt>
-              <dd class="font-medium">{{ s.arrival }}</dd>
+              <dd class="font-medium">
+                <template v-if="s.arrival">{{ s.arrival }}{{ dayNote(s) }}</template>
+                <span v-else class="text-muted">уточняйте на станции</span>
+              </dd>
             </div>
             <div class="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <dt class="text-muted">Время в пути</dt>
-              <dd class="font-medium">{{ s.time_way }}</dd>
+              <dd class="font-medium">{{ s.time_way ?? '—' }}</dd>
             </div>
           </dl>
         </div>
@@ -331,8 +350,11 @@ function download() {
               <td class="p-2 border border-default text-right">{{ s.price_child.toFixed(2) }}</td>
               <td class="p-2 border border-default text-right">{{ s.price_baggage.toFixed(2) }}</td>
               <td class="p-2 border border-default text-right">{{ s.insurance.toFixed(2) }}</td>
-              <td class="p-2 border border-default text-center">{{ s.arrival }}</td>
-              <td class="p-2 border border-default text-center">{{ s.time_way }}</td>
+              <td class="p-2 border border-default text-center">
+                <template v-if="s.arrival">{{ s.arrival }}{{ dayNote(s) }}</template>
+                <span v-else class="text-muted">—</span>
+              </td>
+              <td class="p-2 border border-default text-center">{{ s.time_way ?? '—' }}</td>
             </tr>
           </tbody>
         </table>

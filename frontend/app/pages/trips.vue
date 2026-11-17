@@ -91,19 +91,22 @@ function formatDateTime(d: Date) {
   })
 }
 
+function formatTime(d: Date) {
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
 function statusColor(kind: TripStatus['kind']) {
   if (kind === 'cash') return 'success'
   return kind === 'closed' || kind === 'limited' ? 'error' : 'neutral'
 }
 
-/** Прибытие: время рейса плюс сутки, если оно меньше времени отправления. */
-function arrival(trip: Trip) {
-  if (!trip.time_end) return null
-  const start = new Date(`${trip.date_start}T${trip.time_start}`)
-  const end = new Date(`${trip.date_start}T${trip.time_end}`)
-  if (end < start) end.setDate(end.getDate() + 1)
-  return end
-}
+/*
+ * Прибытие считает общий `tripArrival` — от отправления плюс время в
+ * пути. Прежний расчёт шёл от `time_end` и добавлял сутки, если прибытие
+ * «раньше» отправления: на рейсе Орёл–Симферополь (25 ч 35 мин в пути,
+ * 11:15 → time_end 12:50) сутки не добавлялись вовсе, и пассажир видел
+ * 18 ноября вместо 19-го.
+ */
 
 interface TripStatus {
   /** buy — показываем кнопку покупки */
@@ -209,7 +212,7 @@ onMounted(() => {
 const rows = computed(() => trips.value.map(trip => ({
   trip,
   status: tripStatus(trip, now.value),
-  arrival: arrival(trip),
+  arrival: tripArrival(trip),
 })))
 
 /**
@@ -341,7 +344,20 @@ useSeoMeta({
             <UIcon name="i-lucide-bus" class="text-error" />
             <span>{{ trip.time_start.slice(0, 5) }}</span>
             <UIcon name="i-lucide-arrow-right" class="text-muted size-5" />
-            <span>{{ trip.time_end?.slice(0, 5) }}</span>
+            <!--
+              Время прибытия само по себе врёт на сутки у рейсов дольше
+              суток пути, поэтому рядом стоит пометка «+N сут.», а полная
+              дата — строкой ниже. Прибытие неизвестно (у рейса нет
+              времени в пути до этой остановки) — ставим прочерк:
+              `time_end` у таких рейсов равен времени ОТПРАВЛЕНИЯ, и
+              показать его значило бы «автобус приезжает, не выехав».
+            -->
+            <span v-if="arrivesAt">
+              {{ formatTime(arrivesAt) }}
+              <sup v-if="tripArrivalDayOffset(trip) > 0" class="text-sm text-muted font-normal"
+                >+{{ tripArrivalDayOffset(trip) }} сут.</sup>
+            </span>
+            <span v-else class="text-muted">—</span>
           </div>
 
           <div class="flex-1 min-w-0">
@@ -349,7 +365,8 @@ useSeoMeta({
             <div class="font-medium">Рейс: {{ trip.trip_name }}–{{ trip.direction_name }}</div>
             <div class="text-sm text-muted">
               Отправление {{ formatDate(trip.date_start) }}<template v-if="arrivesAt">,
-                прибытие {{ formatDateTime(arrivesAt) }}</template>
+                прибытие {{ formatDateTime(arrivesAt) }}</template><template v-else>,
+                время прибытия уточняйте на станции</template>
             </div>
             <div class="text-sm text-muted">
               <!-- Марку автобуса не показываем: она в базе станции
