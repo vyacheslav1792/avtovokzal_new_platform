@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\StationController;
+use App\Http\Controllers\Api\StationSalesSyncController;
 use Illuminate\Support\Facades\Route;
 
 // Контракт отчётов совместим с legacy apiv2 (SPA-рендер отчётов), но, в
@@ -38,6 +39,11 @@ Route::prefix('v1')->group(function () {
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/{slug}/meta', [ReportController::class, 'meta'])->name('reports.meta');
         Route::post('reports/{slug}/run', [ReportController::class, 'run'])->name('reports.run');
+
+        Route::get('station-sales-sync', [StationSalesSyncController::class, 'status'])
+            ->middleware('employee.can:report:station-sales.view');
+        Route::post('station-sales-sync', [StationSalesSyncController::class, 'start'])
+            ->middleware(['employee.can:report:station-sales.view', 'employee.can:report:station-sales.refresh']);
 
         /*
          * Справочник станций: что раньше правили в файле (а в legacy —

@@ -204,8 +204,11 @@ ID Сбербанка; ссылки как в legacy: статус → печа�
 SITE_FRONTEND_URL). Агрегаты считает SQL по индексам, а не PHP по JSON.
 SPA: DataTable понимает подсветку строки `_class` (row-green/yellow/orange/red/
 blue/gray) и колонки type=link ({text,url}) — старые отчёты не затронуты.
-Таблица «Сводный по продажам и агентам в разрезе станций» из in.php сознательно
-НЕ перенесена (отдельный этап).
+Таблица «Сводный по продажам и агентам в разрезе станций» перенесена
+19.11.2026 отдельным отчётом `station-sales`: все 20 колонок, копия
+`SALE_ALL` в Postgres, фоновый сбор порциями с дедлайном, выбор станций и
+периода, актуальность отдельно для текущего окна. Глубина регулярного сбора
+задаётся в `/settings`. Подробности — [docs/STATION_SALES.md](docs/STATION_SALES.md).
 
 Админский возврат билета перенесён 2026-08-03 (legacy `ais/back_bilet.php`):
 backend `admin/refunds/inspect|confirm|repair` (AdminRefundService) + страница

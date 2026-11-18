@@ -93,6 +93,14 @@ export function runReport(slug, filters) {
   return request(`${API}/reports/${encodeURIComponent(slug)}/run`, json('POST', filters))
 }
 
+export function fetchStationSalesSync() {
+  return request(`${API}/station-sales-sync`)
+}
+
+export function startStationSalesSync(params) {
+  return request(`${API}/station-sales-sync`, json('POST', params))
+}
+
 /* Справочник автостанций: подключения к базам BUSTER и выключатели.
    До 15.11.2026 это был файл (shared/stations.php), а в legacy — массив
    $AWT прямо в коде, причём в трёх местах. */

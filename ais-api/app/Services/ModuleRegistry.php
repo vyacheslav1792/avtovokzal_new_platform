@@ -38,7 +38,7 @@ class ModuleRegistry
             $modules['report:'.$slug] = [
                 'title' => $meta['title'] ?? $slug,
                 'group' => 'Отчёты'.(($meta['group'] ?? '') !== '' ? ' · '.$meta['group'] : ''),
-                'permissions' => $reportPermissions,
+                'permissions' => $reportPermissions + ($meta['permissions'] ?? []),
                 'confirm' => [],
             ];
         }

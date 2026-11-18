@@ -52,6 +52,15 @@ class SiteSettings
         return max(1, min(60, (int) $value));
     }
 
+    public function stationSalesLookbackDays(): int
+    {
+        $value = $this->get('station_sales_lookback_days');
+
+        return is_numeric($value)
+            ? max(1, min(3650, (int) $value))
+            : (int) config('station_sales.default_lookback_days', 90);
+    }
+
     private function get(string $key): mixed
     {
         return $this->all()[$key] ?? null;

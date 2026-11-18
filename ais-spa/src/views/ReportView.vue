@@ -4,6 +4,7 @@ import { fetchMeta, runReport } from '../api'
 import BackTicketView from './BackTicketView.vue'
 import FiltersForm from '../components/FiltersForm.vue'
 import ReportSection from '../components/ReportSection.vue'
+import StationSalesSync from '../components/StationSalesSync.vue'
 
 const props = defineProps({ slug: String })
 
@@ -70,6 +71,10 @@ function closeOverlay() {
   if (lastFilters) onSubmit(lastFilters)
 }
 
+function onStationSalesUpdated() {
+  if (lastFilters && !loading.value) onSubmit(lastFilters)
+}
+
 function onKeydown(e) {
   if (e.key === 'Escape' && overlay.value) closeOverlay()
 }
@@ -88,6 +93,8 @@ watch(() => props.slug, (s) => { if (s) loadMeta(s) }, { immediate: true })
     <div v-if="metaErr" class="alert">{{ metaErr }}</div>
 
     <FiltersForm v-if="meta" :filters="meta.filters" :loading="loading" @submit="onSubmit" />
+
+    <StationSalesSync v-if="meta?.station_sales_sync" :key="slug" @updated="onStationSalesUpdated" />
 
     <div v-if="loading" class="muted loading">Формирование отчёта…</div>
     <div v-if="runErr" class="alert">{{ runErr }}</div>
