@@ -422,7 +422,9 @@ td.t-money, th.t-money, td.t-number, th.t-number { text-align: right; }
  * поэтому print-color-adjust, а sticky-шапка и прокрутка на печати мешают.
  */
 @media print {
-  .dt-filters, .dt-toolbar, .dt-legend, aside, .burger, .nav-err { display: none !important; }
+  .dt-filters, .dt-toolbar, .dt-legend, aside, .burger, .nav-err,
+  /* .noprint — то, что на бумаге не нужно: формы, кнопки, колонка отметок */
+  .noprint { display: none !important; }
 
   .layout, .content { display: block; padding: 0; margin: 0; }
 

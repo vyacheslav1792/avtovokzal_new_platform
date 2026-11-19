@@ -93,6 +93,48 @@ export function runReport(slug, filters) {
   return request(`${API}/reports/${encodeURIComponent(slug)}/run`, json('POST', filters))
 }
 
+/*
+ * Отчёт «Нулевые билеты» — то, чего нет у остальных отчётов. Вид рейса
+ * (`kind`: пригородные, внутриобластные, межобластные) идёт параметром:
+ * в legacy это были три отдельные страницы со своими файлами исключений.
+ *
+ * Список АТП спрашивается ОТДЕЛЬНО от расчёта: в legacy селект АТП
+ * наполнялся из результата, и в подсказке отчёта стояло «при смене
+ * диапазона дат или автостанции сначала расчёт делать по всем АТП».
+ * Правка списков исключений — тоже отдельные запросы: запуск отчёта
+ * обязан оставаться read-only (его пропускает и наблюдательный режим
+ * «работаю от имени сотрудника»).
+ */
+
+export function fetchLgotAtps(params) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+  )
+
+  return request(`${API}/reports/lgot/atps?${query}`)
+}
+
+export function fetchLgotExclusions(kind) {
+  return request(`${API}/reports/lgot/exclusions?kind=${encodeURIComponent(kind)}`)
+}
+
+export function saveLgotAtpList(kind, listAtp) {
+  return request(`${API}/reports/lgot/exclusions/atps`, json('PUT', { kind, list_atp: listAtp }))
+}
+
+/** Строки отчёта целиком: список исключённых показывает те же колонки. */
+export function addLgotExcludedTickets(kind, tickets) {
+  return request(`${API}/reports/lgot/exclusions/tickets`, json('POST', { kind, tickets }))
+}
+
+export function removeLgotExcludedTickets(kind, keys) {
+  return request(`${API}/reports/lgot/exclusions/tickets`, json('DELETE', { kind, keys }))
+}
+
+export function clearLgotExcludedTickets(kind) {
+  return request(`${API}/reports/lgot/exclusions/tickets`, json('DELETE', { kind, clear: true }))
+}
+
 export function fetchStationSalesSync() {
   return request(`${API}/station-sales-sync`)
 }

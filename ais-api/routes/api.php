@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ImpersonationController;
 use App\Http\Controllers\Api\KkmServerController;
+use App\Http\Controllers\Api\LgotController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
@@ -39,6 +40,25 @@ Route::prefix('v1')->group(function () {
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/{slug}/meta', [ReportController::class, 'meta'])->name('reports.meta');
         Route::post('reports/{slug}/run', [ReportController::class, 'run'])->name('reports.run');
+
+        /*
+         * Отчёт «Нулевые билеты»: у него своя страница в АИС и то, чего
+         * нет у остальных отчётов, — список АТП за период и два списка
+         * исключений (у каждого вида рейса свои). Правка списков вынесена
+         * из запуска отчёта отдельными маршрутами: запуск обязан
+         * оставаться read-only (его пропускает и наблюдательный режим
+         * «работаю от имени сотрудника»).
+         */
+        Route::get('reports/lgot/atps', [LgotController::class, 'atps'])
+            ->middleware('employee.can:report:lgot.view');
+        Route::get('reports/lgot/exclusions', [LgotController::class, 'exclusions'])
+            ->middleware('employee.can:report:lgot.view');
+        Route::put('reports/lgot/exclusions/atps', [LgotController::class, 'saveAtps'])
+            ->middleware('employee.can:report:lgot.exclude');
+        Route::post('reports/lgot/exclusions/tickets', [LgotController::class, 'addTickets'])
+            ->middleware('employee.can:report:lgot.exclude');
+        Route::delete('reports/lgot/exclusions/tickets', [LgotController::class, 'removeTickets'])
+            ->middleware('employee.can:report:lgot.exclude');
 
         Route::get('station-sales-sync', [StationSalesSyncController::class, 'status'])
             ->middleware('employee.can:report:station-sales.view');

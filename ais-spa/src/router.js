@@ -10,6 +10,7 @@ import FeedbackView from './views/FeedbackView.vue'
 import FiscalReceiptsView from './views/FiscalReceiptsView.vue'
 import HomeView from './views/HomeView.vue'
 import KkmView from './views/KkmView.vue'
+import LgotView from './views/LgotView.vue'
 import LogsView from './views/LogsView.vue'
 import MenuView from './views/MenuView.vue'
 import NewsEditView from './views/NewsEditView.vue'
@@ -48,6 +49,16 @@ import StationsView from './views/StationsView.vue'
 const routes = [
   { path: '/', component: HomeView },
   { path: '/back-ticket', component: BackTicketView },
+  /*
+   * Отчёт «Нулевые билеты» (перенос трёх страниц legacy — lgot_prig.php,
+   * lgot2.php и lgot.php; вид рейса выбирается в форме и живёт в адресе
+   * как `?kind=`) — своя страница, а не ReportView: в нём отметка билетов
+   * к исключению, два списка исключений и выгрузка в HTML. В меню он
+   * появляется как обычный отчёт (зарегистрирован в
+   * ais-api/config/reports.php), поэтому маршрут объявлен ДО catch-all
+   * `/:slug`.
+   */
+  { path: '/lgot', component: LgotView },
   // Возвраты, по которым станция ещё не знает об аннулировании (у станции
   // не было связи в момент возврата денег).
   { path: '/refunds-pending', component: PendingRefundsView },
