@@ -78,18 +78,30 @@ class StationConnection
         ));
     }
 
+    public function readSnapshot(callable $read): mixed
+    {
+        $this->pdo->beginTransaction();
+        try {
+            return $read();
+        } finally {
+            $this->pdo->rollBack();
+        }
+    }
+
     /** SELECT → массив ассоц. массивов; CHAR подчищается от хвостовых пробелов. */
-    public function select(string $sql, array $bindings = []): array
+    public function select(string $sql, array $bindings = [], ?string $binaryColumn = null): array
     {
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($bindings);
 
-        return array_map(
-            fn (array $row) => array_map(
-                fn ($v) => is_string($v) ? rtrim($v) : $v,
-                $row,
-            ),
-            $stmt->fetchAll(),
-        );
+        $rows = [];
+        while ($row = $stmt->fetch()) {
+            if ($binaryColumn !== null) {
+                $row[$binaryColumn] = bin2hex($row[$binaryColumn]);
+            }
+            $rows[] = array_map(fn ($v) => is_string($v) ? rtrim($v) : $v, $row);
+        }
+
+        return $rows;
     }
 }

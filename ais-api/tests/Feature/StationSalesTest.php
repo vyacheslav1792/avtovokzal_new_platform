@@ -38,6 +38,9 @@ class StationSalesTest extends TestCase
         DB::purge('sqlite');
         DB::purge('site');
         (require database_path('migrations/2026_11_19_000000_create_station_sales_tables.php'))->up();
+        (require database_path('migrations/2026_11_19_000001_add_station_sales_schedule_and_retries.php'))->up();
+        (require database_path('migrations/2026_11_19_000002_add_station_sales_incremental_sync.php'))->up();
+        (require database_path('migrations/2026_11_19_000003_track_station_sales_refund_days.php'))->up();
         Schema::connection('site')->create('orders', function (Blueprint $t) {
             $t->string('id')->primary();
             $t->integer('awtcod');
@@ -48,7 +51,13 @@ class StationSalesTest extends TestCase
             $t->json('legacy')->nullable();
         });
         Schema::connection('site')->create('refunds', function (Blueprint $t) {
+            $t->id();
             $t->string('order_id');
+            $t->timestamp('created_at')->nullable();
+            $t->boolean('station_annul_pending')->default(false);
+            $t->timestamp('station_annulled_at')->nullable();
+            $t->timestamp('station_annul_attempted_at')->nullable();
+            $t->timestamp('station_backdated_at')->nullable();
             $t->string('money_refunded_at')->nullable();
             $t->decimal('amount', 12, 2);
             $t->decimal('ticket_price', 12, 2);
@@ -65,6 +74,8 @@ class StationSalesTest extends TestCase
         ]);
         $this->app->instance(StationRegistry::class, new StationRegistry($catalog));
         $settings = Mockery::mock(SiteSettings::class);
+        $settings->shouldReceive('stationSalesMode')->andReturn('incremental');
+        $settings->shouldReceive('stationSalesPageSize')->andReturn(2);
         $settings->shouldReceive('stationSalesLookbackDays')->andReturnUsing(fn () => $this->lookback);
         $this->app->instance(SiteSettings::class, $settings);
         CarbonImmutable::setTestNow('2026-11-19 12:00:00 Europe/Moscow');
@@ -104,12 +115,12 @@ class StationSalesTest extends TestCase
     {
         $sync = $this->sync();
         $first = $sync->start([5710]);
-        $this->assertSame('2026-11-17', $first['date1']);
+        $this->assertSame('2026-11-18', $first['date1']);
         $this->lookback = 7;
         $second = $sync->start([5710, 5711]);
-        $this->assertSame('2026-11-12', $second['date1']);
+        $this->assertSame('2026-11-13', $second['date1']);
         $this->assertSame([5710], $second['busy_stations']);
-        $this->assertSame('2026-11-17', DB::table('station_sales_sync_runs')->find($first['run_ids'][0])->date_from);
+        $this->assertSame('2026-11-18', DB::table('station_sales_sync_runs')->find($first['run_ids'][0])->date_from);
         $this->assertCount(2, DB::table('station_sales_sync_runs')->get());
     }
 
@@ -120,6 +131,148 @@ class StationSalesTest extends TestCase
         Cache::flush();
         DB::connection('site')->table('settings')->update(['value' => '99999']);
         $this->assertSame(3650, (new SiteSettings)->stationSalesLookbackDays());
+    }
+
+    public function test_daily_schedule_uses_server_time_and_remembers_the_launch(): void
+    {
+        $this->app->bind(SiteSettings::class);
+        $settings = DB::connection('site')->table('settings');
+        $command = 'station-sales:sync --scheduled';
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseCount('station_sales_sync_runs', 0);
+
+        Carbon::setTestNow('2026-11-19 07:00:00 Europe/Moscow');
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseHas('station_sales_sync_runs', ['date_from' => '2026-11-10', 'date_to' => '2026-11-19']);
+        $this->complete();
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseCount('station_sales_sync_runs', 2);
+
+        $settings->insert(['key' => 'station_sales_auto_time', 'value' => '"08:25"']);
+        Carbon::setTestNow('2026-11-20 07:00:00 Europe/Moscow');
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseCount('station_sales_sync_runs', 2);
+        Carbon::setTestNow('2026-11-20 08:25:00 Europe/Moscow');
+        $settings->insert(['key' => 'station_sales_auto_enabled', 'value' => 'false']);
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseCount('station_sales_sync_runs', 2);
+        $this->artisan('station-sales:sync --stations=5710')->assertSuccessful();
+        $settings->where('key', 'station_sales_auto_enabled')->update(['value' => 'true']);
+        $this->artisan($command)->assertSuccessful();
+        $this->assertDatabaseCount('station_sales_sync_runs', 4);
+    }
+
+    public function test_mode_and_page_size_are_fixed_when_enqueued_and_manual_mode_wins(): void
+    {
+        $this->app->bind(SiteSettings::class);
+        $this->assertSame(1500, (require base_path('config/station_sales.php'))['page_size']);
+        $settings = DB::connection('site')->table('settings');
+        $settings->insert([
+            ['key' => 'station_sales_incremental', 'value' => 'false'],
+            ['key' => 'station_sales_page_size', 'value' => '1700'],
+        ]);
+        $this->sync()->start([5710]);
+        $settings->where('key', 'station_sales_page_size')->update(['value' => '1']);
+        Cache::flush();
+        $this->sync()->start([5711], mode: 'incremental');
+        $this->assertDatabaseHas('station_sales_sync_runs', ['station_code' => 5710, 'mode' => 'full', 'page_size' => 1700]);
+        $this->assertDatabaseHas('station_sales_sync_runs', ['station_code' => 5711, 'mode' => 'incremental', 'page_size' => 1]);
+    }
+
+    public function test_confirmed_deliveries_reconcile_old_days_and_do_not_lose_a_second_delivery_during_sync(): void
+    {
+        $sync = $this->sync();
+        $site = DB::connection('site');
+        $site->table('orders')->insert(['id' => 'order', 'awtcod' => 5710, 'date_start' => '2026-10-04',
+            'created_at' => '2026-09-18', 'status' => 'completed', 'total_price' => 100]);
+        $refunds = $site->table('refunds');
+        $receipt = ['order_id' => 'order', 'created_at' => '2026-10-01 10:00:00', 'money_refunded_at' => '2026-10-01 10:00:00',
+            'amount' => 100, 'ticket_price' => 100, 'baggage_price' => 0, 'station_annul_attempted_at' => '2026-11-18 08:00:00'];
+        $id = $refunds->insertGetId($receipt + ['station_annul_pending' => true]);
+        $sync->start([5710]);
+        $this->complete();
+        $this->assertDatabaseMissing('station_sales_sync_days', ['sale_date' => '2026-10-01']);
+
+        $delivered = ['station_annul_pending' => false, 'station_annulled_at' => '2026-11-18 08:05:00',
+            'station_backdated_at' => '2026-11-18 08:05:00'];
+        $refunds->where('id', $id)->update($delivered);
+        $sync->start([5710], '2026-11-19', '2026-11-19');
+        $this->complete();
+        $this->assertDatabaseMissing('station_sales_sync_days', ['sale_date' => '2026-10-01']);
+
+        $sync->start([5710, 5711]);
+        $stations = collect($sync->status()['stations'])->keyBy('code');
+        $this->assertEquals(3, $stations[5710]['run']['days_total']);
+        $this->assertEquals(2, $stations[5711]['run']['days_total']);
+        $refunds->insert($receipt + $delivered);
+        while ($run = $sync->claim()) {
+            if ($run->next_day === '2026-10-01') {
+                $sync->fail($run, new RuntimeException('Нет связи'));
+            } else {
+                $sync->acceptPage($run, []);
+            }
+        }
+        $this->assertDatabaseMissing('station_sales_sync_days', ['sale_date' => '2026-10-01']);
+        $sync->start([5710], mode: 'full');
+        $refunds->insert($receipt + $delivered);
+        while ($run = $sync->claim()) {
+            $rows = $run->next_day === '2026-10-01'
+                ? [$this->sale('refund', ['DATESALE' => '2026-10-01', 'TYPE_OPER' => 1])]
+                : [];
+            $sync->acceptPage($run, $rows);
+        }
+        $this->assertDatabaseHas('station_sales', ['datesale' => '2026-10-01', 'type_oper' => 1]);
+        $sync->start([5710]);
+        $this->assertEquals(3, $sync->status()['stations'][0]['run']['days_total']);
+        $this->complete();
+        $sync->start([5710]);
+        $this->assertEquals(2, $sync->status()['stations'][0]['run']['days_total']);
+    }
+
+    public function test_delta_keeps_unchanged_rows_and_publishes_late_return_with_original_sale(): void
+    {
+        $sync = $this->sync();
+        $oldSale = $this->sale('old', ['DATESALE' => '2026-09-01']);
+        foreach ([$this->sale('keep'), $this->sale('obsolete'), $oldSale] as $row) {
+            DB::table('station_sales')->insert(StationSalesSource::record($row, 5710, '2026-11-01 00:00:00'));
+        }
+        $keep = StationSalesSource::record($this->sale('keep'), 5710, '');
+        $sync->start([5710], '2026-11-19', '2026-11-19', mode: 'incremental');
+        $oldSale['TICK_BACK'] = 1;
+        $sync->acceptPage($sync->claim(), [$oldSale], [$keep['record_key']], $this->sale('keep'));
+        $this->assertDatabaseHas('station_sales', ['datesale' => '2026-09-01', 'tick_back' => 0]);
+        $sync->acceptPage($sync->claim(), [$this->sale('old', ['TYPE_OPER' => 1])]);
+        $this->assertDatabaseCount('station_sales', 3);
+        $this->assertDatabaseHas('station_sales', ['datesale' => '2026-09-01', 'tick_back' => 1]);
+        $this->assertDatabaseHas('station_sales', ['record_key' => $keep['record_key'], 'synced_at' => '2026-11-01 00:00:00']);
+        $this->assertDatabaseHas('station_sales_sync_runs', ['status' => 'completed', 'rows_read' => 2]);
+        $this->assertDatabaseCount('station_sales_sync_seen', 0);
+    }
+
+    public function test_read_retries_preserve_staging_and_stop_after_three_failures(): void
+    {
+        $sync = $this->sync();
+        $sync->start([5710], '2026-11-19', '2026-11-19');
+        $sync->acceptPage($sync->claim(), [$this->sale('1'), $this->sale('2')]);
+        $run = $sync->claim();
+        $error = new RuntimeException('Нет связи');
+        $sync->retryRead($run, $error);
+        $this->assertNull($sync->claim());
+        $this->assertDatabaseCount('station_sales_staging', 2);
+        $this->travel(61)->seconds();
+        $retry = $sync->claim();
+        $this->assertSame($run->cursor, $retry->cursor);
+        $sync->acceptPage($retry, [$this->sale('3')]);
+        $this->assertDatabaseCount('station_sales', 3);
+
+        $sync->start([5710]);
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $sync->retryRead($sync->claim(), $error);
+            $this->travel(61)->seconds();
+        }
+        $this->assertNull($sync->claim());
+        $this->assertDatabaseHas('station_sales_sync_runs', ['status' => 'failed']);
+        $this->assertDatabaseCount('station_sales', 3);
     }
 
     public function test_pages_are_staged_until_day_is_complete_and_repeated_collection_has_no_duplicates(): void

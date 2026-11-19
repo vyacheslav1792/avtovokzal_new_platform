@@ -2,8 +2,8 @@
 
 return [
     // Значение до первого сохранения /settings. Рабочее окно — из settings.
-    'default_lookback_days' => 90,
-    'page_size' => 250,
+    'default_lookback_days' => 10,
+    'page_size' => 1500,
     'legacy_page_size' => 1000,
     // Firebird 2.5 / PDO не умеют надёжно ограничивать время запроса.
     // Каждая страница читается дочерним CLI-процессом с жёстким дедлайном.

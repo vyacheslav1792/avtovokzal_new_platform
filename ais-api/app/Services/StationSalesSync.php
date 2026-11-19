@@ -21,10 +21,10 @@ class StationSalesSync
         $today = CarbonImmutable::today('Europe/Moscow');
         $days = $this->settings->stationSalesLookbackDays();
 
-        return ['date1' => $today->subDays($days)->toDateString(), 'date2' => $today->toDateString(), 'lookback_days' => $days];
+        return ['date1' => $today->subDays($days - 1)->toDateString(), 'date2' => $today->toDateString(), 'lookback_days' => $days];
     }
 
-    public function start(?array $codes = null, ?string $date1 = null, ?string $date2 = null): array
+    public function start(?array $codes = null, ?string $date1 = null, ?string $date2 = null, ?string $scheduledOn = null, ?string $mode = null): array
     {
         $all = $this->stations->all();
         $codes ??= array_keys($all);
@@ -36,6 +36,7 @@ class StationSalesSync
             throw ValidationException::withMessages(['date1' => 'Для своего периода укажите обе даты.']);
         }
         $current = $this->currentPeriod();
+        $includeOutsidePeriod = $date1 === null;
         $date1 ??= $current['date1'];
         $date2 ??= $current['date2'];
         validator(['date1' => $date1, 'date2' => $date2], [
@@ -43,21 +44,44 @@ class StationSalesSync
             'date2' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$current['date2']],
         ])->validate();
 
+        $mode ??= $this->settings->stationSalesMode();
+        if (! in_array($mode, ['incremental', 'full'], true)) {
+            throw ValidationException::withMessages(['mode' => 'Выберите инкрементный или полный режим.']);
+        }
+        $pageSize = $this->settings->stationSalesPageSize();
+        $refundDays = $this->refundDays($codes);
         $created = $busy = [];
         foreach ($codes as $code) {
-            $id = DB::transaction(function () use ($code, $date1, $date2, $current) {
+            $id = DB::transaction(function () use ($code, $date1, $date2, $current, $scheduledOn, $mode, $pageSize, $refundDays, $includeOutsidePeriod) {
                 DB::table('station_sales_sync_states')->insertOrIgnore(['station_code' => $code]);
                 // Один незавершённый сбор на станцию, включая параллельные HTTP/cron.
-                DB::table('station_sales_sync_states')->where('station_code', $code)->lockForUpdate()->first();
+                $state = DB::table('station_sales_sync_states')->where('station_code', $code);
+                $lastScheduled = (clone $state)->lockForUpdate()->first()->last_scheduled_on;
+                if ($scheduledOn !== null && $lastScheduled === $scheduledOn) {
+                    return null;
+                }
                 if (DB::table('station_sales_sync_runs')->where('station_code', $code)
                     ->whereIn('status', ['queued', 'running'])->exists()) {
                     return null;
                 }
 
+                if ($scheduledOn !== null) {
+                    $state->update(['last_scheduled_on' => $scheduledOn]);
+                }
+
+                $dates = $refundDays[$code] ?? [];
+                if (! $includeOutsidePeriod) {
+                    $dates = array_filter($dates, fn ($day) => $day >= $date1 && $day <= $date2, ARRAY_FILTER_USE_KEY);
+                }
+                $applied = DB::table('station_sales_sync_days')->where('station_code', $code)
+                    ->whereIn('sale_date', array_keys($dates))->pluck('refund_signature', 'sale_date')->all();
+                $outstanding = array_diff_assoc($dates, $applied);
+                krsort($outstanding);
                 return DB::table('station_sales_sync_runs')->insertGetId([
-                    'station_code' => $code, 'status' => 'queued',
+                    'station_code' => $code, 'status' => 'queued', 'mode' => $mode, 'page_size' => $pageSize,
                     'is_current' => $date1 <= $current['date1'] && $date2 === $current['date2'],
                     'date_from' => $date1, 'date_to' => $date2, 'next_day' => $date2,
+                    'refund_days' => json_encode($outstanding, JSON_THROW_ON_ERROR),
                     'created_at' => now(), 'updated_at' => now(),
                 ]);
             });
@@ -69,6 +93,45 @@ class StationSalesSync
         }
 
         return ['run_ids' => $created, 'busy_stations' => $busy, 'date1' => $date1, 'date2' => $date2];
+    }
+
+    /** Снимок подтверждённых досылок. При повторе в те же сутки меняется подпись дня. */
+    private function refundDays(array $codes): array
+    {
+        $refunds = DB::connection('site')->table('refunds as r')->join('orders as o', 'o.id', '=', 'r.order_id')
+            ->whereIn('o.awtcod', $codes)->whereNotNull('r.station_annul_attempted_at')
+            ->whereNotNull('r.station_annulled_at')->where('r.station_annul_pending', false)
+            ->orderBy('r.id')->select(['r.id', 'o.awtcod', 'r.station_annulled_at', 'r.station_backdated_at',
+                'r.money_refunded_at', 'r.created_at'])->cursor();
+        $events = [];
+        foreach ($refunds as $refund) {
+            $dates = [$refund->station_annulled_at];
+            if ($refund->station_backdated_at !== null) {
+                // При досылке до успешной выплаты используется created_at.
+                // Банк мог заполнить money_refunded_at уже после переноса SALE.
+                $dates[] = $refund->created_at;
+                if ($refund->money_refunded_at !== null) {
+                    $dates[] = $refund->money_refunded_at;
+                }
+            }
+            $days = array_unique(array_map(fn ($date) => CarbonImmutable::parse($date)->setTimezone('Europe/Moscow')->toDateString(), $dates));
+            foreach ($days as $day) {
+                $events[$refund->awtcod][$day][] = $refund->id;
+            }
+        }
+        foreach ($events as $code => $dates) {
+            foreach ($dates as $day => $ids) {
+                $events[$code][$day] = hash('sha256', implode(',', $ids));
+            }
+        }
+
+        return $events;
+    }
+
+    /** Даты вне обычного окна идут после него, без чтения промежуточных суток. */
+    private function extraDays(object $run, array $refundDays): array
+    {
+        return array_values(array_filter(array_keys($refundDays), fn ($day) => $day < $run->date_from || $day > $run->date_to));
     }
 
     public function status(): array
@@ -85,6 +148,9 @@ class StationSalesSync
             $success = $lastSuccess[$code] ?? null;
             $state = $states[$code] ?? null;
             $days = $run ? CarbonImmutable::parse($run->date_from)->diffInDays(CarbonImmutable::parse($run->date_to)) + 1 : 0;
+            if ($run && $run->refund_days) {
+                $days += count($this->extraDays($run, json_decode($run->refund_days, true, flags: JSON_THROW_ON_ERROR)));
+            }
             $result[] = [
                 'code' => (int) $code, 'name' => $station['name'],
                 'current_updated_at' => $state?->current_updated_at,
@@ -96,7 +162,7 @@ class StationSalesSync
                     'date1' => $success->date_from, 'date2' => $success->date_to, 'finished_at' => $success->finished_at,
                 ] : null,
                 'run' => $run ? [
-                    'id' => $run->id, 'status' => $run->status, 'is_current' => (bool) $run->is_current,
+                    'id' => $run->id, 'status' => $run->status, 'mode' => $run->mode, 'is_current' => (bool) $run->is_current,
                     'date1' => $run->date_from, 'date2' => $run->date_to,
                     'day' => $run->next_day, 'days_done' => $run->days_done, 'days_total' => $days,
                     'rows_read' => $run->rows_read, 'error' => $run->error,
@@ -105,7 +171,7 @@ class StationSalesSync
             ];
         }
 
-        return ['period' => $this->currentPeriod(), 'stations' => $result];
+        return ['default_mode' => $this->settings->stationSalesMode(), 'period' => $this->currentPeriod(), 'stations' => $result];
     }
 
     /** Claim с lease: после перезапуска сервера продолжаем с сохранённого курсора. */
@@ -146,12 +212,13 @@ class StationSalesSync
             ]);
             throw new \RuntimeException('Не удалось прочитать продажи станции. Проверьте связь и журнал АИС. Прежние данные сохранены.');
         }
-        $rows = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
-        if (! is_array($rows) || ! array_is_list($rows) || count($rows) > (int) config('station_sales.page_size')) {
+        $page = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
+        if (! is_array($page['rows'] ?? null) || ! is_array($page['unchanged'] ?? null)
+            || count($page['rows']) + count($page['unchanged']) > $run->page_size) {
             throw new \RuntimeException('Станция вернула неверную порцию данных.');
         }
 
-        return $rows;
+        return $page;
     }
 
     protected function pageProcess(object $run): Process
@@ -163,9 +230,9 @@ class StationSalesSync
     }
 
     /** Публикуем только целиком собранные сутки; оборванная страница не меняет отчёт. */
-    public function acceptPage(object $claimed, array $rows): void
+    public function acceptPage(object $claimed, array $rows, array $unchanged = [], ?array $lastKey = null): void
     {
-        DB::transaction(function () use ($claimed, $rows) {
+        DB::transaction(function () use ($claimed, $rows, $unchanged, $lastKey) {
             $run = DB::table('station_sales_sync_runs')->where('id', $claimed->id)->lockForUpdate()->first();
             if ($run?->lease_token !== $claimed->lease_token || $run->status !== 'running') {
                 return;
@@ -173,36 +240,48 @@ class StationSalesSync
             $at = now()->toDateTimeString();
             $records = [];
             foreach ($rows as $row) {
-                if (($row['DATESALE'] ?? null) !== $run->next_day) {
+                if (($row['DATESALE'] ?? null) !== $run->next_day && (int) $row['TYPE_OPER'] !== 0) {
                     throw new \RuntimeException('В порции продаж получена другая дата.');
                 }
                 $records[] = ['run_id' => $run->id] + StationSalesSource::record($row, $run->station_code, $at);
             }
-            if ($records) {
-                DB::table('station_sales_staging')->upsert($records, ['run_id', 'record_key']);
+            foreach (array_chunk($records, 500) as $batch) {
+                DB::table('station_sales_staging')->upsert($batch, ['run_id', 'record_key']);
             }
+            $seen = DB::table('station_sales_sync_seen')->where('run_id', $run->id);
+            if ($unchanged) {
+                $seen->insertOrIgnore(array_map(fn ($key) => ['run_id' => $run->id, 'record_key' => $key], $unchanged));
+            }
+            $pageCount = count($rows) + count($unchanged);
             $updates = [
+                'read_failures' => 0, 'error' => null,
                 'rows_read' => $run->rows_read + count($rows), 'updated_at' => $at,
                 'lease_until' => null, 'lease_token' => null,
             ];
-            if (count($rows) === (int) config('station_sales.page_size')) {
-                $last = end($rows);
-                $updates['cursor'] = json_encode(array_intersect_key($last, array_flip(StationSalesSource::KEY)), JSON_THROW_ON_ERROR);
+            if ($pageCount === (int) $run->page_size) {
+                $lastKey ??= array_intersect_key(end($rows), array_flip(StationSalesSource::KEY));
+                $updates['cursor'] = json_encode($lastKey, JSON_THROW_ON_ERROR);
             } else {
                 $staged = DB::table('station_sales_staging')->where('run_id', $run->id);
-                DB::table('station_sales')->where('source_station', $run->station_code)->where('datesale', $run->next_day)->delete();
+                DB::table('station_sales')->where('source_station', $run->station_code)->where('datesale', $run->next_day)
+                    ->whereNotIn('record_key', (clone $seen)->select('record_key'))->delete();
+                $seen->delete();
                 // Глобальный PK как в SALE_ALL: реплики одной продажи не удваивают итог.
                 DB::table('station_sales')->whereIn('record_key', (clone $staged)->select('record_key'))->delete();
                 $columns = ['record_key', 'source_station', 'awtcod', 'awtcodsale', 'datesale', 'datestart',
-                    'type_oper', 'kkm_ok', 'tick_back', 'price_place', 'price_bag', 'price_pl_isx', 'price_bag_isx', 'raw_data', 'synced_at'];
+                    'type_oper', 'kkm_ok', 'tick_back', 'price_place', 'price_bag', 'price_pl_isx', 'price_bag_isx', 'raw_data', 'synced_at', 'report_hash'];
                 DB::table('station_sales')->insertUsing($columns, (clone $staged)->select($columns));
                 $staged->delete();
-                DB::table('station_sales_sync_days')->upsert([
-                    ['station_code' => $run->station_code, 'sale_date' => $run->next_day, 'updated_at' => $at],
-                ], ['station_code', 'sale_date'], ['updated_at']);
+                $refundDays = json_decode($run->refund_days ?? '[]', true, flags: JSON_THROW_ON_ERROR);
+                $published = ['station_code' => $run->station_code, 'sale_date' => $run->next_day, 'updated_at' => $at];
+                if (isset($refundDays[$run->next_day])) {
+                    $published['refund_signature'] = $refundDays[$run->next_day];
+                }
+                DB::table('station_sales_sync_days')->upsert([$published], ['station_code', 'sale_date']);
                 $updates['cursor'] = null;
                 $updates['days_done'] = $run->days_done + 1;
-                if ($run->next_day === $run->date_from) {
+                $nextDay = $this->nextDay($run, $refundDays);
+                if ($nextDay === null) {
                     $updates['status'] = 'completed';
                     $updates['finished_at'] = $at;
                     if ($run->is_current) {
@@ -213,11 +292,37 @@ class StationSalesSync
                         ]);
                     }
                 } else {
-                    $updates['next_day'] = CarbonImmutable::parse($run->next_day)->subDay()->toDateString();
+                    $updates['next_day'] = $nextDay;
                 }
             }
             DB::table('station_sales_sync_runs')->where('id', $run->id)->update($updates);
         });
+    }
+
+    private function nextDay(object $run, array $refundDays): ?string
+    {
+        if ($run->next_day > $run->date_from && $run->next_day <= $run->date_to) {
+            return CarbonImmutable::parse($run->next_day)->subDay()->toDateString();
+        }
+        $extra = $this->extraDays($run, $refundDays);
+        $index = array_search($run->next_day, $extra, true);
+
+        return $extra[$index === false ? 0 : $index + 1] ?? null;
+    }
+
+    public function retryRead(object $run, Throwable $error): void
+    {
+        if ($run->read_failures >= 2) {
+            $this->fail($run, $error);
+
+            return;
+        }
+
+        DB::table('station_sales_sync_runs')->where('id', $run->id)->where('lease_token', $run->lease_token)->update([
+            'read_failures' => $run->read_failures + 1, 'lease_token' => null,
+            'lease_until' => now()->addMinute(), 'updated_at' => now(),
+            'error' => 'Повтор чтения через минуту. '.mb_substr($error->getMessage(), 0, 900),
+        ]);
     }
 
     public function fail(object $run, Throwable $error): void
@@ -228,6 +333,7 @@ class StationSalesSync
                 'finished_at' => now(), 'updated_at' => now(), 'lease_token' => null, 'lease_until' => null,
             ]);
             if ($changed) {
+                DB::table('station_sales_sync_seen')->where('run_id', $run->id)->delete();
                 DB::table('station_sales_staging')->where('run_id', $run->id)->delete();
             }
         });

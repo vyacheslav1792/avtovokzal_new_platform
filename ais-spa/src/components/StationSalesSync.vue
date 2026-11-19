@@ -9,6 +9,7 @@ const error = ref('')
 const notice = ref('')
 const submitting = ref(false)
 const selected = ref([])
+const mode = ref('')
 const customPeriod = ref(false)
 const date1 = ref('')
 const date2 = ref('')
@@ -21,6 +22,22 @@ const stations = computed(() => data.value?.stations || [])
 const allSelected = computed(() => stations.value.length > 0 && selected.value.length === stations.value.length)
 const canRefresh = computed(() => can('report:station-sales.refresh') && !impersonated.value)
 const labels = { queued: 'В очереди', running: 'Обновляется', completed: 'Завершено', failed: 'Ошибка' }
+
+const modes = { incremental: 'Инкрементный', full: 'Полный' }
+const overallStatus = computed(() => {
+  const list = stations.value
+  if (!data.value) return 'Загрузка…'
+  if (!list.length) return 'Нет активных станций'
+  if (list.some(s => s.run?.status === 'failed' || s.run?.error)) return labels.failed
+  if (list.some(s => s.run?.status === 'running')) return labels.running
+  if (list.some(s => s.run?.status === 'queued')) return labels.queued
+  if (list.some(s => !s.run)) return 'Есть станции без обновления'
+  return labels.completed
+})
+const oldest = computed(() => {
+  if (!stations.value.length || stations.value.some(s => !s.current_updated_at)) return null
+  return stations.value.reduce((a, b) => a.current_updated_at <= b.current_updated_at ? a : b)
+})
 
 function toggleAll() {
   selected.value = allSelected.value ? [] : stations.value.map((s) => s.code)
@@ -62,13 +79,15 @@ async function load() {
   }
 }
 
-async function start() {
+async function start(event) {
+  const station = event.submitter?.dataset.station
   submitting.value = true
   error.value = ''
   notice.value = ''
   try {
     const result = await startStationSalesSync({
-      stations: [...selected.value],
+      stations: station ? [Number(station)] : [...selected.value],
+      ...(mode.value ? { mode: mode.value } : {}),
       ...(customPeriod.value ? { date1: date1.value, date2: date2.value } : {}),
     })
     if (disposed) return
@@ -88,22 +107,35 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
 </script>
 
 <template>
-  <section class="sales-sync panel">
-    <h2>Данные автостанций</h2>
+  <details class="sales-sync panel">
+    <summary>
+      <strong>Данные автостанций</strong>
+      <span :class="{ 'sync-error': error || overallStatus === labels.failed }">{{ error ? 'Ошибка получения данных' : overallStatus }}</span>
+      <span v-if="stations.length" class="muted">
+        {{ oldest ? 'Актуальность на ' + date(oldest.current_updated_at, true) + ' МСК · ' + oldest.name : 'Общая актуальность ещё не определена' }}
+      </span>
+    </summary>
     <p class="muted">
-      Данные сайта — в реальном времени. Данные станций собираются каждый час в фоне.
+      Данные сайта — в реальном времени. Расписание фонового сбора по станциям задаётся в настройках.
       Время ниже — московское. «Актуальность» показывает начало последнего успешно собранного текущего окна;
       пересчёт прошлого периода её не меняет.
     </p>
     <p v-if="data" class="muted">
       Текущее окно: {{ period(data.period.date1, data.period.date2) }}
-      ({{ data.period.lookback_days }} дней назад и сегодня).
-      <RouterLink v-if="can('settings.view')" to="/settings">Изменить глубину в настройках</RouterLink>.
+      ({{ data.period.lookback_days }} дн., включая сегодня).
+      <RouterLink v-if="can('settings.view')" to="/settings">Настройки сбора</RouterLink>.
       Для ведомости за старые даты могут потребоваться продажи, сделанные до начала отчётного периода.
     </p>
     <div v-if="error" class="alert">{{ error }}</div>
     <div v-if="notice" class="alert ok">{{ notice }}</div>
-    <form v-if="canRefresh && data" class="sync-actions nonprint" @submit.prevent="start">
+    <form id="station-sales-refresh" v-if="canRefresh && data" class="sync-actions nonprint" @submit.prevent="start">
+      <label>Режим загрузки
+        <select v-model="mode">
+          <option value="">Из настроек ({{ modes[data.default_mode] }})</option>
+          <option value="incremental">Инкрементный</option>
+          <option value="full">Полный</option>
+        </select>
+      </label>
       <label class="check"><input v-model="customPeriod" type="checkbox"> Указать свой период продаж</label>
       <div v-if="customPeriod" class="filters-grid">
         <label class="field"><span class="field-label">С даты продажи</span><input v-model="date1" type="date" required :max="date2 || data.period.date2"></label>
@@ -121,7 +153,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
       <table>
         <thead><tr>
           <th v-if="canRefresh" class="nonprint"><input type="checkbox" :checked="allSelected" aria-label="Выбрать все станции" @change="toggleAll"></th>
-          <th>Станция</th><th>Актуальность текущего окна</th><th>Последний успешно обновлённый период</th><th>Последнее задание</th>
+          <th>Станция</th><th>Актуальность текущего окна</th><th>Последний успешно обновлённый период</th><th>Последнее задание</th><th v-if="canRefresh" class="nonprint">Действие</th>
         </tr></thead>
         <tbody><tr v-for="station in stations" :key="station.code">
           <td v-if="canRefresh" class="nonprint"><input v-model="selected" type="checkbox" :value="station.code" :aria-label="`Обновить ${station.name}`"></td>
@@ -140,6 +172,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
           <td>
             <template v-if="station.run">
               <b :class="{ 'sync-error': station.run.status === 'failed' }">{{ labels[station.run.status] }}</b>
+              · {{ modes[station.run.mode] }}
               · {{ station.run.is_current ? 'текущее окно' : 'свой период' }}
               <div class="muted">{{ period(station.run.date1, station.run.date2) }} · дней {{ station.run.days_done }}/{{ station.run.days_total }} · строк {{ station.run.rows_read }}</div>
               <div v-if="station.run.status === 'running'" class="muted">Собирается {{ date(station.run.day) }}. Последний шаг: {{ date(station.run.updated_at, true) }}</div>
@@ -147,15 +180,21 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
             </template>
             <span v-else class="muted">не запускалось</span>
           </td>
+          <td v-if="canRefresh" class="nonprint">
+            <button type="submit" form="station-sales-refresh" class="btn" :data-station="station.code"
+              :aria-label="'Обновить станцию ' + station.name"
+              :disabled="submitting || ['queued', 'running'].includes(station.run?.status)">Обновить</button>
+          </td>
         </tr></tbody>
       </table>
     </div>
-  </section>
+  </details>
 </template>
 
 <style scoped>
 .sales-sync { margin-bottom: 18px; }
-h2 { font-size: 17px; margin-top: 0; }
+summary { cursor: pointer; }
+summary > * { margin-inline-end: 12px; }
 .sync-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
 .sales-sync-table { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }

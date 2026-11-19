@@ -31,6 +31,12 @@ class AdminSettingController extends Controller
             'settings.*.value' => ['present'],
         ]);
 
+        foreach ($data['settings'] as $index => $item) {
+            if ((config('settings')[$item['key']]['type'] ?? null) === 'time') {
+                $request->validate(["settings.$index.value" => ['required', 'date_format:H:i']]);
+            }
+        }
+
         return response()->json(['success' => true, 'data' => $this->settings->replace($data['settings'])]);
     }
 }

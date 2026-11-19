@@ -135,6 +135,11 @@ onMounted(() => {
           </span>
         </label>
 
+        <label v-else-if="setting.type === 'time'" class="setting-number">
+          <span class="setting-title">{{ setting.title }}</span>
+          <input v-model="setting.value" type="time" :disabled="!can('settings.edit')">
+        </label>
+
         <label v-else class="setting-number">
           <span class="setting-title">{{ setting.title }}</span>
           <span class="setting-number-row">

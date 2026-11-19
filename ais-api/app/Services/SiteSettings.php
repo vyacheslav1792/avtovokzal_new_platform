@@ -58,7 +58,33 @@ class SiteSettings
 
         return is_numeric($value)
             ? max(1, min(3650, (int) $value))
-            : (int) config('station_sales.default_lookback_days', 90);
+            : (int) config('station_sales.default_lookback_days', 10);
+    }
+
+    public function stationSalesMode(): string
+    {
+        return ($this->get('station_sales_incremental') ?? true) ? 'incremental' : 'full';
+    }
+
+    public function stationSalesPageSize(): int
+    {
+        $value = $this->get('station_sales_page_size');
+
+        return is_numeric($value) ? max(1, min(3000, (int) $value)) : (int) config('station_sales.page_size');
+    }
+
+    public function stationSalesAutoTime(): ?string
+    {
+        // Планировщику нужны действующие настройки. При ошибке чтения он
+        // завершится с ошибкой, сохраняя запрет на автоматический запуск.
+        $this->memo ??= $this->fromDatabase();
+        if (! ($this->memo['station_sales_auto_enabled'] ?? true)) {
+            return null;
+        }
+
+        $time = $this->memo['station_sales_auto_time'] ?? '07:00';
+
+        return is_string($time) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $time) ? $time : '07:00';
     }
 
     private function get(string $key): mixed

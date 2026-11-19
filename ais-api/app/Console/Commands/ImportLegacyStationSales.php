@@ -39,7 +39,7 @@ class ImportLegacyStationSales extends Command
                 $process->setTimeout((int) config('station_sales.page_timeout'));
                 $process->mustRun();
                 $rows = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
-                $records = array_map(fn ($row) => StationSalesSource::record($row, (int) $row['AWTCOD'], now()->toDateTimeString()), $rows);
+                $records = array_map(fn ($row) => ['report_hash' => null] + StationSalesSource::record($row, (int) $row['AWTCOD'], now()->toDateTimeString()), $rows);
                 // Сбор с живых станций мог уже принести более свежие версии:
                 // старый архив их не затирает. Актуальность здесь НЕ выставляется.
                 if ($records) {

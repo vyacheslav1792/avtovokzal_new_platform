@@ -29,12 +29,13 @@ class ReadStationSalesPage extends Command
             if (! $run || $run->status !== 'running') {
                 throw new \RuntimeException('Задание не выполняется.');
             }
-            $rows = $source->page($run->station_code, $run->next_day, $run->cursor ? json_decode($run->cursor, true, flags: JSON_THROW_ON_ERROR) : null);
-            $this->output->write(json_encode($rows, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+            $cursor = $run->cursor ? json_decode($run->cursor, true, flags: JSON_THROW_ON_ERROR) : null;
+            $page = $source->page($run->station_code, $run->next_day, $cursor, $run->page_size, $run->mode);
+            $this->output->write(json_encode($page, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
 
             return self::SUCCESS;
         } catch (Throwable $e) {
-            $this->getOutput()->getErrorOutput()->writeln($e->getMessage());
+            $this->getOutput()->getErrorStyle()->writeln($e->getMessage());
 
             return self::FAILURE;
         }

@@ -17,7 +17,7 @@ class StationSalesSourceTest extends TestCase
         $this->assertStringContainsString('SELECT FIRST 250', $sql);
         $this->assertStringContainsString('CAST(s.TIMESALE AS VARCHAR(20)) AS TIMESALE', $sql);
         $this->assertStringNotContainsString('SKIP', $sql);
-        $this->assertSame(['2026-11-19'], $bindings);
+        $this->assertSame(['2026-11-19', '2026-11-19'], $bindings);
     }
 
     public function test_zero_fraction_time_has_same_record_key_but_nonzero_fractions_stay_distinct(): void
