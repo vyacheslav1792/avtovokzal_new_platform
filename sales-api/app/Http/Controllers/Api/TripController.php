@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,7 +27,13 @@ class TripController extends Controller
     {
         $data = $request->validate([
             'awtcod' => VendorCode::rules(),
-            'station' => ['required', 'string', 'max:255'],
+            /*
+             * Название остановки — VARCHAR(20) WIN1251 в TRACES.STATNAME,
+             * поэтому и предел длины, и проверка кодировки по полю базы:
+             * строка длиннее или с непредставимым символом даёт не пустой
+             * список, а ошибку Firebird, то есть 500 (см. VendorText).
+             */
+            'station' => VendorText::rules(VendorText::MAX_STATION_NAME),
             'date' => ['nullable', 'date_format:Y-m-d'],
             'for_sale' => ['sometimes', 'boolean'],
         ]);

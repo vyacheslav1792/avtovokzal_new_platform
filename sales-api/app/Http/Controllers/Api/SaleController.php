@@ -8,6 +8,7 @@ use App\Models\TicketSale;
 use App\Services\Buster\GatewayFactory;
 use App\Services\Buster\StationRegistry;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,20 +46,30 @@ class SaleController extends Controller
             'tickets.*.place' => ['required', 'integer', 'min:1', 'max:'.VendorCode::MAX],
             'tickets.*.type' => ['required', 'in:П,Д'],
             'tickets.*.price' => ['required', 'numeric', 'min:0'],
-            'tickets.*.last_name' => ['required', 'string', 'max:40'],
-            'tickets.*.first_name' => ['required', 'string', 'max:30'],
-            'tickets.*.middle_name' => ['nullable', 'string', 'max:30'],
+            /*
+             * У строк, уходящих в базу станции, проверяется ещё и
+             * КОДИРОВКА: базы живут в WIN1251, и символ, которого там
+             * нет (латиница с диакритикой, иероглифы, испорченная по
+             * дороге кодировка), встречает ошибку Firebird «-802 Cannot
+             * transliterate» — то есть 500 на оформлении, когда деньги
+             * уже списаны. Сайт такое не пришлёт (у него своя проверка
+             * букв в StoreOrderRequest), а агенты ходят сюда напрямую —
+             * их запросы проверяет только этот API.
+             */
+            'tickets.*.last_name' => ['required', 'string', 'max:40', VendorText::charsetRule()],
+            'tickets.*.first_name' => ['required', 'string', 'max:30', VendorText::charsetRule()],
+            'tickets.*.middle_name' => ['nullable', 'string', 'max:30', VendorText::charsetRule()],
             'tickets.*.birth_date' => ['required', 'date'],
             // DOCUMCOD_PASS в SALE — SMALLINT.
             'tickets.*.doc_type' => ['sometimes', ...VendorCode::boundsFrom(0)],
-            'tickets.*.doc_series' => ['nullable', 'string', 'max:6'],
-            'tickets.*.doc_number' => ['required', 'string', 'max:25'],
+            'tickets.*.doc_series' => ['nullable', 'string', 'max:6', VendorText::charsetRule()],
+            'tickets.*.doc_number' => ['required', 'string', 'max:25', VendorText::charsetRule()],
             // GRAGD_ID в SALE — SMALLINT.
             'tickets.*.citizenship' => ['sometimes', ...VendorCode::boundsFrom(0)],
             'tickets.*.baggage' => ['sometimes', 'integer', 'min:0', 'max:5'],
             'tickets.*.price_bag' => ['sometimes', 'numeric', 'min:0'],
             'tickets.*.insurance_price' => ['sometimes', 'numeric', 'min:0'],
-            'tickets.*.comment' => ['nullable', 'string', 'max:40'],
+            'tickets.*.comment' => ['nullable', 'string', 'max:40', VendorText::charsetRule()],
         ]);
 
         $agent = $request->attributes->get('agent');

@@ -67,10 +67,17 @@ return Application::configure(basePath: dirname(__DIR__))
          * (ловилось на проде 16.11.2026: «Место5 - ведомость закрыта»).
          */
         $exceptions->reportable(function (BusterException $e) {
-            Log::notice('Станция отклонила операцию', [
+            Log::notice('Станция отклонила операцию', array_filter([
                 'error_code' => $e->errorCode,
                 'message' => $e->getMessage(),
-            ]);
+                /*
+                 * Подробности отказа нужны и в журнале, а не только в
+                 * ответе: по `bad_station_value` без них непонятно, что
+                 * именно базе не подошло (SQLSTATE и текст драйвера), а
+                 * по возврату — какой бланк станция отклонила.
+                 */
+                'details' => $e->details ?: null,
+            ], fn ($v) => $v !== null));
 
             // false — дальше не репортить: стектрейс здесь ничего не добавляет.
             return false;

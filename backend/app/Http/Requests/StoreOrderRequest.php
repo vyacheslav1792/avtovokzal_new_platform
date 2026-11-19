@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Models\BlockedEmail;
 use App\Services\PassengerDocument;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -39,7 +40,9 @@ class StoreOrderRequest extends FormRequest
             'raicecod' => VendorCode::rules(),
             'statcod' => VendorCode::rules(),
             'date' => ['required', 'date_format:Y-m-d'],
-            'to_name' => ['required', 'string', 'max:128'],
+            // Уходит в базу станции (поиск рейса по названию остановки) —
+            // отсюда и проверка кодировки WIN1251, см. VendorText.
+            'to_name' => VendorText::rules(VendorText::MAX_STATION_NAME),
             // Гостю почта обязательна. У покупателя из кабинета она берётся
             // из профиля, а у кабинета через VK её может не быть вовсе —
             // тогда поле необязательно, а в чек уйдёт служебный адрес

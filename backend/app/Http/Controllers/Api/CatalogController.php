@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Citizenship;
 use App\Services\DestinationService;
 use App\Services\SalesApiClient;
+use App\Support\VendorCode;
+use App\Support\VendorText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Support\VendorCode;
 
 /** Справочные данные для фронта: станции, направления, рейсы, места. */
 class CatalogController extends Controller
@@ -72,10 +73,18 @@ class CatalogController extends Controller
     {
         $data = $request->validate([
             'awtcod' => VendorCode::rules(),
-            'to' => ['required', 'string', 'max:255'],
+            /*
+             * Пункт назначения уходит в базу станции параметром сравнения
+             * (TRACES.STATNAME, WIN1251), поэтому проверяется и кодировка:
+             * строка с символом, которого в WIN1251 нет, встречает там
+             * ошибку -802 и превращается в «Server Error». Ловилось
+             * 19.11.2026: обходчик открыл ссылку с названием остановки в
+             * двойной кодировке UTF-8 (см. VendorText).
+             */
+            'to' => VendorText::rules(VendorText::MAX_STATION_NAME),
             'date' => ['nullable', 'date_format:Y-m-d'],
             'all' => ['sometimes', 'boolean'],
-        ]);
+        ], [], ['to' => 'пункт назначения']);
 
         return response()->json($this->salesApi->trips(
             (int) $data['awtcod'],
