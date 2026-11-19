@@ -19,7 +19,14 @@ class StationSalesSource
         (SELECT n.napname FROM naplst n WHERE n.napcod = s.napcod) AS NAPNAME,
         (SELECT FIRST 1 t.statname FROM traces t WHERE t.napcod = s.napcod AND t.statcod = s.nomstat) AS STATNAME";
 
-    public function page(int $stationCode, string $day, ?array $cursor, int $limit, string $mode): array
+    public static function extraDays(object $run): array
+    {
+        $dates = array_keys(json_decode($run->refund_days ?? '[]', true, flags: JSON_THROW_ON_ERROR));
+
+        return array_values(array_filter($dates, fn ($day) => $day < $run->date_from || $day > $run->date_to));
+    }
+
+    public function page(int $stationCode, string $from, string $to, array $extraDays, ?array $cursor, int $limit, string $mode): array
     {
         $station = $this->stations->all()[$stationCode] ?? null;
         if (! $station) {
@@ -28,7 +35,7 @@ class StationSalesSource
         $connection = new StationConnection($station, min(5, $this->settings->stationConnectTimeout()));
 
         if ($mode === 'full') {
-            [$sql, $bindings] = self::query($day, $cursor, $limit, full: true);
+            [$sql, $bindings] = self::query($from, $to, $extraDays, $cursor, $limit, full: true);
             $rows = $connection->select($sql, $bindings);
 
             return self::pageResult($rows, [], end($rows));
@@ -36,8 +43,8 @@ class StationSalesSource
 
         // Физический DB_KEY используется только внутри одного снимка Firebird.
         // Между страницами и запусками используются логические ключи SALE.
-        return $connection->readSnapshot(function () use ($connection, $stationCode, $day, $cursor, $limit) {
-            [$sql, $bindings] = self::query($day, $cursor, $limit);
+        return $connection->readSnapshot(function () use ($connection, $stationCode, $from, $to, $extraDays, $cursor, $limit) {
+            [$sql, $bindings] = self::query($from, $to, $extraDays, $cursor, $limit);
             $manifest = $connection->select($sql, $bindings, 'ROW_ID');
             $keys = array_map(self::recordKey(...), $manifest);
             $known = DB::table('station_sales')->where('source_station', $stationCode)->whereIn('record_key', $keys)
@@ -78,7 +85,7 @@ class StationSalesSource
             'last_key' => $last ? array_intersect_key($last, array_flip(self::KEY)) : null];
     }
 
-    public static function query(string $day, ?array $cursor, int $limit, bool $full = false): array
+    public static function query(string $from, string $to, array $extraDays, ?array $cursor, int $limit, bool $full = false): array
     {
         $where = self::cursorWhere($cursor, self::KEY);
         $limit = max(1, min(3000, $limit));
@@ -87,12 +94,24 @@ class StationSalesSource
         $projection = "s.RDB\$DB_KEY AS ROW_ID, $columns";
         // Возврат может пройти в другой кассе и относиться к старой продаже.
         // UNION убирает повтор исходной продажи при нескольких строках возврата.
+        $dateFilter = function (string $alias) use ($extraDays): string {
+            $conditions = ["$alias.datesale BETWEEN ? AND ?"];
+            foreach (array_chunk($extraDays, 500) as $batch) {
+                $params = implode(',', array_fill(0, count($batch), '?'));
+                $conditions[] = "$alias.datesale IN ($params)";
+            }
+
+            return '('.implode(' OR ', $conditions).')';
+        };
+        $saleDates = $dateFilter('s');
+        $returnDates = $dateFilter('r');
+        $bindings = [$from, $to, ...$extraDays];
         $source = "WITH candidates AS (
-                    SELECT $projection FROM sale s WHERE s.datesale = ? AND s.awtcodsale IN (9984, 9999, 9900)
+                    SELECT $projection FROM sale s WHERE $saleDates AND s.awtcodsale IN (9984, 9999, 9900)
                     UNION
                     SELECT $projection FROM sale r JOIN sale s
                         ON s.n_ticket = r.n_ticket AND s.dob_n_ticket = r.dob_n_ticket
-                    WHERE r.datesale = ? AND r.type_oper IN (1,4,5,6) AND r.kkm_ok = 1 AND r.comment_tick <> 8
+                    WHERE $returnDates AND r.type_oper IN (1,4,5,6) AND r.kkm_ok = 1 AND r.comment_tick <> 8
                         AND s.type_oper = 0 AND s.awtcodsale IN (9984, 9999, 9900)
                         AND ((s.datestart = DATE '1899-12-30' AND r.datestart = DATE '1899-12-30')
                             OR (s.datestart <> DATE '1899-12-30' AND r.datestart <> DATE '1899-12-30'))
@@ -105,7 +124,7 @@ class StationSalesSource
             $sql = "$source SELECT FIRST $limit s.*, CAST(s.TIMESALE AS VARCHAR(20)) AS TIMESALE $range";
         }
 
-        return [$sql, [$day, $day]];
+        return [$sql, [...$bindings, ...$bindings]];
     }
 
     public function legacyPage(?array $cursor): array

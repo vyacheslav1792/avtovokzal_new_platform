@@ -206,7 +206,7 @@ class StationSalesTest extends TestCase
         $this->assertEquals(2, $stations[5711]['run']['days_total']);
         $refunds->insert($receipt + $delivered);
         while ($run = $sync->claim()) {
-            if ($run->next_day === '2026-10-01') {
+            if ((int) $run->station_code === 5710) {
                 $sync->fail($run, new RuntimeException('Нет связи'));
             } else {
                 $sync->acceptPage($run, []);
@@ -216,10 +216,7 @@ class StationSalesTest extends TestCase
         $sync->start([5710], mode: 'full');
         $refunds->insert($receipt + $delivered);
         while ($run = $sync->claim()) {
-            $rows = $run->next_day === '2026-10-01'
-                ? [$this->sale('refund', ['DATESALE' => '2026-10-01', 'TYPE_OPER' => 1])]
-                : [];
-            $sync->acceptPage($run, $rows);
+            $sync->acceptPage($run, [$this->sale('refund', ['DATESALE' => '2026-10-01', 'TYPE_OPER' => 1])]);
         }
         $this->assertDatabaseHas('station_sales', ['datesale' => '2026-10-01', 'type_oper' => 1]);
         $sync->start([5710]);
@@ -247,6 +244,22 @@ class StationSalesTest extends TestCase
         $this->assertDatabaseHas('station_sales', ['record_key' => $keep['record_key'], 'synced_at' => '2026-11-01 00:00:00']);
         $this->assertDatabaseHas('station_sales_sync_runs', ['status' => 'completed', 'rows_read' => 2]);
         $this->assertDatabaseCount('station_sales_sync_seen', 0);
+    }
+
+    public function test_one_cursor_crosses_dates_and_empty_tail_publishes_the_entire_period(): void
+    {
+        $sync = $this->sync();
+        $sync->start([5710], '2026-11-10', '2026-11-19');
+        $first = $sync->claim();
+        $sync->acceptPage($first, [$this->sale('1', ['DATESALE' => '2026-11-10']), $this->sale('2')]);
+        $this->assertDatabaseCount('station_sales', 0);
+        $second = $sync->claim();
+        $this->assertSame('2026-11-19', json_decode($second->cursor, true)['after']['DATESALE']);
+        $sync->acceptPage($second, []);
+        $this->assertNull($sync->claim());
+        $this->assertDatabaseCount('station_sales', 2);
+        $this->assertDatabaseCount('station_sales_sync_days', 10);
+        $this->assertDatabaseHas('station_sales_sync_runs', ['days_done' => 10, 'status' => 'completed']);
     }
 
     public function test_read_retries_preserve_staging_and_stop_after_three_failures(): void

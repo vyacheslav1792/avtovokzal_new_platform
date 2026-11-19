@@ -57,7 +57,7 @@ async function load() {
     const next = await fetchStationSalesSync()
     if (disposed) return
     const done = new Set(next.stations.filter((s) => s.run?.status === 'completed').map((s) => s.run.id))
-    // При публикации суток тоже обновляем уже открытый отчёт.
+    // После публикации периода обновляем открытый отчёт.
     const changed = initialized && next.stations.some((s) => {
       const previous = data.value?.stations.find((old) => old.code === s.code)
       return (s.run?.days_done > (previous?.run?.days_done || 0)) || (done.has(s.run?.id) && !completedIds.has(s.run?.id))
@@ -174,8 +174,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
               <b :class="{ 'sync-error': station.run.status === 'failed' }">{{ labels[station.run.status] }}</b>
               · {{ modes[station.run.mode] }}
               · {{ station.run.is_current ? 'текущее окно' : 'свой период' }}
-              <div class="muted">{{ period(station.run.date1, station.run.date2) }} · дней {{ station.run.days_done }}/{{ station.run.days_total }} · строк {{ station.run.rows_read }}</div>
-              <div v-if="station.run.status === 'running'" class="muted">Собирается {{ date(station.run.day) }}. Последний шаг: {{ date(station.run.updated_at, true) }}</div>
+              <div class="muted">{{ period(station.run.date1, station.run.date2) }} · дней в выборке {{ station.run.days_total }} · загружено строк {{ station.run.rows_read }}</div>
+              <div v-if="station.run.status === 'running'" class="muted">Сбор за период. Последний шаг: {{ date(station.run.updated_at, true) }}</div>
               <div v-if="station.run.error" class="sync-error">{{ station.run.error }}</div>
             </template>
             <span v-else class="muted">не запускалось</span>

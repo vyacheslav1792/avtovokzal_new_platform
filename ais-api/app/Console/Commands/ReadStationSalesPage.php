@@ -10,7 +10,7 @@ use Throwable;
 class ReadStationSalesPage extends Command
 {
     protected $signature = 'station-sales:read-page {run? : внутреннее задание сбора}
-        {--legacy : читать прежний SALE_ALL} {--cursor= : JSON полного ключа SALE_ALL}';
+        {--period : читать весь период по общему курсору} {--legacy : читать прежний SALE_ALL} {--cursor= : JSON полного ключа SALE_ALL}';
 
     protected $description = 'Прочитать одну порцию SALE (внутренняя команда сборщика)';
 
@@ -30,7 +30,17 @@ class ReadStationSalesPage extends Command
                 throw new \RuntimeException('Задание не выполняется.');
             }
             $cursor = $run->cursor ? json_decode($run->cursor, true, flags: JSON_THROW_ON_ERROR) : null;
-            $page = $source->page($run->station_code, $run->next_day, $cursor, $run->page_size, $run->mode);
+            // Старый воркер при выкладке может ещё заканчивать свою суточную страницу.
+            if ($this->option('period')) {
+                $from = $run->date_from;
+                $to = $run->date_to;
+                $extra = StationSalesSource::extraDays($run);
+                $cursor = $cursor['after'] ?? null;
+            } else {
+                $from = $to = $run->next_day;
+                $extra = [];
+            }
+            $page = $source->page($run->station_code, $from, $to, $extra, $cursor, $run->page_size, $run->mode);
             $this->output->write(json_encode($page, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
 
             return self::SUCCESS;
