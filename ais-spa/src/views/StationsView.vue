@@ -13,6 +13,8 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import {
+  createStation,
+  deleteStation,
   fetchStations,
   importStationsFromFile,
   saveStation,
@@ -33,6 +35,12 @@ const results = ref({})       // awtcod -> результат проверки �
 /** Открытая на правку станция (копия — чтобы «Отмена» ничего не меняла). */
 const editing = ref(null)
 
+/** Станции ещё нет: тогда в форме появляется поле кода (awtcod). */
+const creating = ref(false)
+
+/** Удалось ли серверу выяснить, есть ли по станциям данные. */
+const usageKnown = ref(true)
+
 const editable = computed(() => can('stations.edit'))
 const testable = computed(() => can('stations.test'))
 
@@ -45,6 +53,7 @@ async function load() {
     slots.value = d.data.profile_slots
     fromFile.value = d.data.from_file
     fileStations.value = d.data.file_stations ?? []
+    usageKnown.value = d.data.usage_known !== false
   } catch (e) {
     error.value = e.message
   } finally {
@@ -129,36 +138,113 @@ function stationPayload(station) {
 
 function replace(station) {
   stations.value = stations.value.map((s) => (s.awtcod === station.awtcod ? station : s))
-  if (editing.value?.awtcod === station.awtcod) editing.value = null
+  if (editing.value?.awtcod === station.awtcod) closeForm()
+}
+
+/** Варианты подключения для формы: все слоты, незаполненные не сохраняются. */
+function blankProfiles(station) {
+  return Array.from({ length: slots.value }, (_, i) => {
+    const slot = i + 1
+    const existing = station ? profileOf(station, slot) : null
+
+    return existing
+      ? { ...existing, db_password: '' }
+      : {
+          slot,
+          label: '',
+          db_host: '',
+          db_port: 3050,
+          db_name: 'buster',
+          db_user: 'SYSDBA',
+          db_password: '',
+          notes: '',
+          has_password: false,
+        }
+  })
+}
+
+/**
+ * Новая станция. Код (awtcod) задаёт не мы: его знают BUSTER, сайт и
+ * отчёты, поэтому он спрашивается и больше не меняется — сменить код
+ * значит потерять связь со всеми уже собранными данными.
+ */
+function addStation() {
+  creating.value = true
+  editing.value = {
+    awtcod: null,
+    name: '',
+    buh: '',
+    buh_st: '',
+    buh_ksr: '',
+    stationkey: '',
+    inlist: 0,
+    // Новая станция включена, но продажа и возврат через сайт выключены:
+    // сначала проверяют связь, потом открывают продажу.
+    is_active: true,
+    sales_enabled: false,
+    refunds_enabled: false,
+    active_profile: 1,
+    profiles: blankProfiles(null),
+  }
+}
+
+/**
+ * Удаление станции. Сервер отказывает, если по станции есть данные —
+ * здесь кнопка лишь не обещает того, чего он не сделает.
+ */
+async function remove(station) {
+  if (!editable.value || !station.can_delete) return
+
+  const text = `Удалить станцию «${station.name}» (код ${station.awtcod}) из справочника?`
+    + '\nВарианты подключения к её базе удалятся вместе с ней.'
+  if (!window.confirm(text)) return
+
+  busy.value = station.awtcod
+  error.value = ''
+  try {
+    await deleteStation(station.awtcod)
+    stations.value = stations.value.filter((s) => s.awtcod !== station.awtcod)
+    if (editing.value?.awtcod === station.awtcod) closeForm()
+  } catch (e) {
+    // Отказ почти всегда означает «данные появились» — перечитаем список,
+    // чтобы кнопка пропала. Сообщение ставим ПОСЛЕ перечитывания: load()
+    // начинает с очистки ошибки и стёр бы его.
+    await load()
+    error.value = e.message
+  } finally {
+    busy.value = ''
+  }
+}
+
+/**
+ * Что нашлось по станции — этим объясняется недоступная кнопка удаления.
+ * В списке приходит перечень («заказы сайта»), в отказе удаления — ещё и
+ * счётчики («заказы сайта: 12»).
+ */
+function dataSummary(station) {
+  const found = station.data_found || []
+
+  return Array.isArray(found)
+    ? found.join(', ')
+    : Object.entries(found).map(([title, count]) => `${title}: ${count}`).join(', ')
+}
+
+function closeForm() {
+  editing.value = null
+  creating.value = false
 }
 
 function edit(station) {
+  creating.value = false
   // Пароли наружу не отдаются: пустое поле означает «оставить прежний».
   editing.value = {
     ...JSON.parse(JSON.stringify(station)),
-    profiles: Array.from({ length: slots.value }, (_, i) => {
-      const slot = i + 1
-      const existing = profileOf(station, slot)
-
-      return existing
-        ? { ...existing, db_password: '' }
-        : {
-            slot,
-            label: '',
-            db_host: '',
-            db_port: 3050,
-            db_name: 'buster',
-            db_user: 'SYSDBA',
-            db_password: '',
-            notes: '',
-            has_password: false,
-          }
-    }),
+    profiles: blankProfiles(station),
   }
 }
 
 async function save() {
-  busy.value = editing.value.awtcod
+  busy.value = editing.value.awtcod ?? 'new'
   error.value = ''
   try {
     const payload = {
@@ -177,8 +263,16 @@ async function save() {
           notes: p.notes ?? '',
         })),
     }
-    const d = await saveStation(editing.value.awtcod, payload)
-    replace(d.data)
+    if (creating.value) {
+      await createStation({ ...payload, awtcod: Number(editing.value.awtcod) })
+      // Порядок в списке задаёт сервер (inlist, затем код) — проще
+      // перечитать его, чем угадывать место новой станции.
+      await load()
+      closeForm()
+    } else {
+      const d = await saveStation(editing.value.awtcod, payload)
+      replace(d.data)
+    }
   } catch (e) {
     error.value = e.message
   } finally {
@@ -210,11 +304,15 @@ onMounted(() => {
 
 <template>
   <div>
-    <h1>Автостанции</h1>
+    <div class="page-head">
+      <h1>Автостанции</h1>
+      <button v-if="editable" class="btn primary" @click="addStation">Добавить станцию</button>
+    </div>
     <p class="muted">
       Подключения к базам продаж (BUSTER) и выключатели станций. Меняются сразу —
       выкладывать код не нужно. У станции может быть до {{ slots }} вариантов
       подключения: переключение — нажатием на номер варианта.
+      Станцию, по которой уже есть данные, удалить нельзя — её выключают.
     </p>
 
     <div v-if="error" class="alert">{{ error }}</div>
@@ -326,17 +424,39 @@ onMounted(() => {
               Проверить
             </button>
             <button v-if="editable" class="btn small" @click="edit(s)">Настроить</button>
+            <!-- Удаление только у станции без данных: иначе заказы и
+                 собранные продажи остались бы с кодом, которого нет. -->
+            <button
+              v-if="editable"
+              class="btn small danger"
+              :disabled="!s.can_delete || busy === s.awtcod"
+              :title="s.can_delete
+                ? 'Удалить станцию из справочника'
+                : (usageKnown
+                  ? `Нельзя удалить: по станции есть данные (${dataSummary(s)})`
+                  : 'Нельзя удалить: не удалось проверить данные по станции')"
+              @click="remove(s)"
+            >
+              Удалить
+            </button>
           </td>
         </tr>
       </tbody>
     </table>
 
     <!-- Правка станции: реквизиты и все варианты подключения сразу -->
-    <div v-if="editing" class="modal-backdrop" @click.self="editing = null">
+    <div v-if="editing" class="modal-backdrop" @click.self="closeForm">
       <div class="modal wide">
-        <h2>{{ editing.name }} · {{ editing.awtcod }}</h2>
+        <h2 v-if="creating">Новая станция</h2>
+        <h2 v-else>{{ editing.name }} · {{ editing.awtcod }}</h2>
 
         <div class="form-row">
+          <!-- Код станции задаётся один раз: по нему станцию знают BUSTER,
+               сайт и отчёты, поэтому у существующей он не правится. -->
+          <label v-if="creating">
+            Код станции (awtcod)
+            <input v-model.number="editing.awtcod" type="number" min="1" max="32767" placeholder="5701">
+          </label>
           <label>Название<input v-model="editing.name" type="text"></label>
           <label>Порядок<input v-model.number="editing.inlist" type="number" min="0"></label>
         </div>
@@ -380,8 +500,9 @@ onMounted(() => {
           </div>
           <label>Пояснение<input v-model="p.notes" type="text"></label>
           <div class="profile-foot">
+            <!-- У новой станции проверять нечего: её ещё нет на сервере. -->
             <button
-              v-if="testable" class="btn small" :disabled="!p.db_host"
+              v-if="testable && !creating" class="btn small" :disabled="!p.db_host"
               @click="check(editing, p.slot)"
             >
               Проверить этот вариант
@@ -395,10 +516,14 @@ onMounted(() => {
         </div>
 
         <div class="modal-actions">
-          <button class="btn primary" :disabled="busy === editing.awtcod" @click="save">
-            Сохранить
+          <button
+            class="btn primary"
+            :disabled="busy !== '' || !editing.name || (creating && !editing.awtcod)"
+            @click="save"
+          >
+            {{ creating ? 'Создать станцию' : 'Сохранить' }}
           </button>
-          <button class="btn" @click="editing = null">Отмена</button>
+          <button class="btn" @click="closeForm">Отмена</button>
         </div>
       </div>
     </div>
@@ -406,6 +531,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.btn.danger { color: #d0021b; }
+.btn.danger[disabled] { color: #999; }
+
 .row-off { opacity: .55; }
 .small { font-size: 12px; }
 .nowrap { white-space: nowrap; }
