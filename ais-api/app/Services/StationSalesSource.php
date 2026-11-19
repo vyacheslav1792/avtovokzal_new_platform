@@ -2,9 +2,7 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use RuntimeException;
 
 /** Только чтение SALE; ни процедур продажи, ни изменений в базе станции. */
 class StationSalesSource
@@ -12,8 +10,6 @@ class StationSalesSource
     public const KEY = ['DATESALE', 'TIMESALE', 'AWTCODSALE', 'WRKCOD', 'TYPE_OPER', 'N_TICKET', 'DOB_N_TICKET', 'DATESTART'];
 
     public function __construct(private readonly StationRegistry $stations, private readonly SiteSettings $settings) {}
-
-    private const REPORT_FIELDS = ['AWTCOD', 'KKM_OK', 'TICK_BACK', 'PRICE_PLACE', 'PRICE_BAG', 'PRICE_PL_ISX', 'PRICE_BAG_ISX'];
 
     private const DETAIL_FIELDS = "s.*, CAST(s.TIMESALE AS VARCHAR(20)) AS TIMESALE,
         (SELECT n.napname FROM naplst n WHERE n.napcod = s.napcod) AS NAPNAME,
@@ -26,105 +22,43 @@ class StationSalesSource
         return array_values(array_filter($dates, fn ($day) => $day < $run->date_from || $day > $run->date_to));
     }
 
-    public function page(int $stationCode, string $from, string $to, array $extraDays, ?array $cursor, int $limit, string $mode): array
+    public function rows(int $stationCode, array $chunk): \Generator
     {
         $station = $this->stations->all()[$stationCode] ?? null;
         if (! $station) {
             throw new InvalidArgumentException('Станция отключена или не настроено подключение.');
         }
+        [$sql, $bindings] = self::query($chunk);
         $connection = new StationConnection($station, min(5, $this->settings->stationConnectTimeout()));
 
-        if ($mode === 'full') {
-            [$sql, $bindings] = self::query($from, $to, $extraDays, $cursor, $limit, full: true);
-            $rows = $connection->select($sql, $bindings);
+        yield from $connection->rows($sql, $bindings);
+    }
 
-            return self::pageResult($rows, [], end($rows));
+    public static function query(array $chunk): array
+    {
+        if ($chunk['extra'] === []) {
+            $condition = 'DATESALE BETWEEN ? AND ?';
+            $dates = [$chunk['from'], $chunk['to']];
+        } else {
+            $condition = 'DATESALE IN ('.implode(',', array_fill(0, count($chunk['extra']), '?')).')';
+            $dates = $chunk['extra'];
         }
 
-        // Физический DB_KEY используется только внутри одного снимка Firebird.
-        // Между страницами и запусками используются логические ключи SALE.
-        return $connection->readSnapshot(function () use ($connection, $stationCode, $from, $to, $extraDays, $cursor, $limit) {
-            [$sql, $bindings] = self::query($from, $to, $extraDays, $cursor, $limit);
-            $manifest = $connection->select($sql, $bindings, 'ROW_ID');
-            $keys = array_map(self::recordKey(...), $manifest);
-            $known = DB::table('station_sales')->where('source_station', $stationCode)->whereIn('record_key', $keys)
-                ->pluck('report_hash', 'record_key')->all();
-            $unchanged = $changed = [];
-            foreach ($manifest as $i => $item) {
-                if (($known[$keys[$i]] ?? null) === self::reportHash($item)) {
-                    $unchanged[] = $keys[$i];
-                } else {
-                    $changed[] = $item;
-                }
-            }
-
-            $rows = [];
-            // NOM_TICK ограничивает поиск билетов, DB_KEY выбирает точную версию
-            // бланка внутри снимка. Размер SQL ограничен лимитом BLR Firebird 2.5.
-            foreach (array_chunk($changed, 500) as $batch) {
-                $tickets = array_values(array_unique(array_column($batch, 'N_TICKET')));
-                $ids = array_map('hex2bin', array_column($batch, 'ROW_ID'));
-                $ticketParams = implode(',', array_fill(0, count($tickets), '?'));
-                $idParams = implode(',', array_fill(0, count($ids), '?'));
-                $details = $connection->select('SELECT '.self::DETAIL_FIELDS
-                    ." FROM sale s WHERE s.n_ticket IN ($ticketParams) AND s.RDB\$DB_KEY IN ($idParams)",
-                    [...$tickets, ...$ids]);
-                array_push($rows, ...$details);
-            }
-            if (count($rows) !== count($changed)) {
-                throw new RuntimeException('Не удалось прочитать все выбранные продажи.');
-            }
-
-            return self::pageResult($rows, $unchanged, end($manifest));
-        });
-    }
-
-    private static function pageResult(array $rows, array $unchanged, array|false $last): array
-    {
-        return ['rows' => $rows, 'unchanged' => $unchanged,
-            'last_key' => $last ? array_intersect_key($last, array_flip(self::KEY)) : null];
-    }
-
-    public static function query(string $from, string $to, array $extraDays, ?array $cursor, int $limit, bool $full = false): array
-    {
-        $where = self::cursorWhere($cursor, self::KEY);
-        $limit = max(1, min(3000, $limit));
-        $order = implode(', ', array_map(fn ($key) => 's.'.$key, self::KEY));
-        $columns = implode(', ', array_map(fn ($key) => 's.'.$key, [...self::KEY, ...self::REPORT_FIELDS]));
-        $projection = "s.RDB\$DB_KEY AS ROW_ID, $columns";
-        // Возврат может пройти в другой кассе и относиться к старой продаже.
-        // UNION убирает повтор исходной продажи при нескольких строках возврата.
-        $dateFilter = function (string $alias) use ($extraDays): string {
-            $conditions = ["$alias.datesale BETWEEN ? AND ?"];
-            foreach (array_chunk($extraDays, 500) as $batch) {
-                $params = implode(',', array_fill(0, count($batch), '?'));
-                $conditions[] = "$alias.datesale IN ($params)";
-            }
-
-            return '('.implode(' OR ', $conditions).')';
-        };
-        $saleDates = $dateFilter('s');
-        $returnDates = $dateFilter('r');
-        $bindings = [$from, $to, ...$extraDays];
-        $source = "WITH candidates AS (
-                    SELECT $projection FROM sale s WHERE $saleDates AND s.awtcodsale IN (9984, 9999, 9900)
+        // Включаем исходные продажи по возвратам, даже если продажа была
+        // за границами порции. UNION убирает дубликаты по физическому ключу.
+        $sql = "WITH candidates AS (
+                    SELECT s.RDB\$DB_KEY AS ROW_ID FROM sale s
+                    WHERE s.$condition AND s.awtcodsale IN (9984, 9999, 9900)
                     UNION
-                    SELECT $projection FROM sale r JOIN sale s
+                    SELECT s.RDB\$DB_KEY FROM sale r JOIN sale s
                         ON s.n_ticket = r.n_ticket AND s.dob_n_ticket = r.dob_n_ticket
-                    WHERE $returnDates AND r.type_oper IN (1,4,5,6) AND r.kkm_ok = 1 AND r.comment_tick <> 8
+                    WHERE r.$condition AND r.type_oper IN (1,4,5,6) AND r.kkm_ok = 1 AND r.comment_tick <> 8
                         AND s.type_oper = 0 AND s.awtcodsale IN (9984, 9999, 9900)
                         AND ((s.datestart = DATE '1899-12-30' AND r.datestart = DATE '1899-12-30')
                             OR (s.datestart <> DATE '1899-12-30' AND r.datestart <> DATE '1899-12-30'))
-                )";
-        $range = "FROM candidates s WHERE 1 = 1$where ORDER BY $order";
-        if ($full) {
-            $sql = "$source, page_keys AS (SELECT FIRST $limit s.ROW_ID $range) SELECT ".self::DETAIL_FIELDS
-                ." FROM page_keys p JOIN sale s ON s.RDB\$DB_KEY = p.ROW_ID ORDER BY $order";
-        } else {
-            $sql = "$source SELECT FIRST $limit s.*, CAST(s.TIMESALE AS VARCHAR(20)) AS TIMESALE $range";
-        }
+                ) SELECT ".self::DETAIL_FIELDS." FROM candidates p JOIN sale s ON s.RDB\$DB_KEY = p.ROW_ID";
 
-        return [$sql, [...$bindings, ...$bindings]];
+        return [$sql, [...$dates, ...$dates]];
     }
 
     public function legacyPage(?array $cursor): array
@@ -180,17 +114,10 @@ class StationSalesSource
         return hash('sha256', json_encode($key, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
     }
 
-    private static function reportHash(array $row): string
-    {
-        $values = array_map(fn ($field) => isset($row[$field]) ? (string) $row[$field] : null, self::REPORT_FIELDS);
-
-        return hash('sha256', json_encode($values, JSON_THROW_ON_ERROR));
-    }
-
     public static function record(array $row, int $stationCode, string $syncedAt): array
     {
         $record = [
-            'record_key' => self::recordKey($row), 'report_hash' => self::reportHash($row),
+            'record_key' => self::recordKey($row),
             'source_station' => $stationCode,
         ];
         foreach (['AWTCOD', 'AWTCODSALE', 'DATESALE', 'DATESTART', 'TYPE_OPER', 'KKM_OK', 'TICK_BACK',

@@ -9,7 +9,7 @@ use Illuminate\Console\Command;
 class SyncStationSales extends Command
 {
     protected $signature = 'station-sales:sync {--scheduled : выполнить только в настроенное время} {--stations= : коды станций через запятую, иначе все}
-        {--mode= : incremental или full} {--from= : первая дата продаж} {--to= : последняя дата продаж}';
+        {--from= : первая дата продаж} {--to= : последняя дата продаж}';
 
     protected $description = 'Поставить в очередь сбор продаж станций для сводного отчёта';
 
@@ -24,7 +24,7 @@ class SyncStationSales extends Command
             $scheduledOn = $now->toDateString();
         }
         $codes = $this->option('stations') ? explode(',', $this->option('stations')) : null;
-        $result = $sync->start($codes, $this->option('from'), $this->option('to'), $scheduledOn, $this->option('mode'));
+        $result = $sync->start($codes, $this->option('from'), $this->option('to'), $scheduledOn);
         $this->info('Поставлено станций: '.count($result['run_ids']).'; уже обновляются: '.count($result['busy_stations']).'. Период '.$result['date1'].' — '.$result['date2']);
 
         return self::SUCCESS;

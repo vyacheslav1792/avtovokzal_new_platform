@@ -9,7 +9,6 @@ const error = ref('')
 const notice = ref('')
 const submitting = ref(false)
 const selected = ref([])
-const mode = ref('')
 const customPeriod = ref(false)
 const date1 = ref('')
 const date2 = ref('')
@@ -23,7 +22,6 @@ const allSelected = computed(() => stations.value.length > 0 && selected.value.l
 const canRefresh = computed(() => can('report:station-sales.refresh') && !impersonated.value)
 const labels = { queued: 'В очереди', running: 'Обновляется', completed: 'Завершено', failed: 'Ошибка' }
 
-const modes = { incremental: 'Инкрементный', full: 'Полный' }
 const overallStatus = computed(() => {
   const list = stations.value
   if (!data.value) return 'Загрузка…'
@@ -58,10 +56,7 @@ async function load() {
     if (disposed) return
     const done = new Set(next.stations.filter((s) => s.run?.status === 'completed').map((s) => s.run.id))
     // После публикации периода обновляем открытый отчёт.
-    const changed = initialized && next.stations.some((s) => {
-      const previous = data.value?.stations.find((old) => old.code === s.code)
-      return (s.run?.days_done > (previous?.run?.days_done || 0)) || (done.has(s.run?.id) && !completedIds.has(s.run?.id))
-    })
+    const changed = initialized && [...done].some(id => !completedIds.has(id))
     data.value = next
     completedIds = done
     error.value = ''
@@ -87,7 +82,6 @@ async function start(event) {
   try {
     const result = await startStationSalesSync({
       stations: station ? [Number(station)] : [...selected.value],
-      ...(mode.value ? { mode: mode.value } : {}),
       ...(customPeriod.value ? { date1: date1.value, date2: date2.value } : {}),
     })
     if (disposed) return
@@ -122,20 +116,13 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
     </p>
     <p v-if="data" class="muted">
       Текущее окно: {{ period(data.period.date1, data.period.date2) }}
-      ({{ data.period.lookback_days }} дн., включая сегодня).
+      ({{ data.period.lookback_days }} дн., включая сегодня). Порция до {{ data.period.chunk_days }} дн.
       <RouterLink v-if="can('settings.view')" to="/settings">Настройки сбора</RouterLink>.
       Для ведомости за старые даты могут потребоваться продажи, сделанные до начала отчётного периода.
     </p>
     <div v-if="error" class="alert">{{ error }}</div>
     <div v-if="notice" class="alert ok">{{ notice }}</div>
     <form id="station-sales-refresh" v-if="canRefresh && data" class="sync-actions nonprint" @submit.prevent="start">
-      <label>Режим загрузки
-        <select v-model="mode">
-          <option value="">Из настроек ({{ modes[data.default_mode] }})</option>
-          <option value="incremental">Инкрементный</option>
-          <option value="full">Полный</option>
-        </select>
-      </label>
       <label class="check"><input v-model="customPeriod" type="checkbox"> Указать свой период продаж</label>
       <div v-if="customPeriod" class="filters-grid">
         <label class="field"><span class="field-label">С даты продажи</span><input v-model="date1" type="date" required :max="date2 || data.period.date2"></label>
@@ -172,9 +159,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
           <td>
             <template v-if="station.run">
               <b :class="{ 'sync-error': station.run.status === 'failed' }">{{ labels[station.run.status] }}</b>
-              · {{ modes[station.run.mode] }}
               · {{ station.run.is_current ? 'текущее окно' : 'свой период' }}
-              <div class="muted">{{ period(station.run.date1, station.run.date2) }} · дней в выборке {{ station.run.days_total }} · загружено строк {{ station.run.rows_read }}</div>
+              <div class="muted">{{ period(station.run.date1, station.run.date2) }} · дней прочитано {{ station.run.days_done }} из {{ station.run.days_total }} · загружено строк {{ station.run.rows_read }}</div>
               <div v-if="station.run.status === 'running'" class="muted">Сбор за период. Последний шаг: {{ date(station.run.updated_at, true) }}</div>
               <div v-if="station.run.error" class="sync-error">{{ station.run.error }}</div>
             </template>

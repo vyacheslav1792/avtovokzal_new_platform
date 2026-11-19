@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\StationSalesSource;
+use App\Services\StationSalesSync;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -10,7 +11,7 @@ use Throwable;
 class ReadStationSalesPage extends Command
 {
     protected $signature = 'station-sales:read-page {run? : внутреннее задание сбора}
-        {--period : читать весь период по общему курсору} {--legacy : читать прежний SALE_ALL} {--cursor= : JSON полного ключа SALE_ALL}';
+        {--output= : файл строк JSON для порции} {--lease= : токен захвата задания} {--legacy : читать прежний SALE_ALL} {--cursor= : JSON полного ключа SALE_ALL}';
 
     protected $description = 'Прочитать одну порцию SALE (внутренняя команда сборщика)';
 
@@ -26,22 +27,28 @@ class ReadStationSalesPage extends Command
                 return self::SUCCESS;
             }
             $run = DB::table('station_sales_sync_runs')->find($this->argument('run'));
-            if (! $run || $run->status !== 'running') {
+            if (! $run || $run->status !== 'running' || ! $this->option('lease')
+                || $run->lease_token !== $this->option('lease')) {
                 throw new \RuntimeException('Задание не выполняется.');
             }
-            $cursor = $run->cursor ? json_decode($run->cursor, true, flags: JSON_THROW_ON_ERROR) : null;
-            // Старый воркер при выкладке может ещё заканчивать свою суточную страницу.
-            if ($this->option('period')) {
-                $from = $run->date_from;
-                $to = $run->date_to;
-                $extra = StationSalesSource::extraDays($run);
-                $cursor = $cursor['after'] ?? null;
-            } else {
-                $from = $to = $run->next_day;
-                $extra = [];
+            $output = $this->option('output');
+            $stream = is_string($output) && is_file($output) ? fopen($output, 'wb') : false;
+            if ($stream === false) {
+                throw new \RuntimeException('Не удалось открыть файл порции продаж.');
             }
-            $page = $source->page($run->station_code, $from, $to, $extra, $cursor, $run->page_size, $run->mode);
-            $this->output->write(json_encode($page, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+            try {
+                foreach ($source->rows($run->station_code, StationSalesSync::chunk($run)) as $row) {
+                    $line = json_encode($row, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)."\n";
+                    if (fwrite($stream, $line) !== strlen($line)) {
+                        throw new \RuntimeException('Не удалось сохранить порцию продаж во временный файл.');
+                    }
+                }
+                if (! fflush($stream)) {
+                    throw new \RuntimeException('Не удалось сохранить порцию продаж во временный файл.');
+                }
+            } finally {
+                fclose($stream);
+            }
 
             return self::SUCCESS;
         } catch (Throwable $e) {

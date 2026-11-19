@@ -58,19 +58,14 @@ class SiteSettings
 
         return is_numeric($value)
             ? max(1, min(3650, (int) $value))
-            : (int) config('station_sales.default_lookback_days', 10);
+            : (int) config('station_sales.default_lookback_days', 90);
     }
 
-    public function stationSalesMode(): string
+    public function stationSalesChunkDays(): int
     {
-        return ($this->get('station_sales_incremental') ?? true) ? 'incremental' : 'full';
-    }
+        $value = $this->get('station_sales_chunk_days');
 
-    public function stationSalesPageSize(): int
-    {
-        $value = $this->get('station_sales_page_size');
-
-        return is_numeric($value) ? max(1, min(3000, (int) $value)) : (int) config('station_sales.page_size');
+        return is_numeric($value) ? max(1, min(90, (int) $value)) : (int) config('station_sales.chunk_days', 10);
     }
 
     public function stationSalesAutoTime(): ?string

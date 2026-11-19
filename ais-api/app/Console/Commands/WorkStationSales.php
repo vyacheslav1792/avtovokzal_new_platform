@@ -22,14 +22,14 @@ class WorkStationSales extends Command
                 break;
             }
             try {
-                $page = $sync->readPage($run);
+                $rows = $sync->readChunk($run);
             } catch (Throwable $e) {
                 $sync->retryRead($run, $e);
 
                 continue;
             }
             try {
-                $sync->acceptPage($run, $page['rows'], $page['unchanged'], $page['last_key']);
+                $sync->acceptChunk($run, $rows);
             } catch (Throwable $e) {
                 $sync->fail($run, $e);
             }
