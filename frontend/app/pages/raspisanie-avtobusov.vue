@@ -192,14 +192,38 @@ if (import.meta.server && from.value && !isBoardingPoint(from.value) && !legacyT
   }
 }
 
+/**
+ * Название пункта отправления для заголовков. В адресе может стоять
+ * `slug` («droskovo-kp»), а в заголовке нужно читаемое название.
+ */
+const departureTitle = computed(() =>
+  schedule.value?.name ?? point.value?.name ?? selectedStation.value?.name ?? from.value)
+
 useSeoMeta({
   title: () => from.value
-    ? `Расписание автобусов ${from.value}`
+    ? `Расписание автобусов ${departureTitle.value}`
     : 'Расписание автобусов автовокзалов Орловской области',
   description: () => from.value
-    ? `Регулярное расписание отправлений автобусов от ${from.value}: маршруты, дни следования и время отправления.`
+    ? `Регулярное расписание отправлений автобусов от ${departureTitle.value}: маршруты, дни следования и время отправления.`
     : 'Расписание автобусов автовокзалов и кассовых пунктов Орловской области.',
 })
+
+/*
+ * ЧТО СТОИТ В АДРЕСЕ, А ЧТО В СЕЛЕКТЕ.
+ *
+ * Адрес страницы принимает и НАЗВАНИЕ станции («Орел АВ» — так ведут
+ * плитки и ссылки legacy), и её `slug` («orel-av» — так назывались
+ * статические файлы legacy и так ссылается АИС). Селект же работает по
+ * названию: без приведения поле показывало сырой `droskovo-kp` и не
+ * открывалось — выбранного пункта в списке просто не было.
+ */
+const selectedStation = computed(() =>
+  stations.value.find(s => s.name === from.value || s.slug === from.value) ?? null)
+
+/** Значение для селекта: название станции, пункт посадки или как в адресе. */
+const selectedDeparture = computed(() =>
+  selectedStation.value?.name
+  ?? (point.value ? boardingPointValue(point.value.slug) : from.value))
 
 const stationOptions = computed(() => [
   ...stations.value.map(s => ({ label: s.name, value: s.name })),
@@ -319,7 +343,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_auto] items-end">
         <UFormField label="Пункт отправления">
           <ResponsiveSelect
-            :model-value="from"
+            :model-value="selectedDeparture"
             :items="stationOptions"
             placeholder="Выберите автовокзал или кассовый пункт"
             title="Пункт отправления"

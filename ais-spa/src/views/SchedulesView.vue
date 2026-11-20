@@ -20,6 +20,15 @@ import { computed, onMounted, ref } from 'vue'
 import { deleteSchedule, fetchSchedule, fetchSchedules, saveSchedule } from '../api'
 import { can } from '../auth'
 
+/*
+ * Адрес САЙТА (VITE_SITE_URL в compose) — кнопка «На сайте» ведёт на его
+ * страницу расписания, а не на адрес АИС: это разные приложения и разные
+ * порты, и относительная ссылка открывала бы /raspisanie-avtobusov у
+ * самой АИС. Так же сделано на страницах содержимого сайта
+ * (PagesView, BlocksView, ContactsView).
+ */
+const SITE_URL = (import.meta.env.VITE_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '')
+
 const DAY_TITLES = {
   mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс',
 }
@@ -212,7 +221,7 @@ async function remove(row) {
 
 /** Адрес страницы расписания на сайте — чтобы проверить глазами. */
 function siteLink(row) {
-  return `/raspisanie-avtobusov?from=${encodeURIComponent(row.slug)}`
+  return `${SITE_URL}/raspisanie-avtobusov?from=${encodeURIComponent(row.slug)}`
 }
 
 onMounted(() => {
