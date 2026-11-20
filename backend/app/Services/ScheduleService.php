@@ -230,11 +230,16 @@ class ScheduleService
     public function stations(): array
     {
         $hidden = $this->hiddenInSchedule();
+        // У пункта посадки роль этого признака играет СВОЙ выключатель
+        // «показывать в расписании» — без него снятый признак ничего не
+        // менял: остановка оставалась и в списке, и по прямой ссылке.
+        $hiddenPoints = $this->boardingPoints->hiddenFromSchedule();
 
         return StationSchedule::orderBy('station_name')
             ->get()
             ->reject(fn (StationSchedule $s) => $s->awtcod !== null
-                && in_array((int) $s->awtcod, $hidden, true))
+                ? in_array((int) $s->awtcod, $hidden, true)
+                : in_array((string) $s->boarding_point_slug, $hiddenPoints, true))
             ->map(fn (StationSchedule $s) => [
                 'awtcod' => $s->awtcod === null ? null : (int) $s->awtcod,
                 /*
@@ -339,10 +344,14 @@ class ScheduleService
             return null;
         }
 
-        // Признак «Показывать в расписании» есть только у станций; у
-        // пункта посадки его роль играет его собственный выключатель.
+        // У пункта посадки признак свой — «показывать в расписании» в его
+        // карточке; спрятанный пункт не открывается и по прямой ссылке.
         if ($schedule->awtcod === null) {
-            return $schedule;
+            return in_array(
+                (string) $schedule->boarding_point_slug,
+                $this->boardingPoints->hiddenFromSchedule(),
+                true,
+            ) ? null : $schedule;
         }
 
         return in_array((int) $schedule->awtcod, $this->hiddenInSchedule(), true) ? null : $schedule;

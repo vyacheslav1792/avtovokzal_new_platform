@@ -83,6 +83,24 @@ class BoardingPointCatalog
         return array_filter($this->entries(), fn (array $p) => $p['show_in_schedule']);
     }
 
+    /**
+     * Ключи пунктов, СПРЯТАННЫХ из раздела расписания.
+     *
+     * Список именно спрятанных, а не разрешённых: справочник АИС может
+     * оказаться недоступен, и тогда `entries()` вернёт пустоту — при
+     * проверке «есть ли в разрешённых» в такую минуту пропали бы ВСЕ
+     * расписания остановок. Пустой список скрытых безопаснее.
+     *
+     * @return array<int, string>
+     */
+    public function hiddenFromSchedule(): array
+    {
+        return array_values(array_map(
+            fn (array $p) => $p['slug'],
+            array_filter($this->entries(), fn (array $p) => ! $p['show_in_schedule']),
+        ));
+    }
+
     /** Пункты для формы поиска на главной / для расписания. */
     public function forPlace(string $place = 'home'): array
     {
