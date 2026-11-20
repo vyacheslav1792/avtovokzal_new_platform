@@ -23,8 +23,9 @@ interface ScheduleStation {
 
 interface Departure {
   time: string
-  raicecod: number
-  nomkat: number
+  /** null — расписание заведено вручную, рейса в базе продаж нет. */
+  raicecod: number | null
+  nomkat: number | null
   charter: boolean
 }
 
@@ -50,6 +51,12 @@ interface ScheduleData {
   slug: string
   routes: ScheduleRoute[]
   generated_at: string | null
+  /**
+   * Расписание заведено вручную в АИС — у станции, которая закрыта и
+   * билетов не продаёт. Для посетителя разница в одном: купить билет от
+   * неё на сайте нельзя, рейсы показаны для справки.
+   */
+  is_manual?: boolean
 }
 
 const from = computed(() => String(route.query.from ?? ''))
@@ -171,6 +178,20 @@ if (legacyTo.value && from.value && !isBoardingPoint(from.value)) {
   }
 }
 
+/*
+ * Расписания у станции нет (не опубликовано, или её убрали из раздела
+ * признаком «Показывать в расписании») — страницы не существует, значит
+ * и ответ 404. Иначе ссылка остаётся в поисковой выдаче и ведёт на текст
+ * ошибки (та же причина, что у страницы тарифа — docs/STATIONS.md).
+ */
+if (import.meta.server && from.value && !isBoardingPoint(from.value) && !legacyTo.value) {
+  const event = useRequestEvent()
+
+  if (event && (error.value || !schedule.value)) {
+    setResponseStatus(event, 404)
+  }
+}
+
 useSeoMeta({
   title: () => from.value
     ? `Расписание автобусов ${from.value}`
@@ -183,7 +204,7 @@ useSeoMeta({
 const stationOptions = computed(() => [
   ...stations.value.map(s => ({ label: s.name, value: s.name })),
   ...boardingPoints.value.map(p => ({
-    label: `${p.name} (остановка в пути)`,
+    label: p.name,
     value: boardingPointValue(p.slug),
   })),
 ])
@@ -348,7 +369,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       >
         {{ s.name }}
       </NuxtLink>
-      <!-- Остановки в пути — рядом со станциями, но с пометкой: кассы там нет. -->
+      <!-- Пункты посадки — такими же плитками, как станции. -->
       <NuxtLink
         v-for="p in boardingPoints"
         :key="p.slug"
@@ -356,7 +377,6 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
         class="border border-default rounded-lg p-4 font-medium hover:border-primary transition-colors"
       >
         {{ p.name }}
-        <span class="block text-xs font-normal text-muted">остановка в пути</span>
       </NuxtLink>
     </div>
 
@@ -391,8 +411,14 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
 
       <p class="text-sm text-muted mb-4">
         Актуально на {{ schedule.generated_at }}. Указано для справки: расписание отправлений
-        на конкретный день может отличаться от регулярного. Наличие мест, стоимость и статус
-        рейса смотрите в поиске билетов на нужную дату.
+        на конкретный день может отличаться от регулярного.
+        <template v-if="schedule.is_manual">
+          Билеты по этим рейсам продаются в кассах и на автостанциях маршрута: сама
+          {{ schedule.name }} билеты не оформляет.
+        </template>
+        <template v-else>
+          Наличие мест, стоимость и статус рейса смотрите в поиске билетов на нужную дату.
+        </template>
       </p>
 
       <div v-if="!routes.length" class="py-10 text-center text-muted">
@@ -419,18 +445,33 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
             <div class="flex-1 min-w-56">
               <div class="text-sm text-muted mb-1">Время отправления (местное)</div>
               <div class="flex flex-wrap gap-2">
-                <!-- Клик по времени открывает тариф рейса (как в legacy) -->
-                <UButton
-                  v-for="d in r.departures"
-                  :key="d.time + d.raicecod"
-                  :to="tariffLink(r, d)"
-                  color="primary"
-                  variant="soft"
-                  size="md"
-                  :title="`Стоимость проезда по рейсу, отправление ${d.time}`"
-                >
-                  {{ d.time }}<span v-if="d.charter" class="ml-1 text-xs">(заказной)</span>
-                </UButton>
+                <!--
+                  Клик по времени открывает тариф рейса (как в legacy).
+
+                  У расписания, заведённого вручную (станция закрыта, базы
+                  продаж нет), рейса в базе НЕТ: `raicecod` пустой, и
+                  ссылка на тариф вела бы на `/tarif?napcod=&raicecod=`,
+                  то есть на «тариф не найден». Такое время показываем
+                  обычным текстом.
+                -->
+                <template v-for="d in r.departures" :key="d.time + (d.raicecod ?? '')">
+                  <UButton
+                    v-if="d.raicecod"
+                    :to="tariffLink(r, d)"
+                    color="primary"
+                    variant="soft"
+                    size="md"
+                    :title="`Стоимость проезда по рейсу, отправление ${d.time}`"
+                  >
+                    {{ d.time }}<span v-if="d.charter" class="ml-1 text-xs">(заказной)</span>
+                  </UButton>
+                  <span
+                    v-else
+                    class="inline-flex items-center rounded-md bg-elevated px-2.5 py-1.5 text-sm font-medium"
+                  >
+                    {{ d.time }}<span v-if="d.charter" class="ml-1 text-xs">(заказной)</span>
+                  </span>
+                </template>
               </div>
             </div>
 

@@ -25,6 +25,7 @@ import SettingsView from './views/SettingsView.vue'
 import SpamRulesView from './views/SpamRulesView.vue'
 import StationsView from './views/StationsView.vue'
 import BoardingPointsView from './views/BoardingPointsView.vue'
+import SchedulesView from './views/SchedulesView.vue'
 
 // Маршрутизация без # (history mode): / — список отчётов, /<slug> — отчёт.
 // Админские страницы объявляем ДО catch-all, иначе их съест ReportView:
@@ -78,6 +79,7 @@ const routes = [
   { path: '/settings', component: SettingsView },
   { path: '/stations', component: StationsView },
   { path: '/boarding-points', component: BoardingPointsView },
+  { path: '/schedules', component: SchedulesView },
   { path: '/kkm', component: KkmView },
   // Непробитые чеки: деньги прошли, фискального документа нет.
   { path: '/receipts', component: FiscalReceiptsView },

@@ -75,11 +75,11 @@ export function useDepartures() {
  * Единый список для селекта «Откуда»: сперва автостанции, затем пункты
  * посадки.
  *
- * У пункта посадки к названию добавляется пояснение «остановка в пути»:
- * иначе «Дросково» в списке автовокзалов выглядит как автостанция, а
- * билет оттуда оформляет Орёл или Ливны и кассы на месте нет. Группами
- * список не делим — селект сайта (ResponsiveSelect) плоский, и его поиск
- * работает по одному полю `label`.
+ * Пункты посадки стоят в списке БЕЗ пояснений — так же, как станции:
+ * покупателю важно название места, а чем оно отличается внутри (кассы
+ * нет, билет оформляет другая станция), он узнаёт на странице рейсов и
+ * покупки. Группами список не делим — селект сайта (ResponsiveSelect)
+ * плоский, и его поиск работает по одному полю `label`.
  */
 export function departureItems(
   stations: { awtcod: number, name: string }[],
@@ -87,10 +87,7 @@ export function departureItems(
 ) {
   return [
     ...stations.map(s => ({ label: s.name, value: s.awtcod as DepartureValue })),
-    ...points.map(p => ({
-      label: `${p.name} (остановка в пути)`,
-      value: boardingPointValue(p.slug) as DepartureValue,
-    })),
+    ...points.map(p => ({ label: p.name, value: boardingPointValue(p.slug) as DepartureValue })),
   ]
 }
 

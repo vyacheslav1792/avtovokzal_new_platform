@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BoardingPointController;
+use App\Http\Controllers\Api\ScheduleEditorController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ImpersonationController;
 use App\Http\Controllers\Api\KkmServerController;
@@ -93,6 +94,20 @@ Route::prefix('v1')->group(function () {
          * (docs/BOARDING_POINTS.md). Проверка привязки ходит в живую базу
          * станции, поэтому требует права на проверку связи.
          */
+        /*
+         * Редактор расписания станций: нужен тем, у кого базы продаж уже
+         * нет (станция закрыта), а автобусы идут — в legacy их расписание
+         * правили как HTML-файл (docs/FRONTEND.md).
+         */
+        Route::get('schedules', [ScheduleEditorController::class, 'index'])
+            ->middleware('employee.can:schedules.view');
+        Route::get('schedules/{awtcod}', [ScheduleEditorController::class, 'show'])
+            ->whereNumber('awtcod')->middleware('employee.can:schedules.view');
+        Route::put('schedules/{awtcod}', [ScheduleEditorController::class, 'update'])
+            ->whereNumber('awtcod')->middleware('employee.can:schedules.edit');
+        Route::delete('schedules/{awtcod}', [ScheduleEditorController::class, 'destroy'])
+            ->whereNumber('awtcod')->middleware('employee.can:schedules.edit');
+
         Route::get('boarding-points', [BoardingPointController::class, 'index'])
             ->middleware('employee.can:boarding-points.view');
         Route::post('boarding-points', [BoardingPointController::class, 'store'])

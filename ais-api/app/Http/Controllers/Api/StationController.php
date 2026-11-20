@@ -276,6 +276,7 @@ class StationController extends Controller
             'stationkey' => $station->stationkey,
             'inlist' => $station->inlist,
             'is_active' => $station->is_active,
+            'show_in_schedule' => $station->show_in_schedule,
             'sales_enabled' => $station->sales_enabled,
             'refunds_enabled' => $station->refunds_enabled,
             'active_profile' => $station->active_profile,
@@ -307,6 +308,14 @@ class StationController extends Controller
             'stationkey' => ['nullable', 'string', 'max:128'],
             'inlist' => ['nullable', 'integer', 'min:0', 'max:9999'],
             'is_active' => ['required', 'boolean'],
+            /*
+             * Показывать станцию в расписании автобусов на сайте — отдельно
+             * от того, работает ли она. Закрытая станция (`is_active =
+             * false`) с этим признаком остаётся в разделе расписания, а
+             * маршруты ей заводят вручную: в legacy для этого правили
+             * готовый HTML-файл (docs/FRONTEND.md).
+             */
+            'show_in_schedule' => ['sometimes', 'boolean'],
             'sales_enabled' => ['required', 'boolean'],
             'refunds_enabled' => ['required', 'boolean'],
             'active_profile' => ['required', 'integer', 'min:1', 'max:'.Station::PROFILE_SLOTS],
@@ -350,6 +359,7 @@ class StationController extends Controller
             'stationkey' => $data['stationkey'] ?? null,
             'inlist' => (int) ($data['inlist'] ?? 0),
             'is_active' => (bool) $data['is_active'],
+            'show_in_schedule' => (bool) ($data['show_in_schedule'] ?? true),
             'sales_enabled' => (bool) $data['sales_enabled'],
             'refunds_enabled' => (bool) $data['refunds_enabled'],
             'active_profile' => (int) $data['active_profile'],

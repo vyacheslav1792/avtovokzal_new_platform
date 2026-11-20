@@ -178,6 +178,24 @@ export function importStationsFromFile() {
   return request(`${API}/stations/import-file`, json('POST', {}))
 }
 
+/* Расписание станций: ручное ведение для закрытых станций. */
+
+export function fetchSchedules() {
+  return request(`${API}/schedules`)
+}
+
+export function fetchSchedule(awtcod) {
+  return request(`${API}/schedules/${awtcod}`)
+}
+
+export function saveSchedule(awtcod, payload) {
+  return request(`${API}/schedules/${awtcod}`, json('PUT', payload))
+}
+
+export function deleteSchedule(awtcod) {
+  return request(`${API}/schedules/${awtcod}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
 /* Пункты посадки: остановки на трассе, с которых продаёт сайт. */
 
 export function fetchBoardingPoints() {

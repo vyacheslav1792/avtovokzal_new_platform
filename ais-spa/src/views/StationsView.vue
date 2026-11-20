@@ -130,6 +130,7 @@ function stationPayload(station) {
     stationkey: station.stationkey,
     inlist: station.inlist,
     is_active: station.is_active,
+    show_in_schedule: station.show_in_schedule,
     sales_enabled: station.sales_enabled,
     refunds_enabled: station.refunds_enabled,
     active_profile: station.active_profile,
@@ -181,6 +182,10 @@ function addStation() {
     // Новая станция включена, но продажа и возврат через сайт выключены:
     // сначала проверяют связь, потом открывают продажу.
     is_active: true,
+    // Расписание закрытых станций ведут вручную, а у новой станции его
+    // ещё нет — признак включён, чтобы страница появилась сразу после
+    // первого обновления из базы.
+    show_in_schedule: true,
     sales_enabled: false,
     refunds_enabled: false,
     active_profile: 1,
@@ -313,6 +318,9 @@ onMounted(() => {
       выкладывать код не нужно. У станции может быть до {{ slots }} вариантов
       подключения: переключение — нажатием на номер варианта.
       Станцию, по которой уже есть данные, удалить нельзя — её выключают.
+      Признак «В расписании» оставляет станцию в разделе «Расписание автобусов»
+      на сайте даже выключенной: расписание закрытых станций ведут вручную
+      (раздел «Расписание станций»), как в legacy это делали правкой файла.
     </p>
 
     <div v-if="error" class="alert">{{ error }}</div>
@@ -334,6 +342,7 @@ onMounted(() => {
           <th>Код</th>
           <th>Станция</th>
           <th>Станция вкл.</th>
+          <th>В расписании</th>
           <th>Продажа</th>
           <th>Возврат</th>
           <th>Подключение</th>
@@ -356,6 +365,22 @@ onMounted(() => {
                 @change="toggle(s, 'is_active')"
               >
               <span>{{ s.is_active ? 'да' : 'нет' }}</span>
+            </label>
+          </td>
+          <td>
+            <!--
+              Показывать станцию в разделе «Расписание автобусов» на сайте —
+              отдельно от того, работает ли она: у закрытой станции
+              расписание ведут вручную (раздел «Расписание станций»), и
+              страница должна открываться, как в legacy.
+            -->
+            <label class="switch">
+              <input
+                type="checkbox" :checked="s.show_in_schedule"
+                :disabled="!editable || busy === s.awtcod"
+                @change="toggle(s, 'show_in_schedule')"
+              >
+              <span>{{ s.show_in_schedule ? 'да' : 'нет' }}</span>
             </label>
           </td>
           <td>

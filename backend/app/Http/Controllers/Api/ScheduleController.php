@@ -56,6 +56,13 @@ class ScheduleController extends Controller
                 'slug' => $schedule->slug,
                 'routes' => $schedule->routes,
                 'routes_count' => (int) $schedule->routes_count,
+                /*
+                 * Расписание заведено вручную (станция закрыта, базы
+                 * продаж нет): страница пишет, что рейсы показаны для
+                 * справки, и не ведёт со времени на тариф — рейса в базе
+                 * нет (docs/FRONTEND.md).
+                 */
+                'is_manual' => (bool) $schedule->is_manual,
                 // «Актуально на» — как в шапке legacy-таблицы.
                 'generated_at' => $schedule->generated_at
                     ?->timezone(config('app.timezone'))->format('d.m.Y'),

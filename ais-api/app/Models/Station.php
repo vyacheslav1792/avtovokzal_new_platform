@@ -9,9 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Автостанция: то, что раньше правили в файле (shared/stations.php, а до
  * него $AWT в legacy — там он лежал трижды и копии разъехались).
  *
- * Три выключателя про разное: `is_active` убирает станцию совсем («её как
+ * Выключатели про РАЗНОЕ: `is_active` убирает станцию совсем («её как
  * будто нет»), `sales_enabled` и `refunds_enabled` оставляют станцию в
- * списках, но без продажи или без возврата через сайт.
+ * списках, но без продажи или без возврата через сайт, а
+ * `show_in_schedule` держит её в разделе «Расписание автобусов» — даже
+ * закрытую и без базы продаж, с расписанием, заведённым вручную в АИС
+ * (в legacy для этого правили готовый HTML-файл).
  */
 class Station extends Model
 {
@@ -28,6 +31,7 @@ class Station extends Model
         'awtcod' => 'int',
         'inlist' => 'int',
         'is_active' => 'bool',
+        'show_in_schedule' => 'bool',
         'sales_enabled' => 'bool',
         'refunds_enabled' => 'bool',
         'active_profile' => 'int',

@@ -14,6 +14,13 @@ class StationSchedule extends Model
 
     protected $casts = [
         'routes' => 'array',
+        /*
+         * Расписание заведено вручную в АИС — у станции без базы продаж
+         * (закрытой). `schedule:sync` такие станции пропускает, иначе
+         * первый прогон затёр бы работу сотрудника
+         * (docs/FRONTEND.md).
+         */
+        'is_manual' => 'bool',
         'generated_at' => 'datetime',
         'synced_at' => 'datetime',
     ];
