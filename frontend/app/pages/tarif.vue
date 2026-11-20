@@ -8,6 +8,8 @@
  * вариант — `current` или `upcoming`. Старые ссылки с `nomkat` продолжают
  * работать: параметр просто игнорируется, показывается действующий тариф.
  */
+import { setResponseHeader, setResponseStatus } from 'h3'
+
 const route = useRoute()
 const api = useApi()
 
@@ -95,7 +97,7 @@ const fromStop = computed(() => String(route.query.from_stop ?? ''))
  */
 const hasTrip = computed(() => awtcod.value > 0 && napcod.value > 0 && raicecod.value > 0)
 
-const { data, error } = await useAsyncData(
+const { data, error, refresh } = await useAsyncData(
   'tariff',
   () => hasTrip.value
     ? api<{
@@ -119,6 +121,61 @@ const { data, error } = await useAsyncData(
 )
 
 const tariff = computed(() => data.value?.data ?? null)
+
+/*
+ * ТРИ РАЗНЫХ СОСТОЯНИЯ, и путать их нельзя — ни для человека, ни для
+ * поисковика (страница тарифа индексируется, ссылок на неё много):
+ *
+ *  - корректное — 200;
+ *  - временно недоступное (станция не отвечает, сервис продаж
+ *    перезапускается) — 503 и Retry-After: «зайди позже», страница из
+ *    выдачи не выпадает;
+ *  - несуществующее или некорректное (нет такого рейса, остановки,
+ *    пункта посадки; обрезанная ссылка без рейса) — 404.
+ *
+ * До 21.11.2026 всё это отдавалось с кодом 200, и «тариф по рейсу,
+ * которого нет» выглядел для робота обычной страницей сайта.
+ */
+const UNAVAILABLE_CODES = [
+  'station_unavailable',
+  'sales_api_unavailable',
+  'station_sales_disabled',
+  'station_refunds_disabled',
+]
+
+interface ApiError {
+  statusCode?: number
+  data?: { error?: string, error_code?: string }
+}
+
+const apiError = computed<ApiError | null>(() => (error.value as ApiError | null) ?? null)
+const errorCode = computed(() => apiError.value?.data?.error_code ?? null)
+
+/** Временная недоступность: запрос верный, повторять имеет смысл. */
+const unavailable = computed(() =>
+  apiError.value?.statusCode === 503 || UNAVAILABLE_CODES.includes(errorCode.value ?? ''))
+
+/** Текст отказа от сервера — он точнее общего «не удалось показать». */
+const errorText = computed(() => apiError.value?.data?.error ?? null)
+
+/*
+ * Код ответа ставим на сервере: к этому моменту запрос тарифа уже
+ * выполнен, а ответ ещё не отправлен. На клиенте (переход по ссылке
+ * внутри сайта) ставить нечего — там код ответа уже не меняется.
+ */
+const event = useRequestEvent()
+
+if (import.meta.server && event) {
+  if (unavailable.value) {
+    setResponseStatus(event, 503)
+    // У станции это минуты, а не часы: без Retry-After клиенты считают
+    // недоступность бессрочной.
+    setResponseHeader(event, 'Retry-After', '60')
+  }
+  else if (!hasTrip.value || error.value || !tariff.value) {
+    setResponseStatus(event, 404)
+  }
+}
 
 /** Остановка отправления (пусто — тариф от самой станции). */
 const stop = computed(() => tariff.value?.from_stop ?? null)
@@ -261,12 +318,31 @@ function download() {
       :actions="[{ label: 'Перейти к расписанию', to: '/raspisanie-avtobusov', color: 'neutral' }]"
     />
 
+    <!--
+      Временно недоступно: станция не отвечает или сервис продаж
+      перезапускается. Это не «рейса нет» — человеку надо повторить
+      попытку, и ссылку сохранять имеет смысл.
+    -->
+    <UAlert
+      v-else-if="unavailable"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-cloud-off"
+      title="Тариф сейчас недоступен"
+      :description="errorText
+        ?? 'Автостанция временно не отвечает. Попробуйте обновить страницу через несколько минут.'"
+      :actions="[{ label: 'Обновить', color: 'warning', variant: 'outline', onClick: () => refresh() }]"
+    />
+
+    <!-- Такого рейса, остановки или пункта посадки нет (ответ 404). -->
     <UAlert
       v-else-if="error || !tariff"
       color="error"
       variant="subtle"
-      title="Не удалось показать тариф"
-      description="Проверьте ссылку: рейс не найден или данные станции временно недоступны."
+      title="Тариф не найден"
+      :description="errorText
+        ?? 'Проверьте ссылку: такого рейса нет в расписании — возможно, он снят или ссылка устарела.'"
+      :actions="[{ label: 'Перейти к расписанию', to: '/raspisanie-avtobusov', color: 'neutral' }]"
     />
 
     <template v-else>

@@ -104,12 +104,28 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 429, $e->getHeaders());
         });
 
+        /*
+         * Код ответа зависит от ВИДА отказа (см.
+         * SalesApiException::responseStatus): 404 — такого рейса,
+         * остановки или станции не существует; 503 — временно недоступно
+         * (станция молчит, сервис продаж перезапускается, продажа
+         * выключена в АИС); 422 — запрос некорректен. Прежде всё это
+         * отдавалось одним 422, и ни сайт, ни поисковик не могли
+         * отличить «такого нет» от «зайди позже».
+         */
         $exceptions->render(function (SalesApiException $e, Request $request) {
-            return response()->json([
+            $status = $e->responseStatus();
+
+            $response = response()->json(array_filter([
                 'success' => false,
                 'error' => $e->getMessage(),
                 'error_code' => $e->errorCode,
-            ], 422);
+                'details' => $e->details ?: null,
+            ], fn ($v) => $v !== null), $status);
+
+            // 503 без Retry-After клиенты и поисковики трактуют как
+            // «неизвестно когда» — у станции это минуты, не часы.
+            return $status === 503 ? $response->header('Retry-After', '60') : $response;
         });
 
         /*

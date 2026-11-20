@@ -35,6 +35,21 @@ export function reportApiOutage(state: Ref<ApiOutage | null>, outage: ApiOutage 
   if (outage) state.value = outage
 }
 
+/**
+ * Отказы, которые приходят с кодом 503, но сайт при этом РАБОТАЕТ:
+ * недоступна одна автостанция (у Кром, например, нет интернета), не
+ * отвечает сервис продаж, продажа или возврат по станции выключены в
+ * АИС. Такие случаи объясняет сама страница — поиск рейсов, карточка
+ * тарифа, форма покупки, — и поднимать баннер «сайт на обслуживании»
+ * из-за одной станции нельзя (docs/BOARDING_POINTS.md, docs/STATIONS.md).
+ */
+const PARTIAL_OUTAGE_CODES = [
+  'station_unavailable',
+  'sales_api_unavailable',
+  'station_sales_disabled',
+  'station_refunds_disabled',
+]
+
 /** Что это за ошибка: обслуживание, недоступность или штатный отказ. */
 export function classifyApiError(error: any): ApiOutage | null {
   const status: number | undefined = error?.response?.status ?? error?.statusCode ?? error?.status
@@ -43,8 +58,17 @@ export function classifyApiError(error: any): ApiOutage | null {
   // Выключенные продажа/возврат — не сбой.
   if (payload?.feature) return null
 
-  if (payload?.maintenance || status === 503) {
+  // Обслуживание сайта backend помечает явно (`maintenance`), поэтому
+  // один код 503 признаком обслуживания больше не считается: с 21.11.2026
+  // им же отвечают «станция недоступна» и «сервис продаж не отвечает».
+  if (payload?.maintenance) {
     return { kind: 'maintenance', message: payload?.error || MAINTENANCE_FALLBACK }
+  }
+
+  if (PARTIAL_OUTAGE_CODES.includes(payload?.error_code)) return null
+
+  if (status === 503) {
+    return { kind: 'down', message: payload?.error || DOWN_FALLBACK }
   }
 
   // Сервер не ответил вовсе (нет сети, backend не поднялся): статуса нет.

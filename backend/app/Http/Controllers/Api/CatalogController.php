@@ -97,6 +97,8 @@ class CatalogController extends Controller
     {
         $result = $this->stopDestinations->forPoint($slug);
 
+        // Пункта нет — 404; пустой список у существующего пункта это 200:
+        // тарифы от остановки станция могла ещё не завести.
         return response()->json($result, $result['success'] ? 200 : 404);
     }
 
@@ -187,8 +189,14 @@ class CatalogController extends Controller
     {
         $point = $this->boardingPoints->find($slug);
 
+        // Несуществующий пункт посадки — 404 (прежде отдавалось 200 с
+        // `success: false`, и сайт не мог отличить это от «рейсов нет»).
         if ($point === null) {
-            return ['success' => false, 'error' => 'Пункт посадки не найден', 'data' => []];
+            throw new SalesApiException(
+                'Пункт посадки не найден или больше не обслуживается',
+                'boarding_point_not_found',
+                404,
+            );
         }
 
         $route = $this->stopDestinations->routeFor($slug, $to);

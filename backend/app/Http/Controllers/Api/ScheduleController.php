@@ -5,11 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\BoardingPointCatalog;
 use App\Services\SalesApiClient;
+use App\Services\SalesApiException;
 use App\Services\ScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Validation\ValidationException;
 use App\Support\VendorCode;
 use App\Support\VendorText;
 
@@ -151,10 +151,18 @@ class ScheduleController extends Controller
 
         $point = $this->boardingPoints->find($slug);
 
+        /*
+         * Несуществующий (или выключенный) пункт посадки — это 404, а не
+         * ошибка поля: по таким ссылкам ходят поисковики и люди с
+         * сохранёнными адресами, и «страница есть, но параметр неверный»
+         * тут неправда — такой страницы нет.
+         */
         if ($point === null) {
-            throw ValidationException::withMessages([
-                'from_point' => 'Пункт посадки не найден или больше не обслуживается',
-            ]);
+            throw new SalesApiException(
+                'Пункт посадки не найден или больше не обслуживается',
+                'boarding_point_not_found',
+                404,
+            );
         }
 
         foreach ($point['stations'] as $binding) {
@@ -167,8 +175,12 @@ class ScheduleController extends Controller
             }
         }
 
-        throw ValidationException::withMessages([
-            'from_point' => 'От этого пункта посадки выбранная автостанция рейсы не ведёт',
-        ]);
+        // Пункт есть, но эта станция его рейсы не ведёт: сочетание в
+        // адресе невозможное, страницы с таким тарифом не существует.
+        throw new SalesApiException(
+            'От этого пункта посадки выбранная автостанция рейсы не ведёт',
+            'boarding_point_not_found',
+            404,
+        );
     }
 }
