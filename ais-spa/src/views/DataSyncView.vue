@@ -155,8 +155,23 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in status[kind.key]" :key="row.awtcod">
-              <td>{{ row.name }}</td>
+            <!--
+              Ключ — код станции ИЛИ название: у пункта посадки кода нет,
+              и все пункты шли под одним ключом (сервер приводил null к
+              нулю). Vue ругался на дубликаты и путал значения строк при
+              перерисовке после обновления.
+            -->
+            <tr v-for="row in status[kind.key]" :key="row.awtcod ?? row.name">
+              <td>
+                {{ row.name }}
+                <!--
+                  У такого места синк ничего не обновляет, поэтому пустая
+                  «последняя попытка» — настройка, а не сбой.
+                -->
+                <span v-if="row.auto_disabled" class="muted">
+                  · автосборка выключена
+                </span>
+              </td>
               <td class="fm-num">{{ row.count }}</td>
               <td :class="{ 'sync-stale': stale(row.generated_at) }">{{ moment(row.generated_at) }}</td>
               <td>{{ moment(row.synced_at) }}</td>

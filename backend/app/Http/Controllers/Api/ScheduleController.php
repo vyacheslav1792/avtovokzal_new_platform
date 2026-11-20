@@ -61,12 +61,17 @@ class ScheduleController extends Controller
                 'routes' => $schedule->allRoutes(),
                 'routes_count' => count($schedule->allRoutes()),
                 /*
-                 * Расписание заведено вручную (станция закрыта, базы
-                 * продаж нет): страница пишет, что рейсы показаны для
-                 * справки, и не ведёт со времени на тариф — рейса в базе
-                 * нет (docs/FRONTEND.md).
+                 * Расписание держится ТОЛЬКО на ручных маршрутах —
+                 * автосборка для места выключена (станция закрыта либо
+                 * её базе верить нельзя). Страница пишет тогда, что
+                 * билеты оформляют кассы маршрута, а не «смотрите в
+                 * поиске»: рейсов этого места в продаже нет.
+                 *
+                 * Раньше признаком был `is_manual`; его сбросила
+                 * миграция `2026_11_21_000004`, и ветка на странице
+                 * перестала срабатывать вовсе (docs/FRONTEND.md).
                  */
-                'is_manual' => (bool) $schedule->is_manual,
+                'manual_only' => (bool) $schedule->auto_disabled,
                 // «Актуально на» — как в шапке legacy-таблицы.
                 'generated_at' => $schedule->generated_at
                     ?->timezone(config('app.timezone'))->format('d.m.Y'),

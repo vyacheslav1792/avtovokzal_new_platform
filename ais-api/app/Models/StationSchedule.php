@@ -14,8 +14,9 @@ use Illuminate\Database\Eloquent\Model;
  * для них лежал готовый HTML-файл (`url/raspisanie/<slug>.html`), и
  * правили его текстовым редактором.
  *
- * `is_manual` защищает ручную работу от перезаписи: синк такие станции
- * пропускает.
+ * Правится ТОЛЬКО ручная половина (`manual_routes`): собранную из баз
+ * (`routes`) обновляет синк. Совсем отключить автосборку для места —
+ * `auto_disabled` (docs/BOARDING_POINTS.md).
  */
 class StationSchedule extends Model
 {
@@ -34,7 +35,8 @@ class StationSchedule extends Model
         // Автосборка выключена — синк это место не трогает, на сайте
         // остаются только маршруты, добавленные вручную.
         'auto_disabled' => 'bool',
-        'routes_count' => 'int',
+        // Прежняя схема «всё расписание ручное»: сброшен миграцией
+        // backend `2026_11_21_000004` и ничего больше не решает.
         'is_manual' => 'bool',
         'generated_at' => 'datetime',
         'synced_at' => 'datetime',

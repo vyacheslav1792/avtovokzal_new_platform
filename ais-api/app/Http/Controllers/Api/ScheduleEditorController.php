@@ -19,10 +19,10 @@ use Illuminate\Http\Request;
  * правили текстовым редактором прямо на боевом сервере; при любой правке
  * графика это приходилось делать вручную и без проверок.
  *
- * Теперь маршруты хранятся так же, как у станций с базой (`routes` в
- * `station_schedules`, БД сайта), и правятся формой. Признак `is_manual`
- * защищает их от `schedule:sync`: иначе первый же прогон обнулил бы
- * работу (станция в справочнике есть, база не отвечает).
+ * Теперь маршруты хранятся в `station_schedules` (БД сайта) и правятся
+ * формой. Ручная работа защищена от `schedule:sync` не признаком, а
+ * ОТДЕЛЬНЫМ ПОЛЕМ: синк пишет только `routes`. Совсем отключить
+ * автосборку для места — галочка `auto_disabled`.
  *
  * Правится ВСЕГДА только ручная половина (`manual_routes`): расписание
  * из базы станции (`routes`) обновляет `schedule:sync`, и затирать его
@@ -91,7 +91,6 @@ class ScheduleEditorController extends Controller
                     'auto_count' => count($schedule?->routes ?? []),
                     'manual_count' => count($schedule?->manual_routes ?? []),
                     'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
-                    'is_manual' => (bool) ($schedule?->is_manual ?? false),
                     'generated_at' => $schedule?->generated_at?->format('d.m.Y H:i'),
                     'synced_at' => $schedule?->synced_at?->format('d.m.Y H:i'),
                     'sync_error' => $schedule?->sync_error,
@@ -155,7 +154,6 @@ class ScheduleEditorController extends Controller
                 'boarding_point' => $point->slug,
                 'name' => $point->name,
                 'slug' => $schedule?->slug ?? $point->slug,
-                'is_manual' => (bool) ($schedule?->is_manual ?? false),
                 'has_connection' => false,
                 'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
                 'note' => $schedule?->note,
@@ -203,21 +201,7 @@ class ScheduleEditorController extends Controller
                 // Адрес страницы на сайте — ключ пункта: он же стоит в
                 // «Откуда», и на сайте это одно и то же место.
                 'slug' => $point->slug,
-                /*
-                 * Пишем ТОЛЬКО ручную часть. Автоматическую (`routes`)
-                 * собирает `schedule:sync` из баз станций, и затирать её
-                 * здесь нельзя — иначе расписание остановки теряло бы
-                 * проходящие рейсы до следующего прогона.
-                 */
-                'manual_routes' => $routes,
-                'is_manual' => false,
-                'auto_disabled' => $autoDisabled,
-                'routes' => $autoDisabled ? [] : ($existing?->routes ?? []),
-                'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
-                'note' => $data['note'] ?? null,
-                'generated_at' => now(),
-                'synced_at' => now(),
-                'sync_error' => null,
+                ...$this->halves($existing, $routes, $autoDisabled, $request, $data),
             ],
         );
 
@@ -258,7 +242,11 @@ class ScheduleEditorController extends Controller
             ], 422);
         }
 
-        $schedule->update(['manual_routes' => null, 'edited_by' => request()->user()?->login]);
+        // Подпись — как у станции: ФИО, а логин только если ФИО нет.
+        $schedule->update([
+            'manual_routes' => null,
+            'edited_by' => request()->user()?->full_name ?: request()->user()?->login,
+        ]);
 
         return response()->json(['success' => true]);
     }
@@ -303,12 +291,11 @@ class ScheduleEditorController extends Controller
     }
 
     /**
-     * Сохранить расписание вручную.
+     * Сохранить маршруты, дописанные вручную.
      *
-     * Станцию с рабочим подключением так править нельзя: её расписание
-     * обновляет `schedule:sync` из базы, и ручная правка либо исчезнет при
-     * следующем прогоне, либо (при `is_manual`) навсегда разойдётся с
-     * тем, что станция реально продаёт.
+     * Правится у любой станции — с рабочим подключением или без: форма
+     * пишет только `manual_routes`, а собранную из базы половину
+     * обновляет `schedule:sync`, и затирать её здесь нельзя.
      */
     public function update(Request $request, int $awtcod): JsonResponse
     {
@@ -327,33 +314,13 @@ class ScheduleEditorController extends Controller
         $name = $schedule?->station_name ?? $station->name;
         $routes = $this->normalize($data['routes']);
         $autoDisabled = (bool) ($data['auto_disabled'] ?? ($schedule?->auto_disabled ?? false));
-        $saved = $schedule;
 
         $saved = StationSchedule::updateOrCreate(
             ['awtcod' => $awtcod],
             [
                 'station_name' => $name,
                 'slug' => StationSchedule::slug($name),
-                /*
-                 * Только ручная половина: автоматическую пишет
-                 * `schedule:sync` из базы станции, и затирать её здесь
-                 * нельзя — расписание потеряло бы все рейсы до
-                 * следующего прогона.
-                 */
-                'manual_routes' => $routes,
-                'is_manual' => false,
-                'auto_disabled' => $autoDisabled,
-                // Выключили автосборку — собранное больше не показываем.
-                'routes' => $autoDisabled ? [] : ($saved?->routes ?? []),
-                // Кто правил: в журнале расписания это единственный след.
-                'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
-                'note' => $data['note'] ?? null,
-                /*
-                 * «Актуально на» двигаем только когда автоматической
-                 * половины нет: иначе дата перестанет говорить о свежести
-                 * станционных данных.
-                 */
-                'generated_at' => ($saved?->routes ?? []) === [] ? now() : $saved?->generated_at,
+                ...$this->halves($schedule, $routes, $autoDisabled, $request, $data),
             ],
         );
 
@@ -402,6 +369,70 @@ class ScheduleEditorController extends Controller
         ]);
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Поля записи, общие для станции и пункта посадки.
+     *
+     * Вынесено в одно место потому, что разъехалось: у станции «актуально
+     * на» уже не сдвигалось при правке ручной половины, а у пункта
+     * сдвигалось — и заодно обнулялись `synced_at` с `sync_error`.
+     * Выходило, что правка одного ручного рейса писала на сайте
+     * «Актуально на сегодня» при устаревшей собранной половине и убирала
+     * из панели АИС настоящую ошибку синка.
+     *
+     * @param  array<int, array<string, mixed>>  $routes
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function halves(
+        ?StationSchedule $existing,
+        array $routes,
+        bool $autoDisabled,
+        Request $request,
+        array $data,
+    ): array {
+        $auto = $existing?->routes ?? [];
+
+        $attributes = [
+            /*
+             * Пишем ТОЛЬКО ручную половину. Автоматическую (`routes`)
+             * собирает `schedule:sync` из баз станций, и затирать её
+             * здесь нельзя — расписание теряло бы все собранные рейсы до
+             * следующего прогона.
+             */
+            'manual_routes' => $routes,
+            'is_manual' => false,
+            'auto_disabled' => $autoDisabled,
+            // Выключили автосборку — собранное больше не показываем.
+            'routes' => $autoDisabled ? [] : $auto,
+            // Кто правил: в журнале расписания это единственный след.
+            'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
+            'note' => $data['note'] ?? null,
+        ];
+
+        /*
+         * «Актуально на» двигаем только когда автоматической половины не
+         * остаётся — она пуста или мы её только что выключили. Пока она
+         * есть, дата говорит о свежести станционных данных, и ручная
+         * правка не вправе её освежать.
+         */
+        if ($autoDisabled || $auto === []) {
+            $attributes['generated_at'] = now();
+        }
+
+        /*
+         * Ошибка синка относится к собранной половине. Выключили
+         * автосборку — она больше ни о чём, иначе так и висела бы в
+         * панели «Обновление данных». В остальных случаях НЕ трогаем:
+         * `synced_at` и `sync_error` ставит синк, и затирать их ручной
+         * правкой значит прятать настоящий сбой.
+         */
+        if ($autoDisabled) {
+            $attributes['sync_error'] = null;
+        }
+
+        return $attributes;
     }
 
     /**

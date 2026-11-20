@@ -75,7 +75,13 @@ class ScheduleService
 
         // Автосборка выключена — расписание остановки ведут вручную.
         if ($this->autoDisabled($saved)) {
-            return ['awtcod' => null, 'name' => $name, 'routes' => null, 'error' => null];
+            return [
+                'awtcod' => null,
+                'name' => $name,
+                'routes' => null,
+                'error' => null,
+                'skipped' => 'автосборка выключена',
+            ];
         }
 
         $routes = [];
@@ -141,7 +147,6 @@ class ScheduleService
                 // Пишем ТОЛЬКО автоматическую часть: ручные маршруты
                 // живут в `manual_routes` и синком не трогаются.
                 'routes' => $routes,
-                'routes_count' => count($routes),
                 'is_manual' => false,
                 'generated_at' => now(),
                 'synced_at' => now(),
@@ -185,7 +190,6 @@ class ScheduleService
                     'station_name' => $response['awtname'] ?: $name,
                     'slug' => StationSchedule::slug($response['awtname'] ?: $name),
                     'routes' => $response['data'],
-                    'routes_count' => count($response['data']),
                     // ЛОВУШКА ПОЯСА: API продаж отдаёт время строкой СО
                     // смещением, а Eloquent пишет дату строкой БЕЗ него —
                     // сессия Postgres в Europe/Moscow примет её за
@@ -263,13 +267,16 @@ class ScheduleService
     /**
      * Автосборка выключена для этого места.
      *
-     * Старый признак `is_manual` учитываем тоже: записи, заведённые до
-     * разделения половин, означали «всё расписание ручное» — то же, что
-     * выключенная автосборка.
+     * Признак один — `auto_disabled`. Прежний `is_manual` здесь НЕ
+     * учитывается: миграция `2026_11_21_000004` сбросила его у всех
+     * записей (ручная половина переехала в `manual_routes`), а
+     * `2026_11_21_000007` проставила `auto_disabled` тем станциям,
+     * которые вели расписание полностью вручную. Читать оба значило бы
+     * держать ветку, в которую не попадает ни одна строка.
      */
     private function autoDisabled(?StationSchedule $schedule): bool
     {
-        return (bool) ($schedule?->auto_disabled || $schedule?->is_manual);
+        return (bool) $schedule?->auto_disabled;
     }
 
     /**
@@ -306,12 +313,27 @@ class ScheduleService
         return StationSchedule::orderBy('station_name')
             ->get()
             ->map(fn (StationSchedule $s) => [
-                'awtcod' => (int) $s->awtcod,
+                /*
+                 * У пункта посадки кода станции НЕТ, и приводить его к
+                 * нулю нельзя: панель рисует строки с ключом по `awtcod`,
+                 * и все пункты оказывались под одним ключом 0 — Vue
+                 * ругался на дубликаты и путал значения строк при
+                 * перерисовке после синка.
+                 */
+                'awtcod' => $s->awtcod === null ? null : (int) $s->awtcod,
+                'boarding_point' => $s->boarding_point_slug,
                 'name' => $s->station_name,
-                'count' => (int) $s->routes_count,
-                // Ручное расписание синк не обновляет — об этом сотруднику
-                // стоит знать, иначе «не обновлялось» читается как сбой.
-                'is_manual' => (bool) $s->is_manual,
+                /*
+                 * Считаем ОБЕ половины на лету, как и остальные читатели
+                 * (`stations()`, страница сайта, список в АИС). Раньше
+                 * здесь стояла колонка `routes_count`, которую редактор
+                 * не обновлял, и панель показывала одно число, а страница
+                 * другое; колонка удалена миграцией.
+                 */
+                'count' => count($s->routes ?? []) + count($s->manual_routes ?? []),
+                // Автосборка выключена — синк это место не трогает, и
+                // «не обновлялось» здесь не сбой, а настройка.
+                'auto_disabled' => (bool) $s->auto_disabled,
                 'generated_at' => $s->generated_at?->toIso8601String(),
                 'synced_at' => $s->synced_at?->toIso8601String(),
                 'sync_error' => $s->sync_error,
