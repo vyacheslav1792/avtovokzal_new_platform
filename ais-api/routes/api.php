@@ -108,6 +108,17 @@ Route::prefix('v1')->group(function () {
         Route::delete('schedules/{awtcod}', [ScheduleEditorController::class, 'destroy'])
             ->whereNumber('awtcod')->middleware('employee.can:schedules.edit');
 
+        /*
+         * Расписание ПУНКТА ПОСАДКИ: своей автостанции (и базы продаж) у
+         * него нет, поэтому расписание всегда ручное, а ключ — его slug.
+         */
+        Route::get('schedules/point/{slug}', [ScheduleEditorController::class, 'showPoint'])
+            ->where('slug', '[a-z0-9-]+')->middleware('employee.can:schedules.view');
+        Route::put('schedules/point/{slug}', [ScheduleEditorController::class, 'updatePoint'])
+            ->where('slug', '[a-z0-9-]+')->middleware('employee.can:schedules.edit');
+        Route::delete('schedules/point/{slug}', [ScheduleEditorController::class, 'destroyPoint'])
+            ->where('slug', '[a-z0-9-]+')->middleware('employee.can:schedules.edit');
+
         Route::get('boarding-points', [BoardingPointController::class, 'index'])
             ->middleware('employee.can:boarding-points.view');
         Route::post('boarding-points', [BoardingPointController::class, 'store'])

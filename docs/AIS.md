@@ -368,6 +368,10 @@ HTML-файл на боевом сервере (`url/raspisanie/<slug>.html`). �
 
 Что важно знать:
 
+- расписание бывает у станции (`awtcod`) и у **пункта посадки**
+  (`boarding_point_slug`): у Дросково своей автостанции нет, и на сайте
+  это одно место — и в «Откуда», и в разделе расписания. Роуты пункта —
+  `/api/v1/schedules/point/{slug}`;
 - таблица **`station_schedules` живёт в БД САЙТА** — ais-api пишет в неё
   через соединение `site` (модель `App\Models\StationSchedule` там же, с
   `protected $connection = 'site'`);

@@ -116,10 +116,18 @@ class ScheduleService
         $hidden = $this->hiddenInSchedule();
 
         return StationSchedule::orderBy('station_name')
-            ->get(['awtcod', 'station_name', 'slug', 'routes_count', 'generated_at', 'is_manual'])
-            ->reject(fn (StationSchedule $s) => in_array((int) $s->awtcod, $hidden, true))
+            ->get()
+            ->reject(fn (StationSchedule $s) => $s->awtcod !== null
+                && in_array((int) $s->awtcod, $hidden, true))
             ->map(fn (StationSchedule $s) => [
-                'awtcod' => (int) $s->awtcod,
+                'awtcod' => $s->awtcod === null ? null : (int) $s->awtcod,
+                /*
+                 * Расписание пункта посадки (у Дросково своей станции
+                 * нет): на сайте это тот же пункт, что и в поиске
+                 * билетов, поэтому в списке он один, а не «пункт» и
+                 * «станция» отдельно (docs/BOARDING_POINTS.md).
+                 */
+                'boarding_point' => $s->boarding_point_slug,
                 'name' => $s->station_name,
                 'slug' => $s->slug,
                 'routes_count' => (int) $s->routes_count,
@@ -192,10 +200,19 @@ class ScheduleService
             : $query
                 ->where('station_name', $station)
                 ->orWhere('slug', StationSchedule::slug($station))
+                // Пункт посадки ищется и по своему ключу: страница сайта
+                // открывается как `?from=Дросково`, а АИС знает его slug.
+                ->orWhere('boarding_point_slug', $station)
                 ->first();
 
         if ($schedule === null) {
             return null;
+        }
+
+        // Признак «Показывать в расписании» есть только у станций; у
+        // пункта посадки его роль играет его собственный выключатель.
+        if ($schedule->awtcod === null) {
+            return $schedule;
         }
 
         return in_array((int) $schedule->awtcod, $this->hiddenInSchedule(), true) ? null : $schedule;

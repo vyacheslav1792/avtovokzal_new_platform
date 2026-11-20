@@ -13,6 +13,7 @@ class StationSchedule extends Model
     protected $guarded = [];
 
     protected $casts = [
+        'awtcod' => 'int',
         'routes' => 'array',
         /*
          * Расписание заведено вручную в АИС — у станции без базы продаж

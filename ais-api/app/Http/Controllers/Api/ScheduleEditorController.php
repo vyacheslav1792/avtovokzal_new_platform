@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BoardingPoint;
 use App\Models\Station;
 use App\Models\StationSchedule;
 use App\Services\StationRegistry;
@@ -61,11 +62,43 @@ class ScheduleEditorController extends Controller
         });
 
         /*
+         * ПУНКТЫ ПОСАДКИ — остановки, с которых продаёт сайт. Своей
+         * автостанции у них нет (у Дросково её закрыли), поэтому
+         * расписание проходящих автобусов им заводят здесь же, а на сайте
+         * пункт остаётся ОДНОЙ сущностью: и в «Откуда», и в разделе
+         * расписания (docs/BOARDING_POINTS.md).
+         */
+        $points = BoardingPoint::orderBy('inlist')->orderBy('name')->get()
+            ->map(function (BoardingPoint $point) use ($schedules) {
+                $schedule = $schedules->firstWhere('boarding_point_slug', $point->slug);
+
+                return [
+                    'awtcod' => null,
+                    'boarding_point' => $point->slug,
+                    'name' => $point->name,
+                    'is_active' => $point->is_active,
+                    'show_in_schedule' => $point->show_in_schedule,
+                    // Базы продаж у пункта нет по определению: рейсы ведут
+                    // соседние станции, поэтому расписание только ручное.
+                    'has_connection' => false,
+                    'slug' => $schedule?->slug ?? $point->slug,
+                    'routes_count' => (int) ($schedule?->routes_count ?? 0),
+                    'is_manual' => (bool) ($schedule?->is_manual ?? false),
+                    'generated_at' => $schedule?->generated_at?->format('d.m.Y H:i'),
+                    'synced_at' => null,
+                    'sync_error' => null,
+                    'edited_by' => $schedule?->edited_by,
+                    'note' => $schedule?->note,
+                ];
+            });
+
+        /*
          * Расписания станций, которых в справочнике уже нет (станцию
          * удалили, а расписание осталось): их тоже надо показать, иначе
          * страница сайта живёт, а в АИС её не видно.
          */
         $orphans = $schedules
+            ->whereNull('boarding_point_slug')
             ->whereNotIn('awtcod', $stations->pluck('awtcod'))
             ->map(fn (StationSchedule $s) => [
                 'awtcod' => (int) $s->awtcod,
@@ -88,10 +121,99 @@ class ScheduleEditorController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'stations' => $rows->concat($orphans)->values()->all(),
+                'stations' => $rows->concat($points)->concat($orphans)->values()->all(),
                 'days' => self::DAYS,
             ],
         ]);
+    }
+
+    /** Расписание пункта посадки — его правит та же форма. */
+    public function showPoint(string $slug): JsonResponse
+    {
+        $point = BoardingPoint::where('slug', $slug)->first();
+
+        if ($point === null) {
+            return response()->json(['success' => false, 'error' => 'Пункт посадки не найден'], 404);
+        }
+
+        $schedule = StationSchedule::where('boarding_point_slug', $slug)->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'awtcod' => null,
+                'boarding_point' => $point->slug,
+                'name' => $point->name,
+                'slug' => $schedule?->slug ?? $point->slug,
+                'is_manual' => (bool) ($schedule?->is_manual ?? false),
+                'has_connection' => false,
+                'note' => $schedule?->note,
+                'edited_by' => $schedule?->edited_by,
+                'generated_at' => $schedule?->generated_at?->toIso8601String(),
+                'routes' => $schedule?->routes ?? [],
+            ],
+        ]);
+    }
+
+    /**
+     * Сохранить расписание пункта посадки.
+     *
+     * Проверок «а не приходит ли оно из базы» здесь нет и быть не может:
+     * своей базы продаж у пункта нет вовсе — расписание всегда ручное.
+     */
+    public function updatePoint(Request $request, string $slug): JsonResponse
+    {
+        $point = BoardingPoint::where('slug', $slug)->first();
+
+        if ($point === null) {
+            return response()->json(['success' => false, 'error' => 'Пункт посадки не найден'], 404);
+        }
+
+        $data = $this->validateRoutes($request);
+        $routes = $this->normalize($data['routes']);
+
+        $saved = StationSchedule::updateOrCreate(
+            ['boarding_point_slug' => $point->slug],
+            [
+                'awtcod' => null,
+                'station_name' => $point->name,
+                // Адрес страницы на сайте — ключ пункта: он же стоит в
+                // «Откуда», и на сайте это одно и то же место.
+                'slug' => $point->slug,
+                'routes' => $routes,
+                'routes_count' => count($routes),
+                'is_manual' => true,
+                'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
+                'note' => $data['note'] ?? null,
+                'generated_at' => now(),
+                'synced_at' => now(),
+                'sync_error' => null,
+            ],
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'boarding_point' => $point->slug,
+                'slug' => $saved->slug,
+                'routes_count' => $saved->routes_count,
+                'generated_at' => $saved->generated_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /** Убрать расписание пункта посадки с сайта. */
+    public function destroyPoint(string $slug): JsonResponse
+    {
+        $schedule = StationSchedule::where('boarding_point_slug', $slug)->first();
+
+        if ($schedule === null) {
+            return response()->json(['success' => false, 'error' => 'Расписание не найдено'], 404);
+        }
+
+        $schedule->delete();
+
+        return response()->json(['success' => true]);
     }
 
     /** Расписание одной станции целиком — его и правит форма. */
@@ -152,33 +274,7 @@ class ScheduleEditorController extends Controller
             ], 422);
         }
 
-        $data = $request->validate([
-            'note' => ['nullable', 'string', 'max:255'],
-            'routes' => ['present', 'array', 'max:200'],
-            'routes.*.route_name' => ['required', 'string', 'max:128'],
-            'routes.*.route_number' => ['nullable', 'string', 'max:32'],
-            'routes.*.route_full_name' => ['nullable', 'string', 'max:255'],
-            'routes.*.carrier' => ['nullable', 'string', 'max:128'],
-            // Текст графика — как в legacy («Каждый день», «Ср, Пт»,
-            // «Каждые 2 дня: 22.11.2026, 24.11.2026»).
-            'routes.*.schedule' => ['required', 'string', 'max:255'],
-            'routes.*.days' => ['sometimes', 'array', 'max:7'],
-            'routes.*.days.*' => ['in:'.implode(',', self::DAYS)],
-            'routes.*.fixed_dates' => ['sometimes', 'array', 'max:60'],
-            'routes.*.fixed_dates.*' => ['string', 'max:20'],
-            'routes.*.departures' => ['required', 'array', 'min:1', 'max:60'],
-            /*
-             * Время отправления — «ЧЧ:ММ». Ведущий ноль не требуем:
-             * расписание переписывают с бумаги, и «9:15» там обычное
-             * дело — приводим к «09:15» сами, а не отказываем.
-             */
-            'routes.*.departures.*.time' => ['required', 'regex:/^([01]?\d|2[0-3]):[0-5]\d$/'],
-        ], [
-            'routes.*.route_name.required' => 'У маршрута должно быть название.',
-            'routes.*.schedule.required' => 'Укажите график: «Каждый день», «Ср, Пт» или перечень дат.',
-            'routes.*.departures.required' => 'Добавьте хотя бы одно время отправления.',
-            'routes.*.departures.*.time.regex' => 'Время отправления указывается как ЧЧ:ММ.',
-        ]);
+        $data = $this->validateRoutes($request);
 
         $name = $schedule?->station_name ?? $station->name;
         $routes = $this->normalize($data['routes']);
@@ -240,6 +336,42 @@ class ScheduleEditorController extends Controller
         $schedule->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Проверка маршрутов — одна и та же для станции и пункта посадки.
+     *
+     * @return array<string, mixed>
+     */
+    private function validateRoutes(Request $request): array
+    {
+        return $request->validate([
+            'note' => ['nullable', 'string', 'max:255'],
+            'routes' => ['present', 'array', 'max:200'],
+            'routes.*.route_name' => ['required', 'string', 'max:128'],
+            'routes.*.route_number' => ['nullable', 'string', 'max:32'],
+            'routes.*.route_full_name' => ['nullable', 'string', 'max:255'],
+            'routes.*.carrier' => ['nullable', 'string', 'max:128'],
+            // Текст графика — как в legacy («Каждый день», «Ср, Пт»,
+            // «Каждые 2 дня: 22.11.2026, 24.11.2026»).
+            'routes.*.schedule' => ['required', 'string', 'max:255'],
+            'routes.*.days' => ['sometimes', 'array', 'max:7'],
+            'routes.*.days.*' => ['in:'.implode(',', self::DAYS)],
+            'routes.*.fixed_dates' => ['sometimes', 'array', 'max:60'],
+            'routes.*.fixed_dates.*' => ['string', 'max:20'],
+            'routes.*.departures' => ['required', 'array', 'min:1', 'max:60'],
+            /*
+             * Время отправления — «ЧЧ:ММ». Ведущий ноль не требуем:
+             * расписание переписывают с бумаги, и «9:15» там обычное
+             * дело — приводим к «09:15» сами, а не отказываем.
+             */
+            'routes.*.departures.*.time' => ['required', 'regex:/^([01]?\d|2[0-3]):[0-5]\d$/'],
+        ], [
+            'routes.*.route_name.required' => 'У маршрута должно быть название.',
+            'routes.*.schedule.required' => 'Укажите график: «Каждый день», «Ср, Пт» или перечень дат.',
+            'routes.*.departures.required' => 'Добавьте хотя бы одно время отправления.',
+            'routes.*.departures.*.time.regex' => 'Время отправления указывается как ЧЧ:ММ.',
+        ]);
     }
 
     /**

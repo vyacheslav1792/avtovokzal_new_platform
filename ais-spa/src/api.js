@@ -196,6 +196,22 @@ export function deleteSchedule(awtcod) {
   return request(`${API}/schedules/${awtcod}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
 }
 
+/*
+ * Расписание пункта посадки (остановки, с которой продаёт сайт): своей
+ * автостанции у него нет, ключ — slug пункта.
+ */
+export function fetchPointSchedule(slug) {
+  return request(`${API}/schedules/point/${slug}`)
+}
+
+export function savePointSchedule(slug, payload) {
+  return request(`${API}/schedules/point/${slug}`, json('PUT', payload))
+}
+
+export function deletePointSchedule(slug) {
+  return request(`${API}/schedules/point/${slug}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
 /* Пункты посадки: остановки на трассе, с которых продаёт сайт. */
 
 export function fetchBoardingPoints() {

@@ -63,16 +63,23 @@ const from = computed(() => String(route.query.from ?? ''))
 
 /*
  * Пункты посадки — остановки на трассе, с которых продаются билеты
- * (docs/BOARDING_POINTS.md). РЕГУЛЯРНОГО расписания у них нет: рейсы ведут
- * чужие станции, и собственного графика отправлений у остановки не
- * существует. Поэтому для такого пункта страница показывает не таблицу
- * маршрутов, а направления — выбор ведёт к рейсам с временем посадки.
+ * (docs/BOARDING_POINTS.md). Своей автостанции у такого пункта нет, и на
+ * сайте он ОДНА сущность: и в «Откуда», и в разделе расписания. Своего
+ * графика отправлений база продаж по нему не ведёт (рейсы чужие),
+ * поэтому расписание ему заводят вручную в АИС — как в legacy, где для
+ * таких мест лежал отдельный HTML-файл.
+ *
+ * В адресе пункт стоит НАЗВАНИЕМ, как и станция (`?from=Дросково`);
+ * значение селекта `bp:<slug>` поддерживается для совместимости и уводит
+ * на канонический адрес.
  */
 const { data: departuresResp } = await useDepartures()
 const boardingPoints = computed(() => departuresResp.value?.points ?? [])
 const pointSlug = computed(() => boardingPointSlug(from.value))
 const point = computed(() =>
-  boardingPoints.value.find(p => p.slug === pointSlug.value) ?? null)
+  boardingPoints.value.find(
+    p => p.name === from.value || p.slug === from.value || p.slug === pointSlug.value,
+  ) ?? null)
 
 const { data: stationsResp } = await useAsyncData('schedule-stations', () =>
   api<{ success: boolean, data: ScheduleStation[] }>('/schedule'))
@@ -91,17 +98,28 @@ const stations = computed(() => stationsResp.value?.data ?? [])
 const selectedStation = computed(() =>
   stations.value.find(s => s.name === from.value || s.slug === from.value) ?? null)
 
-/** Значение для селекта: название станции, пункт посадки или как в адресе. */
+/** Значение для селекта — всегда название: и у станции, и у пункта посадки. */
 const selectedDeparture = computed(() =>
-  selectedStation.value?.name
-  ?? (point.value ? boardingPointValue(point.value.slug) : from.value))
+  selectedStation.value?.name ?? point.value?.name ?? from.value)
 
+/*
+ * Расписание запрашиваем и для пункта посадки: у него оно тоже может
+ * быть (заведённое вручную), и тогда страница показывает маршруты рядом
+ * с формой поиска — вместо двух разных «Дросково», как было сперва.
+ */
 const { data: scheduleResp, error } = await useAsyncData(
   'schedule',
-  () => from.value && !isBoardingPoint(from.value)
-    ? api<{ success: boolean, data: ScheduleData }>(`/schedule/${encodeURIComponent(from.value)}`)
-    : Promise.resolve(null),
-  { watch: [from] },
+  () => {
+    if (!from.value) return Promise.resolve(null)
+
+    const key = point.value?.slug ?? from.value
+
+    return api<{ success: boolean, data: ScheduleData }>(`/schedule/${encodeURIComponent(key)}`)
+      // У пункта посадки расписания может не быть вовсе — это не ошибка
+      // страницы: форма поиска рейсов работает и без него.
+      .catch(() => null)
+  },
+  { watch: [from, point] },
 )
 
 const schedule = computed(() => scheduleResp.value?.data ?? null)
@@ -200,9 +218,22 @@ if (legacyTo.value && from.value && !isBoardingPoint(from.value)) {
  * станции ответом 301: дублировать страницу двумя адресами незачем, а
  * ссылки такого вида успели попасть в АИС и в закладки.
  */
-if (selectedStation.value && from.value === selectedStation.value.slug && !legacyTo.value) {
+const canonicalFrom = computed(() => {
+  if (selectedStation.value && from.value !== selectedStation.value.name) {
+    return selectedStation.value.name
+  }
+
+  // `bp:droskovo` и просто `droskovo` — оба уводим на «Дросково».
+  if (point.value && from.value !== point.value.name) {
+    return point.value.name
+  }
+
+  return null
+})
+
+if (canonicalFrom.value && !legacyTo.value) {
   await navigateTo(
-    { path: '/raspisanie-avtobusov', query: { from: selectedStation.value.name } },
+    { path: '/raspisanie-avtobusov', query: { from: canonicalFrom.value } },
     { redirectCode: 301 },
   )
 }
@@ -213,7 +244,7 @@ if (selectedStation.value && from.value === selectedStation.value.slug && !legac
  * и ответ 404. Иначе ссылка остаётся в поисковой выдаче и ведёт на текст
  * ошибки (та же причина, что у страницы тарифа — docs/STATIONS.md).
  */
-if (import.meta.server && from.value && !isBoardingPoint(from.value) && !legacyTo.value) {
+if (import.meta.server && from.value && !point.value && !legacyTo.value) {
   const event = useRequestEvent()
 
   if (event && (error.value || !schedule.value)) {
@@ -239,10 +270,9 @@ useSeoMeta({
 
 const stationOptions = computed(() => [
   ...stations.value.map(s => ({ label: s.name, value: s.name })),
-  ...boardingPoints.value.map(p => ({
-    label: p.name,
-    value: boardingPointValue(p.slug),
-  })),
+  // Пункт посадки — таким же пунктом списка, как станция: на сайте это
+  // одно место, а не «станция» и «остановка» по отдельности.
+  ...boardingPoints.value.map(p => ({ label: p.name, value: p.name })),
 ])
 
 /** Смена пункта отправления меняет адрес страницы — ссылкой можно делиться. */
@@ -409,7 +439,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       <NuxtLink
         v-for="p in boardingPoints"
         :key="p.slug"
-        :to="{ query: { from: boardingPointValue(p.slug) } }"
+        :to="{ query: { from: p.name } }"
         class="border border-default rounded-lg p-4 font-medium hover:border-primary transition-colors"
       >
         {{ p.name }}
@@ -417,28 +447,31 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
     </div>
 
     <!--
-      Пункт посадки: своего графика у остановки нет (рейсы ведут чужие
-      станции), поэтому вместо таблицы маршрутов — направления и переход к
-      рейсам, где время указано уже для этой остановки.
+      Пункт посадки: кассы на остановке нет, билет оформляет станция,
+      которая ведёт рейс. Расписание у пункта может быть (заведённое
+      вручную) — тогда оно показывается ниже обычной таблицей.
     -->
     <UAlert
-      v-else-if="point"
+      v-if="point && from"
       color="info"
       variant="subtle"
+      class="mb-4"
       icon="i-lucide-map-pin"
       :title="`Остановка «${point.name}»`"
-      description="Это остановка в пути: кассы на ней нет, билет оформляет автостанция, которая ведёт рейс. Выберите пункт прибытия выше — покажем рейсы с временем отправления от этой остановки."
+      :description="schedule
+        ? 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Ниже — расписание проходящих автобусов, а чтобы купить билет, выберите пункт прибытия выше.'
+        : 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Выберите пункт прибытия выше — покажем рейсы с временем отправления от этой остановки.'"
     />
 
     <UAlert
-      v-else-if="error"
+      v-if="!point && error"
       color="error"
       variant="subtle"
       title="Расписание недоступно"
       description="Для этой станции расписание пока не опубликовано. Попробуйте выбрать другой пункт отправления."
     />
 
-    <template v-else-if="schedule">
+    <template v-if="schedule">
       <div class="flex justify-end mb-3 no-print">
         <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="printPage">
           Версия для печати

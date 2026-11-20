@@ -17,7 +17,15 @@
  * приходит из базы, и ручная правка разошлась бы с продажей.
  */
 import { computed, onMounted, ref } from 'vue'
-import { deleteSchedule, fetchSchedule, fetchSchedules, saveSchedule } from '../api'
+import {
+  deletePointSchedule,
+  deleteSchedule,
+  fetchPointSchedule,
+  fetchSchedule,
+  fetchSchedules,
+  savePointSchedule,
+  saveSchedule,
+} from '../api'
 import { can } from '../auth'
 
 /*
@@ -64,15 +72,27 @@ async function load() {
  * её расписание обновляет `schedule:sync` из базы станции.
  */
 function manualAllowed(row) {
-  return !row.has_connection || row.is_manual
+  return !!row.boarding_point || !row.has_connection || row.is_manual
+}
+
+/** Строка списка — это пункт посадки, а не автостанция. */
+function isPoint(row) {
+  return !!row.boarding_point
+}
+
+/** Ключ строки списка: код станции или slug пункта посадки. */
+function rowKey(row) {
+  return row.boarding_point ?? row.awtcod
 }
 
 async function open(row) {
-  busy.value = `open:${row.awtcod}`
+  busy.value = `open:${rowKey(row)}`
   error.value = ''
   saved.value = ''
   try {
-    const d = await fetchSchedule(row.awtcod)
+    const d = isPoint(row)
+      ? await fetchPointSchedule(row.boarding_point)
+      : await fetchSchedule(row.awtcod)
     editing.value = {
       ...d.data,
       has_connection: row.has_connection,
@@ -170,7 +190,7 @@ const problems = computed(() => {
 async function save() {
   if (problems.value.length) return
 
-  busy.value = `save:${editing.value.awtcod}`
+  busy.value = `save:${editing.value.boarding_point ?? editing.value.awtcod}`
   error.value = ''
   saved.value = ''
   try {
@@ -188,7 +208,9 @@ async function save() {
       })),
     }
 
-    const d = await saveSchedule(editing.value.awtcod, payload)
+    const d = editing.value.boarding_point
+      ? await savePointSchedule(editing.value.boarding_point, payload)
+      : await saveSchedule(editing.value.awtcod, payload)
     saved.value = `Расписание сохранено: маршрутов ${d.data.routes_count}.`
     close()
     await load()
@@ -207,10 +229,11 @@ async function remove(row) {
     + '\nСтраница расписания этой станции перестанет открываться.'
   if (!window.confirm(text)) return
 
-  busy.value = `del:${row.awtcod}`
+  busy.value = `del:${rowKey(row)}`
   error.value = ''
   try {
-    await deleteSchedule(row.awtcod)
+    if (isPoint(row)) await deletePointSchedule(row.boarding_point)
+    else await deleteSchedule(row.awtcod)
     await load()
   } catch (e) {
     error.value = e.message
@@ -270,19 +293,21 @@ onMounted(() => {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="s in stations" :key="s.awtcod" :class="{ 'row-off': !s.show_in_schedule }">
+        <tr v-for="s in stations" :key="rowKey(s)" :class="{ 'row-off': !s.show_in_schedule }">
           <td>
             <b>{{ s.name }}</b>
             <div class="muted small">
-              код {{ s.awtcod }}
-              <span v-if="!s.is_active"> · станция выключена</span>
-              <span v-if="!s.show_in_schedule"> · скрыта из расписания</span>
+              <span v-if="isPoint(s)">пункт посадки · {{ s.boarding_point }}</span>
+              <span v-else>код {{ s.awtcod }}</span>
+              <span v-if="!s.is_active"> · {{ isPoint(s) ? 'пункт выключен' : 'станция выключена' }}</span>
+              <span v-if="!s.show_in_schedule"> · скрыт из расписания</span>
             </div>
             <div v-if="s.note" class="muted small">{{ s.note }}</div>
           </td>
           <td>
             <span v-if="s.is_manual">вручную</span>
             <span v-else-if="s.has_connection">из базы станции</span>
+            <span v-else-if="isPoint(s)" class="muted">нет расписания (ведётся вручную)</span>
             <span v-else class="muted">нет расписания</span>
             <div v-if="s.edited_by" class="muted small">правил: {{ s.edited_by }}</div>
           </td>
@@ -293,7 +318,7 @@ onMounted(() => {
           </td>
           <td class="nowrap">
             <button
-              class="btn" :disabled="busy === `open:${s.awtcod}` || !manualAllowed(s)"
+              class="btn" :disabled="busy === `open:${rowKey(s)}` || !manualAllowed(s)"
               :title="manualAllowed(s)
                 ? 'Открыть расписание на правку'
                 : 'У станции настроено подключение — расписание приходит из базы'"
@@ -304,7 +329,7 @@ onMounted(() => {
             <a class="btn" :href="siteLink(s)" target="_blank" rel="noopener">На сайте</a>
             <button
               v-if="editable && s.is_manual" class="btn danger"
-              :disabled="busy === `del:${s.awtcod}`" @click="remove(s)"
+              :disabled="busy === `del:${rowKey(s)}`" @click="remove(s)"
             >
               Убрать
             </button>

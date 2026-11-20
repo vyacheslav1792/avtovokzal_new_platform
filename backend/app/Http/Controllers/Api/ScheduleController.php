@@ -51,7 +51,10 @@ class ScheduleController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'awtcod' => (int) $schedule->awtcod,
+                'awtcod' => $schedule->awtcod === null ? null : (int) $schedule->awtcod,
+                // Пункт посадки вместо станции: у него нет своей базы и
+                // билеты от него оформляют соседние станции.
+                'boarding_point' => $schedule->boarding_point_slug,
                 'name' => $schedule->station_name,
                 'slug' => $schedule->slug,
                 'routes' => $schedule->routes,
