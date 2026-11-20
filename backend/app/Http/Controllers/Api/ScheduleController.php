@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\BoardingPointCatalog;
 use App\Services\SalesApiClient;
 use App\Services\ScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 
 /**
  * Регулярное расписание для сайта (перенос страницы legacy
@@ -20,6 +23,7 @@ class ScheduleController extends Controller
     public function __construct(
         private readonly ScheduleService $schedules,
         private readonly SalesApiClient $salesApi,
+        private readonly BoardingPointCatalog $boardingPoints,
     ) {}
 
     /** Станции, для которых есть расписание. */
@@ -83,18 +87,35 @@ class ScheduleController extends Controller
             'napcod' => VendorCode::rules(),
             'raicecod' => VendorCode::rules(),
             'variant' => ['sometimes', 'in:current,upcoming'],
+            /*
+             * Тариф ОТ ОСТАНОВКИ на трассе (docs/BOARDING_POINTS.md).
+             * Два способа задать её, и оба нужны:
+             *  - `from_point` — пункт посадки сайта (его ключ): название
+             *    остановки в базе станции берём из справочника, подменить
+             *    параметром нельзя, а в заголовке будет имя для
+             *    покупателя («Дросково»);
+             *  - `from_stop` — прямое название остановки: им пользуются
+             *    АИС и агенты, у которых пункта посадки нет вовсе.
+             */
+            'from_point' => ['sometimes', 'nullable', 'string', 'max:64', 'regex:/^[a-z0-9][a-z0-9-]*$/'],
+            'from_stop' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
         ]);
 
         $variant = $data['variant'] ?? 'current';
+        $from = $this->tariffStop($data);
+
         // v2 — в кэш кладём ответ целиком (раньше только 'data'), поэтому
-        // ключ другой: старые записи не подходят по форме.
-        $key = "tariff:v2:{$data['awtcod']}:{$data['napcod']}:{$data['raicecod']}:{$variant}";
+        // ключ другой: старые записи не подходят по форме. Остановка
+        // отправления входит в ключ: цены от неё другие.
+        $key = "tariff:v2:{$data['awtcod']}:{$data['napcod']}:{$data['raicecod']}:{$variant}"
+            .($from['stop'] !== '' ? ':'.md5($from['stop']) : '');
 
         $tariff = Cache::remember($key, now()->addMinutes(10), fn () => $this->salesApi->tariff(
             (int) $data['awtcod'],
             (int) $data['napcod'],
             (int) $data['raicecod'],
             $variant,
+            $from['stop'],
         ));
 
         return response()->json([
@@ -102,7 +123,52 @@ class ScheduleController extends Controller
             // Название станции отправления нужно странице тарифа для ссылок
             // на рейсы до остановки.
             'awtname' => $tariff['awtname'] ?? null,
+            // Пункт посадки: его имя показывает страница вместо станции.
+            'from_point' => $from['slug'],
+            'from_name' => $from['name'],
             'data' => $tariff['data'],
+        ]);
+    }
+
+    /**
+     * Остановка отправления для карточки тарифа.
+     *
+     * У пункта посадки берём название остановки из справочника (а не из
+     * запроса) и проверяем, что эту станцию он действительно
+     * обслуживает: иначе страница показывала бы цены от остановки,
+     * которой на рейсах этой станции нет.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{slug: ?string, name: ?string, stop: string}
+     */
+    private function tariffStop(array $data): array
+    {
+        $slug = trim((string) ($data['from_point'] ?? ''));
+
+        if ($slug === '') {
+            return ['slug' => null, 'name' => null, 'stop' => trim((string) ($data['from_stop'] ?? ''))];
+        }
+
+        $point = $this->boardingPoints->find($slug);
+
+        if ($point === null) {
+            throw ValidationException::withMessages([
+                'from_point' => 'Пункт посадки не найден или больше не обслуживается',
+            ]);
+        }
+
+        foreach ($point['stations'] as $binding) {
+            if ((int) $binding['awtcod'] === (int) $data['awtcod']) {
+                return [
+                    'slug' => $point['slug'],
+                    'name' => $point['name'],
+                    'stop' => $binding['station_name'],
+                ];
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'from_point' => 'От этого пункта посадки выбранная автостанция рейсы не ведёт',
         ]);
     }
 }

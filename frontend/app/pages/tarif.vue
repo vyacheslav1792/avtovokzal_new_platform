@@ -38,10 +38,27 @@ interface TariffVariants {
   upcoming?: { nomkat: number, valid_from: string }
 }
 
+/**
+ * Остановка отправления, если тариф смотрят ОТ НЕЁ (пункт посадки).
+ *
+ * `departure` — время, когда автобус уходит с остановки (рейс отправляется
+ * раньше), `km` — её километраж от начала трассы: расстояния в таблице
+ * уже пересчитаны от остановки (docs/BOARDING_POINTS.md).
+ */
+interface TariffFromStop {
+  name: string
+  km: number | null
+  departure: string | null
+  offset_minutes: number | null
+  /** false — тариф заведён, а посадка в расписании рейса запрещена. */
+  boarding_allowed: boolean | null
+}
+
 interface Tariff {
   awtcod: number
   napcod: number
   raicecod: number
+  from_stop?: TariffFromStop | null
   route_name: string
   route_number: string | null
   carrier: string | null
@@ -59,6 +76,14 @@ const awtcod = computed(() => Number(route.query.from ?? route.query.awtcod ?? 0
 const napcod = computed(() => Number(route.query.napcod ?? 0))
 const raicecod = computed(() => Number(route.query.raicecod ?? 0))
 const variant = computed(() => route.query.variant === 'upcoming' ? 'upcoming' : 'current')
+/*
+ * Тариф ОТ ОСТАНОВКИ на трассе: `from_point` — ключ пункта посадки сайта
+ * (название остановки в базе станции сервер берёт из справочника сам),
+ * `from_stop` — прямое название остановки, если пункта посадки нет.
+ * Пусто — тариф от самой станции, как было всегда.
+ */
+const fromPoint = computed(() => String(route.query.from_point ?? ''))
+const fromStop = computed(() => String(route.query.from_stop ?? ''))
 
 /*
  * Адрес обязан называть рейс целиком: станция + направление + рейс.
@@ -73,19 +98,41 @@ const hasTrip = computed(() => awtcod.value > 0 && napcod.value > 0 && raicecod.
 const { data, error } = await useAsyncData(
   'tariff',
   () => hasTrip.value
-    ? api<{ success: boolean, awtname: string | null, data: Tariff }>('/tariff', {
-        query: {
-          awtcod: awtcod.value,
-          napcod: napcod.value,
-          raicecod: raicecod.value,
-          variant: variant.value,
-        },
-      })
+    ? api<{
+      success: boolean
+      awtname: string | null
+      from_point: string | null
+      from_name: string | null
+      data: Tariff
+    }>('/tariff', {
+      query: {
+        awtcod: awtcod.value,
+        napcod: napcod.value,
+        raicecod: raicecod.value,
+        variant: variant.value,
+        ...(fromPoint.value ? { from_point: fromPoint.value } : {}),
+        ...(!fromPoint.value && fromStop.value ? { from_stop: fromStop.value } : {}),
+      },
+    })
     : Promise.resolve(null),
-  { watch: [awtcod, napcod, raicecod, variant] },
+  { watch: [awtcod, napcod, raicecod, variant, fromPoint, fromStop] },
 )
 
 const tariff = computed(() => data.value?.data ?? null)
+
+/** Остановка отправления (пусто — тариф от самой станции). */
+const stop = computed(() => tariff.value?.from_stop ?? null)
+
+/**
+ * Что считать пунктом отправления в заголовке и ссылках: название пункта
+ * посадки («Дросково»), название остановки в базе станции или сама
+ * станция.
+ */
+const departureName = computed(() =>
+  data.value?.from_name || stop.value?.name || data.value?.awtname || '')
+
+/** Время, с которого начинается поездка: посадка на остановке или рейс. */
+const departureTime = computed(() => stop.value?.departure || tariff.value?.time_start || '')
 
 /**
  * Клик по остановке ведёт к рейсам до неё — расписание с той же даты,
@@ -98,13 +145,15 @@ const stopDate = computed(() => {
   return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : siteDate()
 })
 
-function stopLink(stop: TariffStop) {
+function stopLink(row: TariffStop) {
   return {
     path: '/trips',
     query: {
-      awtcod: awtcod.value,
-      from: data.value?.awtname ?? '',
-      to: stop.name,
+      // От пункта посадки рейсы ищутся по нему: станцию выбирает сервер
+      // по тарифам (docs/BOARDING_POINTS.md).
+      ...(fromPoint.value ? { from_point: fromPoint.value } : { awtcod: awtcod.value }),
+      from: departureName.value,
+      to: row.name,
       date: stopDate.value,
       all: 1,
     },
@@ -129,7 +178,9 @@ const validityNote = computed(() => {
 
 useSeoMeta({
   title: () => tariff.value
-    ? `Тариф по рейсу ${tariff.value.route_name}, отправление ${tariff.value.time_start}`
+    ? (stop.value
+        ? `Тариф от остановки ${departureName.value} по рейсу ${tariff.value.route_name}`
+        : `Тариф по рейсу ${tariff.value.route_name}, отправление ${tariff.value.time_start}`)
     : 'Стоимость проезда',
 })
 
@@ -140,6 +191,8 @@ const otherVariantLink = computed(() => ({
     napcod: napcod.value,
     raicecod: raicecod.value,
     variant: variant.value === 'current' ? 'upcoming' : 'current',
+    ...(fromPoint.value ? { from_point: fromPoint.value } : {}),
+    ...(!fromPoint.value && fromStop.value ? { from_stop: fromStop.value } : {}),
   },
 }))
 
@@ -176,7 +229,8 @@ function download() {
 
   const html = `<html><head><meta charset="utf-8"></head><body>
     <h2>Тариф стоимости проезда, провоза багажа/ручной клади${validityNote.value}
-        по рейсу ${t.route_name}, время отправления ${t.time_start}</h2>
+        ${stop.value ? `от остановки ${departureName.value} ` : ''}по рейсу ${t.route_name},
+        время отправления ${stop.value ? (departureTime.value || t.time_start) : t.time_start}</h2>
     <table border="1" cellspacing="0" cellpadding="4">
       <tr><th>Остановка</th><th>Расстояние, км</th><th>Полный</th><th>Детский</th>
           <th>Багаж/ручная кладь</th><th>Добровольная страховка</th>
@@ -218,13 +272,51 @@ function download() {
     <template v-else>
       <h1 class="text-2xl font-light mb-2">
         Информация о стоимости проезда, провоза багажа/ручной клади{{ validityNote }}
-        по рейсу {{ tariff.route_name }}, время отправления {{ tariff.time_start }}
+        <template v-if="stop">
+          от остановки {{ departureName }} по рейсу {{ tariff.route_name }},
+          время отправления с остановки {{ departureTime || '—' }}
+        </template>
+        <template v-else>
+          по рейсу {{ tariff.route_name }}, время отправления {{ tariff.time_start }}
+        </template>
       </h1>
 
       <div class="text-sm text-muted mb-4">
         <span v-if="tariff.route_number">Маршрут № {{ tariff.route_number }}</span>
         <span v-if="tariff.carrier"> · перевозчик {{ tariff.carrier }}</span>
+        <!--
+          У тарифа от остановки важно и время отправления САМОГО рейса: по
+          нему пассажир сверяется с расписанием и со станцией.
+        -->
+        <span v-if="stop"> · рейс отправляется в {{ tariff.time_start }}</span>
+        <span v-if="stop && stop.km !== null"> · остановка на {{ stop.km }} км трассы</span>
       </div>
+
+      <!--
+        Тариф от остановки заведён, а посадка в расписании этого рейса
+        запрещена: купить билет станция не даст, и сказать это надо здесь,
+        а не на форме покупки.
+      -->
+      <UAlert
+        v-if="stop && stop.boarding_allowed === false"
+        color="warning"
+        variant="subtle"
+        class="mb-4"
+        icon="i-lucide-triangle-alert"
+        title="На этом рейсе посадка на остановке закрыта"
+        description="Цены ниже заведены, но в расписании остановок этого рейса посадка запрещена — билет от остановки оформить нельзя. Выберите другой рейс."
+      />
+
+      <!-- Тарифов от остановки может не быть вовсе — это не ошибка. -->
+      <UAlert
+        v-if="stop && !tariff.stops.length"
+        color="warning"
+        variant="subtle"
+        class="mb-4"
+        icon="i-lucide-info"
+        :title="`От остановки ${departureName} на этом рейсе тарифы не заведены`"
+        description="Станция заводит их отдельно от обычных: пока их нет, билет от остановки на этот рейс не продаётся."
+      />
 
       <div class="flex flex-wrap gap-2 mb-4 no-print">
         <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-printer" @click="printPage">

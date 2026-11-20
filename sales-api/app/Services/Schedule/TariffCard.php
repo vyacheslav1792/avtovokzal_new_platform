@@ -27,6 +27,7 @@ class TariffCard
 
     /**
      * @param  string|null  $variant  current|upcoming (по умолчанию действующий)
+     * @param  string  $fromStation  остановка отправления на трассе (пусто — от станции)
      * @return array<string, mixed>
      */
     public function build(
@@ -35,11 +36,30 @@ class TariffCard
         int $napcod,
         int $raicecod,
         ?string $variant = null,
+        string $fromStation = '',
     ): array {
         $route = $gateway->routeCard($awtcod, $napcod, $raicecod);
 
         if (! $route) {
             throw new BusterException('Рейс не найден', 'route_not_found');
+        }
+
+        /*
+         * Остановка отправления: тариф от неё живёт в своих строках
+         * TARIFS2D (STARTSTATCODE = код остановки), и цены там другие —
+         * от Дросково до Ливен 182 ₽ против 669 ₽ от Орла
+         * (docs/BOARDING_POINTS.md). Названия остановки, которой нет в
+         * этом направлении, не бывает — отказываем сразу, иначе страница
+         * показала бы пустой тариф и выглядела как «цен нет».
+         */
+        $fromStatcod = 0;
+
+        if ($fromStation !== '') {
+            $fromStatcod = $gateway->stopCodeByName($awtcod, $napcod, $fromStation)
+                ?? throw new BusterException(
+                    'Остановка «'.$fromStation.'» на этом направлении не найдена',
+                    'stop_not_found',
+                );
         }
 
         $variants = $this->variants($route);
@@ -49,9 +69,10 @@ class TariffCard
             : self::VARIANT_CURRENT;
 
         $nomkat = $variants[$variant]['nomkat'];
-        $rows = $gateway->tariff($napcod, $nomkat, $raicecod);
+        $rows = $gateway->tariff($napcod, $nomkat, $raicecod, $fromStatcod);
 
         $timeStart = substr((string) $route['TIMESTART'], 0, 5);
+        $from = $this->fromStop($rows, $fromStation, $timeStart);
 
         return [
             'awtcod' => $awtcod,
@@ -71,10 +92,60 @@ class TariffCard
                 ? date('Y-m-d', strtotime((string) $route['CHANDATE']))
                 : null,
             'variants' => $variants,
+            /*
+             * Откуда считается тариф. У продажи от станции это она сама
+             * (`from_stop` = null), у продажи от остановки — её название,
+             * километраж и ВРЕМЯ ПОСАДКИ: расстояния и время в пути в
+             * таблице отсчитываются от неё, а не от начала трассы.
+             */
+            'from_stop' => $from,
             'stops' => array_map(
-                fn (array $row) => $this->stop($row, $timeStart),
+                fn (array $row) => $this->stop($row, $timeStart, $from),
                 $rows,
             ),
+        ];
+    }
+
+    /**
+     * Остановка отправления: её километраж и время посадки.
+     *
+     * Берём из первой строки тарифа — они все с одним STARTSTATCODE.
+     * Время стоянки у станций часто не заполнено, а в Firebird
+     * `135 + null` даёт null, поэтому coalesce обязателен (та же ловушка,
+     * что в поиске рейсов).
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, mixed>|null
+     */
+    private function fromStop(array $rows, string $fromStation, string $timeStart): ?array
+    {
+        if ($fromStation === '') {
+            return null;
+        }
+
+        $row = $rows[0] ?? null;
+
+        $toStat = $row !== null && trim((string) ($row['START_TIME_TO_STAT'] ?? '')) !== ''
+            ? (int) $row['START_TIME_TO_STAT']
+            : null;
+        $stop = (int) ($row['START_TIME_OF_STOP'] ?? 0);
+        $offset = $toStat === null ? null : $toStat + $stop;
+
+        return [
+            'name' => $row['STARTSTATNAME'] ?? $fromStation,
+            // В базе расстояние в метрах (legacy делил на 1000).
+            'km' => $row === null ? null : round(((float) $row['STARTKILOM']) / 1000, 2),
+            // Время, когда автобус уходит С ОСТАНОВКИ (рейс отправляется раньше).
+            'departure' => $offset === null ? null : date('H:i', strtotime($timeStart) + $offset * 60),
+            'offset_minutes' => $offset,
+            /*
+             * Посадка в расписании ЭТОГО рейса может быть запрещена
+             * (TRACETIME.SET_DISABLED): тариф тогда заведён, а купить
+             * билет нельзя — страница должна сказать это прямо.
+             */
+            'boarding_allowed' => $row === null
+                ? null
+                : (int) ($row['START_SET_DISABLED'] ?? 1) === 0,
         ];
     }
 
@@ -108,8 +179,15 @@ class TariffCard
         ];
     }
 
-    /** Строка остановки: расстояние в км, время прибытия и время в пути. */
-    private function stop(array $row, string $timeStart): array
+    /**
+     * Строка остановки: расстояние в км, время прибытия и время в пути.
+     *
+     * При продаже от остановки и расстояние, и время в пути считаются ОТ
+     * НЕЁ: пассажиру из Дросково до Ливен 40 км и 45 минут, а не 148 км и
+     * три часа от Орла. Время прибытия остаётся абсолютным — оно и так
+     * привязано к рейсу.
+     */
+    private function stop(array $row, string $timeStart, ?array $from = null): array
     {
         /*
          * Времени в пути до остановки может не быть вовсе: `tracetime`
@@ -125,11 +203,22 @@ class TariffCard
             : null;
         $arrivalAt = $minutes === null ? null : strtotime($timeStart) + $minutes * 60;
 
+        // Время в пути от остановки отправления: минус время посадки.
+        $wayMinutes = $minutes;
+        if ($minutes !== null && $from !== null && $from['offset_minutes'] !== null) {
+            $wayMinutes = max(0, $minutes - (int) $from['offset_minutes']);
+        }
+
+        $km = round(((float) $row['KILOM']) / 1000, 2);
+        if ($from !== null && $from['km'] !== null) {
+            $km = round($km - (float) $from['km'], 2);
+        }
+
         return [
             'name' => $row['STATNAME'],
             'statcode' => (int) $row['STATCODE'],
             // В базе расстояние в метрах (legacy делил на 1000).
-            'km' => round(((float) $row['KILOM']) / 1000, 2),
+            'km' => $km,
             'price_full' => (float) $row['PAYHARDALL'],
             'price_child' => (float) $row['PAYHARDCHD'],
             'price_baggage' => (float) $row['PAYHARDBAG'],
@@ -150,8 +239,10 @@ class TariffCard
                 + $minutes * 60,
                 86400,
             ),
-            'time_way_minutes' => $minutes,
-            'time_way' => $minutes === null ? null : intdiv($minutes, 60).' ч. '.($minutes % 60).' мин.',
+            'time_way_minutes' => $wayMinutes,
+            'time_way' => $wayMinutes === null
+                ? null
+                : intdiv($wayMinutes, 60).' ч. '.($wayMinutes % 60).' мин.',
             'stop_minutes' => (int) $row['TIME_OF_STOP'],
         ];
     }

@@ -276,6 +276,9 @@ function tariffLink(trip: Trip) {
       napcod: trip.napcod,
       raicecod: trip.raicecod,
       date: trip.date_start,
+      // Тариф от пункта посадки: цены от остановки свои, и расстояния в
+      // таблице считаются от неё (docs/BOARDING_POINTS.md).
+      ...(fromPoint.value ? { from_point: fromPoint.value } : {}),
     },
   }
 }

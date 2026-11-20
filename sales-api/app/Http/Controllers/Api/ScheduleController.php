@@ -10,6 +10,7 @@ use App\Services\Schedule\TariffCard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 
 /**
  * Регулярное расписание станции (перенос legacy action=raspisanie).
@@ -42,6 +43,11 @@ class ScheduleController extends Controller
      * Тариф рейса по остановкам (legacy /tarif). Тарифную категорию
      * выбирает сервер: `variant=current|upcoming` — действующий тариф
      * или новый, вступающий в силу с даты смены.
+     *
+     * `from` — остановка отправления на трассе: тогда отдаются цены ОТ
+     * НЕЁ (свои строки TARIFS2D со STARTSTATCODE), а расстояния и время в
+     * пути считаются от неё же (docs/BOARDING_POINTS.md). Пусто — тариф
+     * от самой станции, как было всегда.
      */
     public function tariff(Request $request, int $awtcod): JsonResponse
     {
@@ -49,6 +55,9 @@ class ScheduleController extends Controller
             'napcod' => VendorCode::rules(),
             'raicecod' => VendorCode::rules(),
             'variant' => ['sometimes', 'in:current,upcoming'],
+            // Название уходит в базу станции параметром сравнения
+            // (TRACES.STATNAME, WIN1251) — отсюда проверка кодировки.
+            'from' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
         ]);
 
         $gateway = $this->gateways->forStation($awtcod, $request->attributes->get('agent'));
@@ -62,6 +71,7 @@ class ScheduleController extends Controller
                 (int) $data['napcod'],
                 (int) $data['raicecod'],
                 $data['variant'] ?? null,
+                trim((string) ($data['from'] ?? '')),
             ),
         ]);
     }

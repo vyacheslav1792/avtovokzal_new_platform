@@ -56,12 +56,20 @@ class SalesApiClient
      * станция отвечала «The raicecod field is required» — сообщение,
      * по которому причину не найти. Так же сделано в trips().
      */
-    public function tariff(int $awtcod, int $napcod, int $raicecod, ?string $variant = null): array
-    {
+    public function tariff(
+        int $awtcod,
+        int $napcod,
+        int $raicecod,
+        ?string $variant = null,
+        string $fromStop = '',
+    ): array {
         return $this->call(fn () => $this->http()->get("stations/{$awtcod}/tariff", array_filter([
             'napcod' => $napcod,
             'raicecod' => $raicecod,
             'variant' => $variant,
+            // Остановка отправления: цены и расстояния считаются от неё
+            // (docs/BOARDING_POINTS.md).
+            'from' => $fromStop !== '' ? $fromStop : null,
         ], fn ($v) => $v !== null)));
     }
 

@@ -73,13 +73,24 @@ class BusterGateway
      * Дубль-запрос legacy (там он выполнялся ещё раз при пустом результате,
      * отличаясь только регистром имени таблицы) не переносим — запросы
      * идентичны, второй никогда ничего не добавлял.
+     *
+     * $fromStatcod — ОСТАНОВКА ОТПРАВЛЕНИЯ: 0 (по умолчанию) — тарифы от
+     * самой станции, как было всегда; иначе берутся тарифы со своим
+     * STARTSTATCODE, то есть цены от остановки на трассе
+     * (docs/BOARDING_POINTS.md). Вместе с ними отдаются её километраж и
+     * время посадки — без них ни расстояние, ни время в пути от остановки
+     * не посчитать.
      */
-    public function tariff(int $napcod, int $nomkat, int $raicecod): array
+    public function tariff(int $napcod, int $nomkat, int $raicecod, int $fromStatcod = 0): array
     {
         return $this->db->select(
             'select raicelst.chandate, raicelst.newnomkat, raicelst.oldnomkat, raicelst.timestart,
                     tracetime.time_to_stat, tracetime.time_of_stop,
                     traces.statname, traces.kilom,
+                    tr_from.statname as startstatname, tr_from.kilom as startkilom,
+                    tt_from.time_to_stat as start_time_to_stat,
+                    tt_from.time_of_stop as start_time_of_stop,
+                    tt_from.set_disabled as start_set_disabled,
                     TARIFS2D.statcode, TARIFS2D.PAYHARDALL, TARIFS2D.DOBRSTR,
                     TARIFS2D.payhardchd, TARIFS2D.payhardbag
                from tarifs2D
@@ -88,14 +99,42 @@ class BusterGateway
                left join tracetime on (tracetime.napcod = traces.napcod
                     and raicelst.tracetimecod = tracetime.traicetimecod
                     and traces.statcod = tracetime.statcod)
+               /*
+                * Остановка отправления (только когда она задана): её строка
+                * в TRACES даёт километраж, а в TRACETIME — время посадки и
+                * признак, разрешена ли посадка в расписании ЭТОГО рейса.
+                */
+               left join traces tr_from on (tr_from.napcod = tarifs2D.napcode
+                    and tr_from.statcod = tarifs2D.startstatcode)
+               left join tracetime tt_from on (tt_from.napcod = tr_from.napcod
+                    and raicelst.tracetimecod = tt_from.traicetimecod
+                    and tt_from.statcod = tr_from.statcod)
               where PAYHARDALL > 0
                 and TARIFS2D.napcode = ?
                 and tarifs2D.katcode = ?
                 and raicelst.raicecod = ?
-                and TARIFS2D.startstatcode = 0
+                and TARIFS2D.startstatcode = ?
               order by traces.kilom',
-            [$napcod, $nomkat, $raicecod],
+            [$napcod, $nomkat, $raicecod, $fromStatcod],
         );
+    }
+
+    /**
+     * Код остановки по названию в пределах направления.
+     *
+     * Нужен там, где даты рейса нет (карточка тарифа — это регулярное
+     * расписание): у одной остановки в разных направлениях станции разные
+     * STATCOD, поэтому код ищется по названию вместе с направлением.
+     */
+    public function stopCodeByName(int $awtcod, int $napcod, string $stationName): ?int
+    {
+        $rows = $this->db->select(
+            'select first 1 statcod from traces
+              where awtcod = ? and napcod = ? and isdel = 0 and statname = ?',
+            [$awtcod, $napcod, $stationName],
+        );
+
+        return isset($rows[0]) ? (int) $rows[0]['STATCOD'] : null;
     }
 
     /** Даты нерегулярных рейсов станции (REG_FIXED): reg_fixed_days. */
