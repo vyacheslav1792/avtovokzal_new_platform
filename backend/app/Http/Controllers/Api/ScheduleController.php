@@ -57,8 +57,9 @@ class ScheduleController extends Controller
                 'boarding_point' => $schedule->boarding_point_slug,
                 'name' => $schedule->station_name,
                 'slug' => $schedule->slug,
-                'routes' => $schedule->routes,
-                'routes_count' => (int) $schedule->routes_count,
+                // Собранные из баз + добавленные вручную, по времени.
+                'routes' => $schedule->allRoutes(),
+                'routes_count' => count($schedule->allRoutes()),
                 /*
                  * Расписание заведено вручную (станция закрыта, базы
                  * продаж нет): страница пишет, что рейсы показаны для

@@ -16,6 +16,15 @@ class StationSchedule extends Model
         'awtcod' => 'int',
         'routes' => 'array',
         /*
+         * Маршруты, добавленные вручную в АИС, — отдельно от собранных
+         * из баз: синк обновляет только `routes`, редактор — только
+         * `manual_routes`, а сайт показывает их вместе.
+         */
+        'manual_routes' => 'array',
+        // Автосборка выключена — синк это место не трогает, на сайте
+        // остаются только маршруты, добавленные вручную.
+        'auto_disabled' => 'bool',
+        /*
          * Расписание заведено вручную в АИС — у станции без базы продаж
          * (закрытой). `schedule:sync` такие станции пропускает, иначе
          * первый прогон затёр бы работу сотрудника
@@ -25,6 +34,23 @@ class StationSchedule extends Model
         'generated_at' => 'datetime',
         'synced_at' => 'datetime',
     ];
+
+    /**
+     * Все маршруты, которые видит посетитель: собранные из баз станций и
+     * добавленные вручную, по времени первого отправления.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function allRoutes(): array
+    {
+        $routes = array_merge($this->routes ?? [], $this->manual_routes ?? []);
+
+        usort($routes, fn (array $a, array $b) => strcmp(
+            $a['departures'][0]['time'] ?? '', $b['departures'][0]['time'] ?? '',
+        ));
+
+        return $routes;
+    }
 
     /** Транслит названия станции — как в именах legacy-файлов расписания. */
     public static function slug(string $name): string

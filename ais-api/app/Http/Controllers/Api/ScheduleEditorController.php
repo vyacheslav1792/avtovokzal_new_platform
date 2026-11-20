@@ -24,8 +24,11 @@ use Illuminate\Http\Request;
  * защищает их от `schedule:sync`: иначе первый же прогон обнулил бы
  * работу (станция в справочнике есть, база не отвечает).
  *
- * Станции с рабочей базой здесь ТОЛЬКО ДЛЯ ЧТЕНИЯ: их расписание
- * приходит из BUSTER, и правка руками разошлась бы с продажей.
+ * Правится ВСЕГДА только ручная половина (`manual_routes`): расписание
+ * из базы станции (`routes`) обновляет `schedule:sync`, и затирать его
+ * здесь нельзя. Поэтому дописать рейс «для справки» можно и станции с
+ * работающей базой — например автобус другого перевозчика, которого в
+ * BUSTER нет.
  */
 class ScheduleEditorController extends Controller
 {
@@ -51,8 +54,10 @@ class ScheduleEditorController extends Controller
                 // придёт ли расписание из BUSTER само.
                 'has_connection' => $station->activeProfile() !== null,
                 'slug' => $schedule?->slug ?? StationSchedule::slug($station->name),
-                'routes_count' => (int) ($schedule?->routes_count ?? 0),
-                'is_manual' => (bool) ($schedule?->is_manual ?? false),
+                'routes_count' => count($schedule?->routes ?? []) + count($schedule?->manual_routes ?? []),
+                'auto_count' => count($schedule?->routes ?? []),
+                'manual_count' => count($schedule?->manual_routes ?? []),
+                'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
                 'generated_at' => $schedule?->generated_at?->format('d.m.Y H:i'),
                 'synced_at' => $schedule?->synced_at?->format('d.m.Y H:i'),
                 'sync_error' => $schedule?->sync_error,
@@ -82,11 +87,14 @@ class ScheduleEditorController extends Controller
                     // соседние станции, поэтому расписание только ручное.
                     'has_connection' => false,
                     'slug' => $schedule?->slug ?? $point->slug,
-                    'routes_count' => (int) ($schedule?->routes_count ?? 0),
+                    'routes_count' => count($schedule?->routes ?? []) + count($schedule?->manual_routes ?? []),
+                    'auto_count' => count($schedule?->routes ?? []),
+                    'manual_count' => count($schedule?->manual_routes ?? []),
+                    'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
                     'is_manual' => (bool) ($schedule?->is_manual ?? false),
                     'generated_at' => $schedule?->generated_at?->format('d.m.Y H:i'),
-                    'synced_at' => null,
-                    'sync_error' => null,
+                    'synced_at' => $schedule?->synced_at?->format('d.m.Y H:i'),
+                    'sync_error' => $schedule?->sync_error,
                     'edited_by' => $schedule?->edited_by,
                     'note' => $schedule?->note,
                 ];
@@ -107,8 +115,10 @@ class ScheduleEditorController extends Controller
                 'show_in_schedule' => true,
                 'has_connection' => false,
                 'slug' => $s->slug,
-                'routes_count' => (int) $s->routes_count,
-                'is_manual' => (bool) $s->is_manual,
+                'routes_count' => count($s->routes ?? []) + count($s->manual_routes ?? []),
+                'auto_count' => count($s->routes ?? []),
+                'manual_count' => count($s->manual_routes ?? []),
+                'auto_disabled' => (bool) $s->auto_disabled,
                 'generated_at' => $s->generated_at?->format('d.m.Y H:i'),
                 'synced_at' => $s->synced_at?->format('d.m.Y H:i'),
                 'sync_error' => $s->sync_error,
@@ -147,10 +157,21 @@ class ScheduleEditorController extends Controller
                 'slug' => $schedule?->slug ?? $point->slug,
                 'is_manual' => (bool) ($schedule?->is_manual ?? false),
                 'has_connection' => false,
+                'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
                 'note' => $schedule?->note,
                 'edited_by' => $schedule?->edited_by,
                 'generated_at' => $schedule?->generated_at?->toIso8601String(),
-                'routes' => $schedule?->routes ?? [],
+                /*
+                 * Две части расписания остановки:
+                 *  - `auto_routes` собраны из баз станций, которые ведут
+                 *    проходящие рейсы, и правке не подлежат — их перезапишет
+                 *    следующий `schedule:sync`;
+                 *  - `routes` — дописанные вручную: рейсы, которые не
+                 *    заходят ни на одну станцию из привязок, а для справки
+                 *    нужны. Их и правит форма.
+                 */
+                'auto_routes' => $schedule?->routes ?? [],
+                'routes' => $schedule?->manual_routes ?? [],
             ],
         ]);
     }
@@ -171,6 +192,8 @@ class ScheduleEditorController extends Controller
 
         $data = $this->validateRoutes($request);
         $routes = $this->normalize($data['routes']);
+        $existing = StationSchedule::where('boarding_point_slug', $point->slug)->first();
+        $autoDisabled = (bool) ($data['auto_disabled'] ?? ($existing?->auto_disabled ?? false));
 
         $saved = StationSchedule::updateOrCreate(
             ['boarding_point_slug' => $point->slug],
@@ -180,9 +203,16 @@ class ScheduleEditorController extends Controller
                 // Адрес страницы на сайте — ключ пункта: он же стоит в
                 // «Откуда», и на сайте это одно и то же место.
                 'slug' => $point->slug,
-                'routes' => $routes,
-                'routes_count' => count($routes),
-                'is_manual' => true,
+                /*
+                 * Пишем ТОЛЬКО ручную часть. Автоматическую (`routes`)
+                 * собирает `schedule:sync` из баз станций, и затирать её
+                 * здесь нельзя — иначе расписание остановки теряло бы
+                 * проходящие рейсы до следующего прогона.
+                 */
+                'manual_routes' => $routes,
+                'is_manual' => false,
+                'auto_disabled' => $autoDisabled,
+                'routes' => $autoDisabled ? [] : ($existing?->routes ?? []),
                 'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
                 'note' => $data['note'] ?? null,
                 'generated_at' => now(),
@@ -196,13 +226,21 @@ class ScheduleEditorController extends Controller
             'data' => [
                 'boarding_point' => $point->slug,
                 'slug' => $saved->slug,
-                'routes_count' => $saved->routes_count,
+                'manual_count' => count($routes),
+                'auto_count' => count($saved->routes ?? []),
                 'generated_at' => $saved->generated_at?->toIso8601String(),
             ],
         ]);
     }
 
-    /** Убрать расписание пункта посадки с сайта. */
+    /**
+     * Убрать РУЧНЫЕ маршруты пункта посадки.
+     *
+     * Автоматическую часть так не удалить: её соберёт следующий
+     * `schedule:sync` из баз станций. Чтобы убрать остановку из раздела
+     * расписания целиком, снимают признак «Показывать в расписании» у
+     * самого пункта.
+     */
     public function destroyPoint(string $slug): JsonResponse
     {
         $schedule = StationSchedule::where('boarding_point_slug', $slug)->first();
@@ -211,7 +249,16 @@ class ScheduleEditorController extends Controller
             return response()->json(['success' => false, 'error' => 'Расписание не найдено'], 404);
         }
 
-        $schedule->delete();
+        if (($schedule->manual_routes ?? []) === []) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Расписание собрано из баз станций — вручную добавленных маршрутов нет.'
+                    .' Чтобы убрать остановку из раздела, снимите у неё признак «Показывать в расписании».',
+                'error_code' => 'schedule_is_automatic',
+            ], 422);
+        }
+
+        $schedule->update(['manual_routes' => null, 'edited_by' => request()->user()?->login]);
 
         return response()->json(['success' => true]);
     }
@@ -235,12 +282,22 @@ class ScheduleEditorController extends Controller
                 'awtcod' => $awtcod,
                 'name' => $schedule?->station_name ?? $station->name,
                 'slug' => $schedule?->slug ?? StationSchedule::slug($station->name),
-                'is_manual' => (bool) ($schedule?->is_manual ?? false),
                 'has_connection' => $station?->activeProfile() !== null,
+                // Выключатель автосборки: с ним синк это место пропускает.
+                'auto_disabled' => (bool) ($schedule?->auto_disabled ?? false),
                 'note' => $schedule?->note,
                 'edited_by' => $schedule?->edited_by,
                 'generated_at' => $schedule?->generated_at?->toIso8601String(),
-                'routes' => $schedule?->routes ?? [],
+                /*
+                 * Две половины расписания. `auto_routes` приходят из базы
+                 * станции (их перезапишет следующий `schedule:sync`),
+                 * `routes` — дописанные вручную: рейсы, которых в базе нет,
+                 * а для справки нужны (docs/BOARDING_POINTS.md). Форма
+                 * правит только вторую половину — у любой станции, с
+                 * работающей базой или без.
+                 */
+                'auto_routes' => $schedule?->routes ?? [],
+                'routes' => $schedule?->manual_routes ?? [],
             ],
         ]);
     }
@@ -265,36 +322,38 @@ class ScheduleEditorController extends Controller
             ], 404);
         }
 
-        if ($station !== null && $station->activeProfile() !== null && ! ($schedule?->is_manual ?? false)) {
-            return response()->json([
-                'success' => false,
-                'error' => 'У станции настроено подключение к базе — её расписание приходит из BUSTER.'
-                    .' Чтобы вести расписание вручную, уберите подключение или выключите станцию.',
-                'error_code' => 'schedule_is_automatic',
-            ], 422);
-        }
-
         $data = $this->validateRoutes($request);
 
         $name = $schedule?->station_name ?? $station->name;
         $routes = $this->normalize($data['routes']);
+        $autoDisabled = (bool) ($data['auto_disabled'] ?? ($schedule?->auto_disabled ?? false));
+        $saved = $schedule;
 
         $saved = StationSchedule::updateOrCreate(
             ['awtcod' => $awtcod],
             [
                 'station_name' => $name,
                 'slug' => StationSchedule::slug($name),
-                'routes' => $routes,
-                'routes_count' => count($routes),
-                'is_manual' => true,
+                /*
+                 * Только ручная половина: автоматическую пишет
+                 * `schedule:sync` из базы станции, и затирать её здесь
+                 * нельзя — расписание потеряло бы все рейсы до
+                 * следующего прогона.
+                 */
+                'manual_routes' => $routes,
+                'is_manual' => false,
+                'auto_disabled' => $autoDisabled,
+                // Выключили автосборку — собранное больше не показываем.
+                'routes' => $autoDisabled ? [] : ($saved?->routes ?? []),
                 // Кто правил: в журнале расписания это единственный след.
                 'edited_by' => $request->user()?->full_name ?: $request->user()?->login,
                 'note' => $data['note'] ?? null,
-                // «Актуально на» на сайте — время ручной правки: другого
-                // источника свежести у такого расписания нет.
-                'generated_at' => now(),
-                'synced_at' => now(),
-                'sync_error' => null,
+                /*
+                 * «Актуально на» двигаем только когда автоматической
+                 * половины нет: иначе дата перестанет говорить о свежести
+                 * станционных данных.
+                 */
+                'generated_at' => ($saved?->routes ?? []) === [] ? now() : $saved?->generated_at,
             ],
         );
 
@@ -303,7 +362,8 @@ class ScheduleEditorController extends Controller
             'data' => [
                 'awtcod' => $awtcod,
                 'slug' => $saved->slug,
-                'routes_count' => $saved->routes_count,
+                'manual_count' => count($routes),
+                'auto_count' => count($saved->routes ?? []),
                 'generated_at' => $saved->generated_at?->toIso8601String(),
             ],
         ]);
@@ -324,16 +384,22 @@ class ScheduleEditorController extends Controller
             return response()->json(['success' => false, 'error' => 'Расписание не найдено'], 404);
         }
 
-        if (! $schedule->is_manual) {
+        if (($schedule->manual_routes ?? []) === []) {
             return response()->json([
                 'success' => false,
-                'error' => 'Это расписание приходит из базы станции — его вернёт следующее обновление.'
-                    .' Чтобы убрать станцию из раздела, снимите признак «Показывать в расписании».',
+                'error' => 'Вручную добавленных маршрутов нет, а собранные из базы станции вернёт'
+                    .' следующее обновление. Чтобы убрать станцию из раздела, снимите признак'
+                    .' «Показывать в расписании».',
                 'error_code' => 'schedule_is_automatic',
             ], 422);
         }
 
-        $schedule->delete();
+        // Удаляем только ручную половину; записи целиком не трогаем —
+        // в ней живёт расписание из базы станции.
+        $schedule->update([
+            'manual_routes' => null,
+            'edited_by' => request()->user()?->full_name ?: request()->user()?->login,
+        ]);
 
         return response()->json(['success' => true]);
     }
@@ -347,6 +413,12 @@ class ScheduleEditorController extends Controller
     {
         return $request->validate([
             'note' => ['nullable', 'string', 'max:255'],
+            /*
+             * Выключить автосборку: расписание места ведут полностью
+             * вручную. Включённый признак ОЧИЩАЕТ собранную половину —
+             * иначе на сайте осталось бы то, чему решили не верить.
+             */
+            'auto_disabled' => ['sometimes', 'boolean'],
             'routes' => ['present', 'array', 'max:200'],
             'routes.*.route_name' => ['required', 'string', 'max:128'],
             'routes.*.route_number' => ['nullable', 'string', 'max:32'],

@@ -34,8 +34,12 @@ class BusterGateway
      * в расписание не попадают. Против legacy добавлены только поля,
      * которых там не выводили: перевозчик, номер и название маршрута.
      */
-    public function regularSchedule(int $awtcod): array
+    public function regularSchedule(int $awtcod, string $fromStation = ''): array
     {
+        if ($fromStation !== '') {
+            return $this->regularScheduleFromStop($awtcod, $fromStation);
+        }
+
         return $this->db->select(
             'select naplst.napname, naplst.napcod, raicelst.*, atplstall.ATPOFFICIAL as atpname
                from raicelst
@@ -47,6 +51,49 @@ class BusterGateway
                 and (raicelst.reg_stop is null or raicelst.reg_stop >= current_date)
               order by raicelst.raicename, naplst.napname, raicelst.timestart',
             [$awtcod],
+        );
+    }
+
+    /**
+     * Регулярное расписание рейсов, ПРОХОДЯЩИХ ЧЕРЕЗ ОСТАНОВКУ.
+     *
+     * Нужно местам, у которых своей базы продаж нет вовсе: станция
+     * закрыта (Дросково, Нарышкино, Змиевка) или её никогда не было
+     * (Покровское АС — просто остановка на трассе), а автобусы идут, и
+     * расписание людям нужно. В legacy для таких мест лежал готовый
+     * HTML-файл, который правили руками; здесь то же расписание
+     * собирается из баз станций, которые эти рейсы ведут.
+     *
+     * Отличие от расписания станции — время: берётся не отправление
+     * рейса, а момент, когда автобус уходит С ОСТАНОВКИ (время до неё
+     * плюс стоянка из расписания остановок ЭТОГО рейса). Рейсы без строки
+     * `tracetime` для остановки в выдачу не попадают: они её не проезжают
+     * по расписанию.
+     *
+     * Запрет посадки (`SET_DISABLED`) здесь НЕ фильтр: расписание
+     * справочное, оно отвечает на вопрос «когда автобус здесь будет», а
+     * продажу открывают тарифы от остановки (docs/BOARDING_POINTS.md).
+     */
+    private function regularScheduleFromStop(int $awtcod, string $fromStation): array
+    {
+        return $this->db->select(
+            'select naplst.napname, naplst.napcod, raicelst.*, atplstall.ATPOFFICIAL as atpname,
+                    tr.statname as stopname, tr.statcod as stopcod, tr.kilom as stopkilom,
+                    tt.time_to_stat as stop_time_to_stat, tt.time_of_stop as stop_time_of_stop,
+                    tt.set_disabled as stop_set_disabled
+               from raicelst
+               inner join naplst on (naplst.awtcod = raicelst.awtcod) and (naplst.napcod = raicelst.napcod)
+               inner join traces tr on (tr.awtcod = raicelst.awtcod) and (tr.napcod = raicelst.napcod)
+                    and (tr.isdel = 0) and (tr.statname = ?)
+               inner join tracetime tt on (tt.awtcod = tr.awtcod) and (tt.napcod = tr.napcod)
+                    and (tt.statcod = tr.statcod) and (tt.traicetimecod = raicelst.tracetimecod)
+               left join atplstall on atplstall.atpcod = raicelst.atpcod
+              where naplst.isdel = 0
+                and raicelst.RAICETYPCOD <> 3
+                and raicelst.awtcod = ?
+                and (raicelst.reg_stop is null or raicelst.reg_stop >= current_date)
+              order by raicelst.raicename, naplst.napname, raicelst.timestart',
+            [$fromStation, $awtcod],
         );
     }
 

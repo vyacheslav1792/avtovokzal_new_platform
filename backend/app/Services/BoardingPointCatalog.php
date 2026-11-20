@@ -37,6 +37,18 @@ class BoardingPointCatalog
      */
     public function all(): array
     {
+        // Продажа от остановки — только у включённых пунктов; расписание
+        // живёт по своему признаку, см. forSchedule().
+        return array_filter($this->entries(), fn (array $p) => $p['is_active']);
+    }
+
+    /**
+     * Все пункты посадки из справочника, включая выключенные.
+     *
+     * @return array<string, array>
+     */
+    public function entries(): array
+    {
         if ($this->memo !== null) {
             return $this->memo;
         }
@@ -53,6 +65,22 @@ class BoardingPointCatalog
     public function find(string $slug): ?array
     {
         return $this->all()[$slug] ?? null;
+    }
+
+    /**
+     * Пункты для РАЗДЕЛА РАСПИСАНИЯ — те, у кого стоит `show_in_schedule`,
+     * независимо от `is_active`.
+     *
+     * Это разные вещи: `is_active` открывает ПРОДАЖУ от остановки (пункт
+     * появляется в «Откуда»), а расписание проходящих автобусов — справка,
+     * которая нужна людям и до открытия продажи. Именно так пункты и
+     * заводят: сперва расписание, потом продажа.
+     *
+     * @return array<string, array>
+     */
+    public function forSchedule(): array
+    {
+        return array_filter($this->entries(), fn (array $p) => $p['show_in_schedule']);
     }
 
     /** Пункты для формы поиска на главной / для расписания. */
@@ -78,12 +106,12 @@ class BoardingPointCatalog
                 $join->on('boarding_point_stations.boarding_point_id', '=', 'boarding_points.id')
                     ->where('boarding_point_stations.is_active', true);
             })
-            ->where('boarding_points.is_active', true)
             ->orderBy('boarding_points.inlist')
             ->orderBy('boarding_points.name')
             ->orderBy('boarding_point_stations.inlist')
             ->get([
                 'boarding_points.slug', 'boarding_points.name', 'boarding_points.inlist',
+                'boarding_points.is_active',
                 'boarding_points.show_on_home', 'boarding_points.show_in_schedule',
                 'boarding_point_stations.awtcod', 'boarding_point_stations.station_name',
                 'boarding_point_stations.excluded_destinations',
@@ -97,6 +125,7 @@ class BoardingPointCatalog
             $points[$slug] ??= [
                 'slug' => $slug,
                 'name' => (string) $row->name,
+                'is_active' => (bool) $row->is_active,
                 'show_on_home' => (bool) $row->show_on_home,
                 'show_in_schedule' => (bool) $row->show_in_schedule,
                 'inlist' => (int) $row->inlist,

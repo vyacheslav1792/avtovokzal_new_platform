@@ -42,10 +42,19 @@ class SalesApiClient
         ]));
     }
 
-    /** Регулярное расписание станции (legacy action=raspisanie). */
-    public function schedule(int $awtcod): array
+    /**
+     * Регулярное расписание станции (legacy action=raspisanie).
+     *
+     * $fromStop — остановка на трассе: тогда придёт расписание рейсов,
+     * ПРОХОДЯЩИХ ЧЕРЕЗ НЕЁ, с временем отправления от остановки. Так
+     * собирается расписание мест без своей базы продаж — закрытых станций
+     * и остановок вроде «Покровское АС» (docs/BOARDING_POINTS.md).
+     */
+    public function schedule(int $awtcod, string $fromStop = ''): array
     {
-        return $this->call(fn () => $this->http()->get("stations/{$awtcod}/schedule"));
+        return $this->call(fn () => $this->http()->get("stations/{$awtcod}/schedule", array_filter([
+            'from' => $fromStop !== '' ? $fromStop : null,
+        ], fn ($v) => $v !== null)));
     }
 
     /**

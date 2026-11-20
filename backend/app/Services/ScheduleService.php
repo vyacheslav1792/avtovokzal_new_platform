@@ -18,7 +18,10 @@ use Illuminate\Support\Facades\Log;
  */
 class ScheduleService
 {
-    public function __construct(private readonly SalesApiClient $salesApi) {}
+    public function __construct(
+        private readonly SalesApiClient $salesApi,
+        private readonly BoardingPointCatalog $boardingPoints,
+    ) {}
 
     /**
      * Обновить расписание всех станций.
@@ -37,26 +40,128 @@ class ScheduleService
             $result[] = $this->sync((int) $station['awtcod'], (string) $station['name']);
         }
 
+        /*
+         * Пункты посадки: у них своей базы нет, и расписание собирается из
+         * баз станций, которые ведут проходящие рейсы. Делаем это тем же
+         * прогоном — иначе расписание остановки отставало бы от
+         * станционного (docs/BOARDING_POINTS.md).
+         */
+        foreach ($this->boardingPoints->forSchedule() as $point) {
+            $result[] = $this->syncBoardingPoint($point);
+        }
+
         return $result;
+    }
+
+    /**
+     * Расписание пункта посадки — объединение рейсов, проходящих через
+     * остановку, по всем его станциям.
+     *
+     * Маршруты одной станции с другой не смешиваются: рейс ведёт та база,
+     * в которой он заведён, и время прохождения остановки берётся из её
+     * расписания остановок. Молчание одной станции не стирает собранное:
+     * тогда сохраняется то, что ответили остальные, а в журнал идёт
+     * предупреждение — пустое расписание на сайте хуже неполного.
+     *
+     * @param  array<string, mixed>  $point
+     * @return array{awtcod: ?int, name: string, routes: ?int, error: ?string}
+     */
+    public function syncBoardingPoint(array $point): array
+    {
+        $slug = (string) $point['slug'];
+        $name = (string) $point['name'];
+
+        $saved = StationSchedule::where('boarding_point_slug', $slug)->first();
+
+        // Автосборка выключена — расписание остановки ведут вручную.
+        if ($this->autoDisabled($saved)) {
+            return ['awtcod' => null, 'name' => $name, 'routes' => null, 'error' => null];
+        }
+
+        $routes = [];
+        $failed = [];
+
+        foreach ($point['stations'] as $binding) {
+            try {
+                $response = $this->salesApi->schedule((int) $binding['awtcod'], (string) $binding['station_name']);
+                $routes = array_merge($routes, $response['data'] ?? []);
+            } catch (\Throwable $e) {
+                $failed[] = $binding['awtcod'];
+                Log::warning('Станция не ответила на расписание от остановки', [
+                    'slug' => $slug,
+                    'awtcod' => $binding['awtcod'],
+                    'station_name' => $binding['station_name'],
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($routes === []) {
+            $error = $failed === []
+                ? 'Через остановку не проходит ни один рейс регулярного расписания'
+                : 'Станции не ответили: '.implode(', ', $failed);
+
+            /*
+             * Автоматической части нет — но у пункта могут быть маршруты,
+             * дописанные вручную (рейсы, которые не заходят ни на одну
+             * станцию из привязок). Ради пустого ответа баз их терять
+             * нельзя: страница должна остаться с тем, что есть.
+             */
+            StationSchedule::where('boarding_point_slug', $slug)->update([
+                'synced_at' => now(),
+                'sync_error' => $error,
+            ]);
+
+            return ['awtcod' => null, 'name' => $name, 'routes' => null, 'error' => $error];
+        }
+
+        // Рейсы разных станций идут общим списком — по времени, как их и
+        // читают: «когда отсюда уходит следующий автобус».
+        usort($routes, fn (array $a, array $b) => strcmp(
+            $a['departures'][0]['time'] ?? '', $b['departures'][0]['time'] ?? '',
+        ));
+
+        StationSchedule::updateOrCreate(
+            ['boarding_point_slug' => $slug],
+            [
+                'awtcod' => null,
+                'station_name' => $name,
+                'slug' => $slug,
+                // Пишем ТОЛЬКО автоматическую часть: ручные маршруты
+                // живут в `manual_routes` и синком не трогаются.
+                'routes' => $routes,
+                'routes_count' => count($routes),
+                'is_manual' => false,
+                'generated_at' => now(),
+                'synced_at' => now(),
+                'sync_error' => $failed === [] ? null : 'Не ответили станции: '.implode(', ', $failed),
+            ],
+        );
+
+        return [
+            'awtcod' => null,
+            'name' => $name,
+            'routes' => count($routes),
+            'error' => $failed === [] ? null : 'часть станций не ответила',
+        ];
     }
 
     /** @return array{awtcod: int, name: string, routes: ?int, error: ?string} */
     public function sync(int $awtcod, string $name): array
     {
         /*
-         * РУЧНОЕ расписание синк не трогает. Такое расписание ведут у
-         * станций без базы продаж (закрытых): в АИС его набирают руками,
-         * и первый же прогон — станция в справочнике есть, база не
-         * отвечает — затёр бы работу сотрудника. Признак ставит редактор
-         * расписания (docs/FRONTEND.md).
+         * Автосборка выключена в АИС — место пропускаем: его расписание
+         * ведут полностью вручную (база отдаёт то, чему нельзя верить).
+         * Ручную половину синк и так не трогает — она лежит отдельно, в
+         * `manual_routes` (docs/BOARDING_POINTS.md).
          */
-        if (StationSchedule::where('awtcod', $awtcod)->value('is_manual')) {
+        if ($this->autoDisabled(StationSchedule::where('awtcod', $awtcod)->first())) {
             return [
                 'awtcod' => $awtcod,
                 'name' => $name,
                 'routes' => null,
                 'error' => null,
-                'skipped' => 'расписание ведётся вручную',
+                'skipped' => 'автосборка выключена',
             ];
         }
 
@@ -130,11 +235,25 @@ class ScheduleService
                 'boarding_point' => $s->boarding_point_slug,
                 'name' => $s->station_name,
                 'slug' => $s->slug,
-                'routes_count' => (int) $s->routes_count,
+                // Авто + ручные: в списке станций должно стоять то же
+                // число, что человек увидит на странице.
+                'routes_count' => count($s->allRoutes()),
                 'generated_at' => $s->generated_at?->timezone(config('app.timezone'))->format('d.m.Y'),
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * Автосборка выключена для этого места.
+     *
+     * Старый признак `is_manual` учитываем тоже: записи, заведённые до
+     * разделения половин, означали «всё расписание ручное» — то же, что
+     * выключенная автосборка.
+     */
+    private function autoDisabled(?StationSchedule $schedule): bool
+    {
+        return (bool) ($schedule?->auto_disabled || $schedule?->is_manual);
     }
 
     /**

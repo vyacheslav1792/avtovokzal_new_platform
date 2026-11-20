@@ -39,12 +39,12 @@ class RegularScheduleBuilder
     /**
      * @return array{routes: array<int, array<string, mixed>>, generated_at: string}
      */
-    public function build(BusterGateway $gateway, int $awtcod): array
+    public function build(BusterGateway $gateway, int $awtcod, string $fromStation = ''): array
     {
         $fixedDays = $this->fixedDays($gateway, $awtcod);
         $grouped = [];
 
-        foreach ($gateway->regularSchedule($awtcod) as $row) {
+        foreach ($gateway->regularSchedule($awtcod, $fromStation) as $row) {
             $schedule = $this->schedule($row, $fixedDays);
 
             // Рейс без единого дня недели и без фиксированных дат — не расписание.
@@ -72,7 +72,14 @@ class RegularScheduleBuilder
             ];
 
             $grouped[$key]['departures'][] = [
-                'time' => substr((string) $row['TIMESTART'], 0, 5),
+                /*
+                 * Для расписания ОСТАНОВКИ время — не отправление рейса, а
+                 * момент, когда автобус уходит с неё: время до остановки
+                 * плюс стоянка. Время стоянки у станций часто пустое, а в
+                 * Firebird `135 + null` даёт null — отсюда coalesce (та же
+                 * ловушка, что в поиске рейсов от остановки).
+                 */
+                'time' => $this->departureTime($row),
                 'raicecod' => (int) $row['RAICECOD'],
                 // Номер категории тарифа: пока не наступила дата смены
                 // (CHANDATE), действует прежняя категория — правило legacy.
@@ -92,6 +99,20 @@ class RegularScheduleBuilder
             'routes' => $routes,
             'generated_at' => now()->toIso8601String(),
         ];
+    }
+
+    /** Время отправления: с остановки, если расписание строится по ней. */
+    private function departureTime(array $row): string
+    {
+        $start = substr((string) $row['TIMESTART'], 0, 5);
+
+        if (! array_key_exists('STOP_TIME_TO_STAT', $row)) {
+            return $start;
+        }
+
+        $offset = (int) ($row['STOP_TIME_TO_STAT'] ?? 0) + (int) ($row['STOP_TIME_OF_STOP'] ?? 0);
+
+        return date('H:i', strtotime($start) + $offset * 60);
     }
 
     /**

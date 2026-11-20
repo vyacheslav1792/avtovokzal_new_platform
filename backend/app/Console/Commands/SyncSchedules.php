@@ -23,10 +23,12 @@ class SyncSchedules extends Command
             : $schedules->syncAll();
 
         $this->table(
-            ['Станция', 'Маршрутов', 'Ошибка'],
+            ['Место', 'Маршрутов', 'Ошибка'],
             array_map(fn (array $r) => [
-                $r['name'].' ('.$r['awtcod'].')',
-                $r['routes'] ?? '—',
+                // У пункта посадки кода станции нет: расписание собрано из
+                // баз тех станций, что ведут проходящие рейсы.
+                $r['name'].($r['awtcod'] === null ? ' (остановка)' : ' ('.$r['awtcod'].')'),
+                $r['routes'] ?? ($r['skipped'] ?? '—'),
                 $r['error'] ? mb_substr($r['error'], 0, 60) : '',
             ], $rows),
         );

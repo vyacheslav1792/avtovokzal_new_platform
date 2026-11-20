@@ -13,8 +13,12 @@
  * которым сайт рисует расписание станций с базой. Признак «ведётся
  * вручную» защищает его от ночного обновления из BUSTER.
  *
- * Станции с рабочим подключением правке НЕ подлежат: их расписание
- * приходит из базы, и ручная правка разошлась бы с продажей.
+ * Расписание состоит из ДВУХ половин: собранная из баз (её обновляет
+ * `schedule:sync` — здесь она только для просмотра) и добавленная
+ * вручную. Вторую можно дописать любой станции или остановке: часть
+ * автобусов в базах не видна (чужой перевозчик, рейс не заходит на
+ * станции из привязок), а людям о них знать нужно — раньше такие рейсы
+ * дописывали прямо в HTML-файл.
  */
 import { computed, onMounted, ref } from 'vue'
 import {
@@ -68,11 +72,11 @@ async function load() {
 }
 
 /**
- * Можно ли вести расписание вручную. Станция с подключением — нельзя:
- * её расписание обновляет `schedule:sync` из базы станции.
+ * Править можно у любой строки: форма меняет ТОЛЬКО вручную добавленные
+ * маршруты, а собранные из баз станций остаются как есть.
  */
-function manualAllowed(row) {
-  return !!row.boarding_point || !row.has_connection || row.is_manual
+function manualAllowed() {
+  return editable.value
 }
 
 /** Строка списка — это пункт посадки, а не автостанция. */
@@ -95,6 +99,7 @@ async function open(row) {
       : await fetchSchedule(row.awtcod)
     editing.value = {
       ...d.data,
+      auto_routes: d.data.auto_routes || [],
       has_connection: row.has_connection,
       // Маршруты приводим к виду формы: departures как строки времени.
       routes: (d.data.routes || []).map((r) => ({
@@ -196,6 +201,7 @@ async function save() {
   try {
     const payload = {
       note: editing.value.note || null,
+      auto_disabled: !!editing.value.auto_disabled,
       routes: editing.value.routes.map((r) => ({
         route_name: r.route_name.trim(),
         route_number: r.route_number?.trim() || null,
@@ -211,7 +217,8 @@ async function save() {
     const d = editing.value.boarding_point
       ? await savePointSchedule(editing.value.boarding_point, payload)
       : await saveSchedule(editing.value.awtcod, payload)
-    saved.value = `Расписание сохранено: маршрутов ${d.data.routes_count}.`
+    saved.value = `Сохранено: добавлено вручную ${d.data.manual_count},`
+      + ` из баз станций ${d.data.auto_count}.`
     close()
     await load()
   } catch (e) {
@@ -225,8 +232,8 @@ async function save() {
 async function remove(row) {
   if (!editable.value || !row.is_manual) return
 
-  const text = `Убрать расписание станции «${row.name}» с сайта?`
-    + '\nСтраница расписания этой станции перестанет открываться.'
+  const text = `Убрать вручную добавленные маршруты у «${row.name}»?`
+    + '\nСобранные из баз станций останутся на месте.'
   if (!window.confirm(text)) return
 
   busy.value = `del:${rowKey(row)}`
@@ -305,10 +312,12 @@ onMounted(() => {
             <div v-if="s.note" class="muted small">{{ s.note }}</div>
           </td>
           <td>
-            <span v-if="s.is_manual">вручную</span>
-            <span v-else-if="s.has_connection">из базы станции</span>
-            <span v-else-if="isPoint(s)" class="muted">нет расписания (ведётся вручную)</span>
-            <span v-else class="muted">нет расписания</span>
+            <span v-if="s.auto_disabled" class="muted">автосборка выключена</span>
+            <template v-else>
+              <span v-if="s.auto_count">из баз: {{ s.auto_count }}</span>
+              <span v-else class="muted">из баз: —</span>
+            </template>
+            <span v-if="s.manual_count"> · вручную: {{ s.manual_count }}</span>
             <div v-if="s.edited_by" class="muted small">правил: {{ s.edited_by }}</div>
           </td>
           <td>{{ s.routes_count || '—' }}</td>
@@ -318,17 +327,15 @@ onMounted(() => {
           </td>
           <td class="nowrap">
             <button
-              class="btn" :disabled="busy === `open:${rowKey(s)}` || !manualAllowed(s)"
-              :title="manualAllowed(s)
-                ? 'Открыть расписание на правку'
-                : 'У станции настроено подключение — расписание приходит из базы'"
+              class="btn" :disabled="busy === `open:${rowKey(s)}`"
+              title="Открыть расписание: собранное из баз — для просмотра, вручную добавленное — на правку"
               @click="open(s)"
             >
-              {{ editable && manualAllowed(s) ? 'Изменить' : 'Посмотреть' }}
+              {{ editable ? 'Изменить' : 'Посмотреть' }}
             </button>
             <a class="btn" :href="siteLink(s)" target="_blank" rel="noopener">На сайте</a>
             <button
-              v-if="editable && s.is_manual" class="btn danger"
+              v-if="editable && s.manual_count > 0" class="btn danger"
               :disabled="busy === `del:${rowKey(s)}`" @click="remove(s)"
             >
               Убрать
@@ -347,11 +354,45 @@ onMounted(() => {
         Адрес на сайте: <code>/raspisanie-avtobusov?from={{ editing.name }}</code>
       </p>
 
-      <div v-if="editing.has_connection && !editing.is_manual" class="alert warn">
-        У станции настроено подключение к базе — расписание приходит из BUSTER,
-        и править его здесь нельзя. Если станция закрыта, уберите подключение
-        или выключите её в справочнике.
-      </div>
+      <!--
+        Половина, собранная из баз станций: только для просмотра — её
+        перезапишет следующее обновление расписаний.
+      -->
+      <details v-if="editing.auto_routes.length" class="auto-routes">
+        <summary>
+          Из баз станций: {{ editing.auto_routes.length }} маршрутов (обновляются сами)
+        </summary>
+        <div v-for="(r, i) in editing.auto_routes" :key="`auto-${i}`" class="auto-row small">
+          <b>{{ r.route_name }}</b>
+          <span v-if="r.carrier"> · {{ r.carrier }}</span>
+          <span class="muted"> · {{ r.schedule }}</span>
+          <span> · {{ (r.departures || []).map((d) => d.time).join(', ') }}</span>
+        </div>
+      </details>
+      <p v-else-if="editing.auto_disabled" class="muted small">
+        Автосборка выключена: на сайте показываются только маршруты,
+        добавленные вручную.
+      </p>
+      <p v-else class="muted small">
+        Из баз станций по этому месту расписание не собралось: либо своей базы нет,
+        либо через остановку не проходит ни один рейс регулярного расписания.
+      </p>
+
+      <h3>Добавленные вручную</h3>
+      <p class="muted small">
+        Здесь дописывают рейсы, которых в базах нет: чужой перевозчик, автобус,
+        не заходящий на станции из привязок. Обновление расписаний их не трогает.
+      </p>
+
+      <!--
+        Выключатель автосборки: нужен, когда база отдаёт расписание,
+        которому нельзя верить (станция закрылась, а рейсы в ней остались).
+        Тогда на сайте показываются только маршруты, добавленные вручную.
+      -->
+      <label class="switch block">
+        <input v-model="editing.auto_disabled" type="checkbox" :disabled="!editable">
+        <span>не собирать расписание из баз станций (вести только вручную)</span>
+      </label>
 
       <label class="block">
         Примечание для сотрудников
@@ -436,6 +477,8 @@ onMounted(() => {
 <style scoped>
 .form { margin-top: 1.5rem; }
 .grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: end; }
+.auto-routes { margin: 0.75rem 0; }
+.auto-row { padding: 0.15rem 0; }
 .route { border: 1px solid var(--border, #ddd); border-radius: 8px; padding: 0.75rem; margin: 0.75rem 0; }
 .route-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .days { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.75rem 0; }

@@ -28,6 +28,12 @@ class StationSchedule extends Model
     protected $casts = [
         'awtcod' => 'int',
         'routes' => 'array',
+        // Маршруты, дописанные вручную: синк их не трогает, редактор
+        // правит только их (docs/BOARDING_POINTS.md).
+        'manual_routes' => 'array',
+        // Автосборка выключена — синк это место не трогает, на сайте
+        // остаются только маршруты, добавленные вручную.
+        'auto_disabled' => 'bool',
         'routes_count' => 'int',
         'is_manual' => 'bool',
         'generated_at' => 'datetime',

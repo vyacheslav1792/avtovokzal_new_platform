@@ -25,15 +25,28 @@ class ScheduleController extends Controller
         private readonly TariffCard $tariffs,
     ) {}
 
+    /**
+     * `from` — остановка на трассе: тогда отдаётся расписание рейсов,
+     * ПРОХОДЯЩИХ ЧЕРЕЗ НЕЁ, с временем отправления от остановки. Нужно
+     * местам без своей базы продаж — закрытым станциям и остановкам вроде
+     * «Покровское АС» (docs/BOARDING_POINTS.md).
+     */
     public function show(Request $request, int $awtcod): JsonResponse
     {
+        $data = $request->validate([
+            'from' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
+        ]);
+
+        $fromStation = trim((string) ($data['from'] ?? ''));
+
         $gateway = $this->gateways->forStation($awtcod, $request->attributes->get('agent'));
-        $schedule = $this->builder->build($gateway, $awtcod);
+        $schedule = $this->builder->build($gateway, $awtcod, $fromStation);
 
         return response()->json([
             'success' => true,
             'awtcod' => $awtcod,
             'awtname' => $this->stations->name($awtcod),
+            'from_station' => $fromStation !== '' ? $fromStation : null,
             'data' => $schedule['routes'],
             'generated_at' => $schedule['generated_at'],
         ]);
