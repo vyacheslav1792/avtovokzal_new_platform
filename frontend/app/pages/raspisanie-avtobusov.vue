@@ -219,11 +219,21 @@ if (legacyTo.value && from.value && !isBoardingPoint(from.value)) {
  * ссылки такого вида успели попасть в АИС и в закладки.
  */
 const canonicalFrom = computed(() => {
+  /*
+   * Имя из найденного расписания — самое надёжное: сервер узнаёт станцию
+   * и по названию, и по его транслиту, и по ключу пункта посадки, а в
+   * адресе должно стоять ровно то название, что видит человек
+   * («Дросково КП», а не «Дросково» или `droskovo`).
+   */
+  if (schedule.value && from.value !== schedule.value.name) {
+    return schedule.value.name
+  }
+
   if (selectedStation.value && from.value !== selectedStation.value.name) {
     return selectedStation.value.name
   }
 
-  // `bp:droskovo` и просто `droskovo` — оба уводим на «Дросково».
+  // `bp:droskovo` и просто `droskovo` — оба уводим на название пункта.
   if (point.value && from.value !== point.value.name) {
     return point.value.name
   }
