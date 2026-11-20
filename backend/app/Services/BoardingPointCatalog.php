@@ -86,9 +86,21 @@ class BoardingPointCatalog
     /** Пункты для формы поиска на главной / для расписания. */
     public function forPlace(string $place = 'home'): array
     {
-        $key = $place === 'schedule' ? 'show_in_schedule' : 'show_on_home';
+        /*
+         * РАЗДЕЛ РАСПИСАНИЯ И ПРОДАЖА — РАЗНЫЕ ПРИЗНАКИ.
+         *
+         * В расписание пункт попадает по `show_in_schedule`, даже если
+         * продажа от него выключена: у закрытой станции своей базы нет, а
+         * автобусы через неё идут, и расписание показать надо (так было и
+         * в legacy — для таких мест лежал статический HTML). Иначе
+         * добавить остановку в расписание можно было бы только открыв
+         * продажу, то есть и выставив её на главную.
+         */
+        if ($place === 'schedule') {
+            return array_values($this->forSchedule());
+        }
 
-        return array_values(array_filter($this->all(), fn (array $p) => $p[$key]));
+        return array_values(array_filter($this->all(), fn (array $p) => $p['show_on_home']));
     }
 
     public function forget(): void

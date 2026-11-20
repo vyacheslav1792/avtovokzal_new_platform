@@ -16,6 +16,12 @@
 export interface BoardingPointItem {
   slug: string
   name: string
+  /**
+   * Продажа от остановки включена. В разделе расписания стоят и
+   * остановки закрытых станций — их расписание показываем, а билет от
+   * них на сайте не продаётся.
+   */
+  sales?: boolean
   stations: number[]
 }
 
@@ -49,10 +55,16 @@ export function departureQuery(value: DepartureValue): Record<string, string | n
     : { awtcod: Number(value) }
 }
 
-export function useDepartures() {
+/**
+ * @param place `home` — места, с которых сайт продаёт билеты (главная и
+ *   страница рейсов); `schedule` — раздел расписания, где стоят и
+ *   остановки закрытых станций (признаки у пункта РАЗНЫЕ,
+ *   docs/BOARDING_POINTS.md).
+ */
+export function useDepartures(place: 'home' | 'schedule' = 'home') {
   const api = useApi()
 
-  return useAsyncData('departures', async () => {
+  return useAsyncData(`departures:${place}`, async () => {
     /*
      * Пункты посадки грузим ОТДЕЛЬНЫМ запросом и молча пропускаем его
      * неудачу: их может не быть вовсе (справочник пуст), и форма поиска
@@ -60,7 +72,7 @@ export function useDepartures() {
      */
     const [stations, points] = await Promise.all([
       api<{ success: boolean, data: { awtcod: number, name: string }[] }>('/stations'),
-      api<{ success: boolean, data: BoardingPointItem[] }>('/boarding-points')
+      api<{ success: boolean, data: BoardingPointItem[] }>(`/boarding-points?place=${place}`)
         .catch(() => ({ success: false, data: [] as BoardingPointItem[] })),
     ])
 

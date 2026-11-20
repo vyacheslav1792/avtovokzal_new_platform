@@ -73,7 +73,9 @@ const from = computed(() => String(route.query.from ?? ''))
  * значение селекта `bp:<slug>` поддерживается для совместимости и уводит
  * на канонический адрес.
  */
-const { data: departuresResp } = await useDepartures()
+// place=schedule: в разделе расписания стоят и остановки закрытых
+// станций, с которых билет на сайте не купить (признаки у пункта разные).
+const { data: departuresResp } = await useDepartures('schedule')
 const boardingPoints = computed(() => departuresResp.value?.points ?? [])
 const pointSlug = computed(() => boardingPointSlug(from.value))
 const point = computed(() =>
@@ -97,6 +99,13 @@ const stations = computed(() => stationsResp.value?.data ?? [])
  */
 const selectedStation = computed(() =>
   stations.value.find(s => s.name === from.value || s.slug === from.value) ?? null)
+
+/*
+ * Продажа от этой остановки может быть выключена: расписание показываем,
+ * а формы покупки быть не должно — билет от неё сайт не оформит. У
+ * станции такого вопроса нет, там продажу решает сама станция.
+ */
+const salesEnabled = computed(() => !point.value || point.value.sales !== false)
 
 /** Значение для селекта — всегда название: и у станции, и у пункта посадки. */
 const selectedDeparture = computed(() =>
@@ -309,9 +318,11 @@ const destinationsResp = await useAsyncData(
   'schedule-destinations',
   () => {
     if (point.value) {
-      return api<{ success: boolean, data: { name: string }[] }>(
-        destinationsUrl(boardingPointValue(point.value.slug)),
-      )
+      return salesEnabled.value
+        ? api<{ success: boolean, data: { name: string }[] }>(
+          destinationsUrl(boardingPointValue(point.value.slug)),
+        )
+        : Promise.resolve(null)
     }
 
     return schedule.value
@@ -403,7 +414,10 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
 
     <!-- Пункт отправления переключается прямо на странице расписания -->
     <UCard v-if="from" class="mb-6 no-print">
-      <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_auto] items-end">
+      <div
+        class="grid gap-3 items-end"
+        :class="salesEnabled ? 'md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_auto]' : 'md:max-w-md'"
+      >
         <UFormField label="Пункт отправления">
           <ResponsiveSelect
             :model-value="selectedDeparture"
@@ -416,7 +430,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
         </UFormField>
 
         <!-- legacy: выбор пункта прибытия вёл к расписанию до этой остановки -->
-        <UFormField label="Пункт прибытия">
+        <UFormField v-if="salesEnabled" label="Пункт прибытия">
           <ResponsiveSelect
             v-model="to"
             :items="destinations"
@@ -427,11 +441,11 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
           />
         </UFormField>
 
-        <UFormField label="Дата поездки">
+        <UFormField v-if="salesEnabled" label="Дата поездки">
           <UInput v-model="tripDate" type="date" :min="today" class="w-full" />
         </UFormField>
 
-        <div class="flex gap-2">
+        <div v-if="salesEnabled" class="flex gap-2">
           <UButton color="error" :disabled="!to" @click="showTrips()">Найти</UButton>
           <UButton
             color="neutral"
@@ -482,9 +496,11 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       class="mb-4"
       icon="i-lucide-map-pin"
       :title="`Остановка «${point.name}»`"
-      :description="schedule
-        ? 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Ниже — расписание проходящих автобусов, а чтобы купить билет, выберите пункт прибытия выше.'
-        : 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Выберите пункт прибытия выше — покажем рейсы с временем отправления от этой остановки.'"
+      :description="!salesEnabled
+        ? 'Кассы на остановке нет, билеты от неё на сайте не продаются: оплата у водителя или в кассе автостанции маршрута. Ниже — расписание проходящих автобусов, для справки.'
+        : schedule
+          ? 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Ниже — расписание проходящих автобусов, а чтобы купить билет, выберите пункт прибытия выше.'
+          : 'Кассы на остановке нет: билет оформляет автостанция, которая ведёт рейс. Выберите пункт прибытия выше — покажем рейсы с временем отправления от этой остановки.'"
     />
 
     <UAlert
