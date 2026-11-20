@@ -94,6 +94,41 @@ export function departureItems(
   ]
 }
 
+/**
+ * Станция по тому, что стоит в адресе страницы.
+ *
+ * Нужна для legacy-ссылок: в старом сайте пункт отправления передавался
+ * НАЗВАНИЕМ (`/raspisanie-avtobusov?from=Орел+АВ&to=…`), и такие адреса
+ * живут в закладках, письмах и поисковой выдаче. Сравнивать названия
+ * побайтово нельзя: приходят они и в другом регистре, и с «ё», и с
+ * лишними пробелами, а в legacy это молча давало страницу «на станции
+ * ведутся технические работы».
+ *
+ * Код станции тоже принимаем: часть ссылок (и форма главной legacy)
+ * передавала `from` числом.
+ */
+export function resolveStation<T extends { awtcod: number, name: string }>(
+  stations: T[],
+  raw: string,
+): T | null {
+  const value = raw.trim()
+
+  if (value === '') return null
+
+  if (/^\d+$/.test(value)) {
+    return stations.find(s => s.awtcod === Number(value)) ?? null
+  }
+
+  const key = stationKey(value)
+
+  return stations.find(s => stationKey(s.name) === key) ?? null
+}
+
+/** Ключ сравнения названий: регистр, «ё» и лишние пробелы не значимы. */
+function stationKey(name: string): string {
+  return name.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()
+}
+
 /** Название пункта отправления по значению селекта. */
 export function departureLabel(
   value: DepartureValue | null | undefined,

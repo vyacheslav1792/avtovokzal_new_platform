@@ -7,6 +7,8 @@
  * переключается прямо на ней (адрес меняется на ?from=…), данные приходят
  * из БД в JSON.
  */
+import { setResponseStatus } from 'h3'
+
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
@@ -112,15 +114,35 @@ function legacyDate(raw: string): string {
 
 const legacyTo = computed(() => String(route.query.to ?? ''))
 
-if (legacyTo.value && from.value) {
-  // Код станции берём из списка станций продаж, а не из расписания:
-  // расписание для станции может быть ещё не опубликовано.
+/*
+ * LEGACY-АДРЕСА РАСПИСАНИЯ С ПУНКТОМ ПРИБЫТИЯ.
+ *
+ * В старом сайте рейсы до остановки показывались прямо здесь:
+ * `/raspisanie-avtobusov?from=<станция>&to=<остановка>&date=<…>` (а также
+ * `date=tomorrow|aftertomorrow`, дата по-русски «22 ноября 2026» и
+ * `blij=1` — «ближайшие»). Таких ссылок полно в закладках, письмах и
+ * поисковой выдаче, поэтому они не должны превращаться в битую страницу:
+ * ведём их на /trips, где этот список теперь живёт, ответом 301.
+ *
+ * Станцию ищем УСТОЙЧИВО (resolveStation): регистр, «ё» и лишние пробелы
+ * в адресе значения не имеют, а `from` может быть и кодом станции. Иначе
+ * «орел ав» вместо «Орел АВ» оставался на странице расписания, которая
+ * честно сообщала «расписание не опубликовано» — то есть для человека
+ * ссылка выглядела сломанной.
+ *
+ * Список берём из станций ПРОДАЖ, а не из расписания: регулярное
+ * расписание станции может быть ещё не опубликовано, а рейсы — есть.
+ */
+if (legacyTo.value && from.value && !isBoardingPoint(from.value)) {
   const { data: salesStations } = await useAsyncData('sales-stations', () =>
     api<{ success: boolean, data: { awtcod: number, name: string }[] }>('/stations'))
 
-  const station = (salesStations.value?.data ?? []).find(s => s.name === from.value)
+  const station = resolveStation(salesStations.value?.data ?? [], from.value)
+  // Пункт посадки (остановка в пути) legacy не знал, но ссылку с ним
+  // могли собрать руками — ведём на /trips тем же способом.
+  const point = boardingPoints.value.find(p => p.slug === from.value || p.name === from.value)
 
-  if (station) {
+  if (station || point) {
     const nearest = queryFlag(route.query.blij)
     // Без даты (и с неразобранной датой) legacy показывал рейсы на сегодня.
     const date = nearest ? '' : (legacyDate(String(route.query.date ?? '')) || shiftDate(0))
@@ -128,13 +150,24 @@ if (legacyTo.value && from.value) {
     await navigateTo({
       path: '/trips',
       query: {
-        awtcod: station.awtcod,
-        from: station.name,
+        ...(station
+          ? { awtcod: station.awtcod, from: station.name }
+          : { from_point: point!.slug, from: point!.name }),
         to: legacyTo.value,
         ...(date ? { date } : {}),
         all: 1,
       },
     }, { redirectCode: 301 })
+  }
+  else if (import.meta.server) {
+    /*
+     * Станции с таким названием нет вовсе: страницы расписания по ней не
+     * существует, значит и код ответа 404 — иначе ссылка остаётся в
+     * поисковой выдаче и ведёт на текст ошибки. В legacy такой адрес
+     * показывал «на станции ведутся технические работы», что неправда.
+     */
+    const event = useRequestEvent()
+    if (event) setResponseStatus(event, 404)
   }
 }
 

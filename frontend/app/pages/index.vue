@@ -1,7 +1,35 @@
 <script setup lang="ts">
 const api = useApi()
+const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+
+const MONTHS = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+]
+
+/**
+ * Дата из legacy-ссылки: `tomorrow`, `aftertomorrow`, «22 ноября 2026»
+ * или уже готовая `2026-11-22`. Пусто — дату подставит вызывающий код.
+ *
+ * Такой же разбор есть на странице расписания: адреса там свои
+ * (`/raspisanie-avtobusov?...`), а формат даты один и тот же.
+ */
+function legacyDate(raw: string): string {
+  const value = raw.trim()
+
+  if (value === 'tomorrow') return siteDateShifted(1)
+  if (value === 'aftertomorrow') return siteDateShifted(2)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+
+  const m = value.match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/i)
+  const month = m ? MONTHS.indexOf(m[2]!.toLowerCase()) : -1
+
+  return m && month >= 0
+    ? `${m[3]}-${String(month + 1).padStart(2, '0')}-${m[1]!.padStart(2, '0')}`
+    : ''
+}
 
 /*
  * «Откуда» — автостанции И пункты посадки (остановки на трассе рейсов, с
@@ -14,6 +42,41 @@ const { data: departuresResp } = await useDepartures()
 const stationList = computed(() => departuresResp.value?.stations ?? [])
 const pointList = computed(() => departuresResp.value?.points ?? [])
 const stations = computed(() => departureItems(stationList.value, pointList.value))
+
+/*
+ * LEGACY-ССЫЛКИ ГЛАВНОЙ С ГОТОВЫМ ПОИСКОМ.
+ *
+ * В старом сайте главная принимала `?from=<станция>&to=<остановка>&date=`
+ * (плюс `date=tomorrow|aftertomorrow`) и сразу показывала найденные
+ * рейсы. Теперь список рейсов живёт на /trips, поэтому такие адреса
+ * ведём туда ответом 301 — иначе человек по ссылке из письма или
+ * закладки попадал на пустую форму и искал заново.
+ *
+ * Станцию ищем устойчиво (regexp регистра/«ё»/пробелов внутри
+ * resolveStation), код станции в `from` тоже принимаем.
+ */
+const legacyFrom = computed(() => String(route.query.from ?? ''))
+const legacyTo = computed(() => String(route.query.to ?? ''))
+
+if (legacyFrom.value && legacyTo.value) {
+  const station = resolveStation(departuresResp.value?.stations ?? [], legacyFrom.value)
+  const point = (departuresResp.value?.points ?? []).find(
+    p => p.slug === legacyFrom.value || p.name === legacyFrom.value,
+  )
+
+  if (station || point) {
+    await navigateTo({
+      path: '/trips',
+      query: {
+        ...(station
+          ? { awtcod: station.awtcod, from: station.name }
+          : { from_point: point!.slug, from: point!.name }),
+        to: legacyTo.value,
+        date: legacyDate(String(route.query.date ?? '')) || siteDate(),
+      },
+    }, { redirectCode: 301 })
+  }
+}
 
 const from = ref<DepartureValue | null>(null)
 const to = ref<string | null>(null)

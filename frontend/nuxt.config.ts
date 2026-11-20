@@ -81,6 +81,64 @@ export default defineNuxtConfig({
     // установленных приложений.
     '/sw.js': { headers: { 'cache-control': 'no-cache' } },
     '/manifest.webmanifest': { headers: { 'cache-control': 'no-cache' } },
+
+    /*
+     * АДРЕСА LEGACY, КОТОРЫХ НА НОВОМ САЙТЕ НЕТ.
+     *
+     * В старом сайте каждая страница была файлом `url/<имя>.php`, и её
+     * адрес (`/payconfirm`, `/ticketback`, `/tarifprint`, акционные
+     * страницы) попал в закладки, письма покупателям и поисковую выдачу.
+     * Без правил ниже такие ссылки отдавали 404 — сломанными они стали бы
+     * не у нас, а у людей.
+     *
+     * Ведём каждую на ближайшую по смыслу страницу нового сайта ответом
+     * 301 (поисковик заменит адрес в выдаче). Nitro сохраняет строку
+     * запроса, поэтому `?orderId=…` у возврата со шлюза и параметры
+     * тарифа не теряются.
+     *
+     * Адреса с готовым поиском (`/?from=&to=&date=` и
+     * `/raspisanie-avtobusov?from=&to=`) здесь НЕ перечислены: там нужно
+     * сопоставить станцию по названию, и это делают сами страницы.
+     */
+
+    // Возврат со шлюза Сбербанка: адрес был в настройках мерчанта и в письмах.
+    '/payconfirm': { redirect: { to: '/payment/result', statusCode: 301 } },
+    // Шаги покупки legacy: без своего состояния они бессмысленны —
+    // ведём к началу, то есть к поиску рейсов на главной.
+    '/pay': { redirect: { to: '/', statusCode: 301 } },
+    '/buy2': { redirect: { to: '/', statusCode: 301 } },
+    '/passengers': { redirect: { to: '/', statusCode: 301 } },
+    '/index2': { redirect: { to: '/', statusCode: 301 } },
+    // Билеты и возврат из кабинета — теперь в личном кабинете.
+    '/bilet': { redirect: { to: '/lk', statusCode: 301 } },
+    '/ticketback': { redirect: { to: '/lk', statusCode: 301 } },
+    // Печатная версия тарифа: на новой странице тарифа это кнопка.
+    '/tarifprint': { redirect: { to: '/tarif', statusCode: 301 } },
+    // Остановки маршрута: их показывает тариф рейса и расписание станции.
+    '/trace-info': { redirect: { to: '/raspisanie-avtobusov', statusCode: 301 } },
+    // Расписание Орла лежало отдельной страницей `/r`.
+    '/r': { redirect: { to: '/raspisanie-avtobusov?from=%D0%9E%D1%80%D0%B5%D0%BB%20%D0%90%D0%92', statusCode: 301 } },
+    // Пароль: смена в кабинете, восстановление по ссылке из письма.
+    '/change': { redirect: { to: '/lk/profile', statusCode: 301 } },
+    '/newpass': { redirect: { to: '/reset', statusCode: 301 } },
+    '/logout': { redirect: { to: '/', statusCode: 301 } },
+    // Форма обратной связи стала отдельной страницей.
+    '/contact': { redirect: { to: '/feedback', statusCode: 301 } },
+    /*
+     * Страницы разовых событий и объявлений («День поля», «Троицкие
+     * хороводы», закрытие Красного моста, перевозка животных): их
+     * содержимое не переносили — ведём на главную, чтобы ссылка не
+     * обрывалась. Если такая страница понадобится снова, её заводят в
+     * АИС как обычную страницу сайта, и правило можно убрать.
+     */
+    '/den-polya': { redirect: { to: '/', statusCode: 301 } },
+    '/horovod': { redirect: { to: '/', statusCode: 301 } },
+    '/horovod2021': { redirect: { to: '/', statusCode: 301 } },
+    '/redbridge': { redirect: { to: '/', statusCode: 301 } },
+    '/pets': { redirect: { to: '/uslugi', statusCode: 301 } },
+    // В legacy страница правил была выключена, ближайшее по смыслу —
+    // регламентные документы.
+    '/station-rules': { redirect: { to: '/reglament-docs', statusCode: 301 } },
   },
   runtimeConfig: {
     // SSR внутри docker-сети ходит в backend напрямую (сервис web).

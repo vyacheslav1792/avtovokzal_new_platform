@@ -30,7 +30,6 @@ const awtcod = computed(() => Number(route.query.awtcod))
  * поэтому дальше покупка берёт её у рейса, а не из адреса страницы.
  */
 const fromPoint = computed(() => String(route.query.from_point ?? ''))
-const fromName = computed(() => String(route.query.from ?? ''))
 const toName = computed(() => String(route.query.to ?? ''))
 /** Пусто — «ближайшие рейсы» по всем датам. */
 const date = computed(() => String(route.query.date ?? ''))
@@ -54,6 +53,15 @@ const { data, status, error } = await useAsyncData(
  * несколько баз, и молчание одной не должна скрывать пустая выдача.
  */
 const warnings = computed(() => data.value?.warnings ?? [])
+
+/*
+ * Название пункта отправления для заголовка. В адресе оно есть не
+ * всегда: по прямой ссылке `/trips?awtcod=…&to=…` (а такие собирают
+ * руками и оставляют старые ссылки) параметра `from` нет — тогда берём
+ * название станции из ответа API, иначе заголовок читался бы как
+ * «Рейсы → Ливны АС».
+ */
+const fromName = computed(() => String(route.query.from ?? '') || data.value?.awtname || '')
 
 const trips = computed(() => {
   const list = data.value?.data ?? []
