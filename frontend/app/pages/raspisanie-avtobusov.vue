@@ -30,6 +30,12 @@ interface Departure {
 }
 
 interface ScheduleRoute {
+  /**
+   * Станция, которая ведёт этот рейс. Есть только у расписания ОСТАНОВКИ:
+   * её рейсы приходят из разных баз, и тариф нужно спрашивать у той
+   * станции, чей это рейс.
+   */
+  awtcod?: number
   route_name: string
   trip_name: string
   direction_name: string
@@ -380,13 +386,39 @@ function printPage() {
  * Тарифную категорию не передаём — её выбирает сервер: у рейса их бывает
  * две (действующая и новая с даты смены).
  */
+/**
+ * Станция, у которой спрашивать тариф по этому маршруту. У станции это
+ * она сама, у остановки — та база, из которой пришёл рейс.
+ */
+function tariffStation(r: ScheduleRoute): number | undefined {
+  return r.awtcod
+    ?? schedule.value?.awtcod
+    ?? stations.value.find(s => s.name === schedule.value?.name)?.awtcod
+}
+
+/**
+ * Ведёт ли время отправления на страницу тарифа.
+ *
+ * Не ведёт, если:
+ *  - рейса в базе продаж нет (`raicecod` пуст — маршрут дописан вручную);
+ *  - непонятно, у какой станции спрашивать цену;
+ *  - это остановка с ВЫКЛЮЧЕННОЙ продажей: тарифов от неё station может
+ *    и не заводить, а страница тарифа такой пункт не обслуживает —
+ *    ссылка оказывалась битой.
+ */
+function hasTariff(r: ScheduleRoute, d: Departure): boolean {
+  return Boolean(d.raicecod) && tariffStation(r) !== undefined && salesEnabled.value
+}
+
 function tariffLink(r: ScheduleRoute, d: Departure) {
   return {
     path: '/tarif',
     query: {
-      from: stations.value.find(s => s.name === schedule.value?.name)?.awtcod,
+      from: tariffStation(r),
       napcod: r.napcod,
       raicecod: d.raicecod,
+      // Цены ОТ ОСТАНОВКИ, а не от станции, которая ведёт рейс.
+      ...(point.value ? { from_point: point.value.slug } : {}),
     },
   }
 }
@@ -565,7 +597,7 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
                 -->
                 <template v-for="d in r.departures" :key="d.time + (d.raicecod ?? '')">
                   <UButton
-                    v-if="d.raicecod"
+                    v-if="hasTariff(r, d)"
                     :to="tariffLink(r, d)"
                     color="primary"
                     variant="soft"

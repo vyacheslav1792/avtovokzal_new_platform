@@ -84,7 +84,18 @@ class ScheduleService
         foreach ($point['stations'] as $binding) {
             try {
                 $response = $this->salesApi->schedule((int) $binding['awtcod'], (string) $binding['station_name']);
-                $routes = array_merge($routes, $response['data'] ?? []);
+
+                /*
+                 * К каждому маршруту приписываем станцию, которая его
+                 * ведёт: иначе со времени отправления некуда вести на
+                 * тариф — у самой остановки кода станции нет, а рейсы у
+                 * неё из РАЗНЫХ баз (ссылка уходила без `from` и
+                 * открывала «тариф не найден»).
+                 */
+                foreach ($response['data'] ?? [] as $route) {
+                    $route['awtcod'] = (int) $binding['awtcod'];
+                    $routes[] = $route;
+                }
             } catch (\Throwable $e) {
                 $failed[] = $binding['awtcod'];
                 Log::warning('Станция не ответила на расписание от остановки', [
