@@ -219,9 +219,16 @@ async function remove(row) {
   }
 }
 
-/** Адрес страницы расписания на сайте — чтобы проверить глазами. */
+/**
+ * Адрес страницы расписания на сайте — чтобы проверить глазами.
+ *
+ * В адресе НАЗВАНИЕ станции, как было и в legacy (`?from=Орел АВ`):
+ * латинский `slug` там был именем файла расписания, а не адресом, и
+ * второй адрес на ту же страницу сайту не нужен — сайт с него всё равно
+ * уводит редиректом на канонический.
+ */
 function siteLink(row) {
-  return `${SITE_URL}/raspisanie-avtobusov?from=${encodeURIComponent(row.slug)}`
+  return `${SITE_URL}/raspisanie-avtobusov?from=${encodeURIComponent(row.name)}`
 }
 
 onMounted(() => {
@@ -267,7 +274,7 @@ onMounted(() => {
           <td>
             <b>{{ s.name }}</b>
             <div class="muted small">
-              код {{ s.awtcod }} · адрес на сайте: {{ s.slug }}
+              код {{ s.awtcod }}
               <span v-if="!s.is_active"> · станция выключена</span>
               <span v-if="!s.show_in_schedule"> · скрыта из расписания</span>
             </div>
@@ -312,7 +319,7 @@ onMounted(() => {
     <div v-if="editing" class="card form">
       <h2>Расписание · {{ editing.name }}</h2>
       <p class="muted small">
-        Адрес на сайте: <code>/raspisanie-avtobusov?from={{ editing.slug }}</code>
+        Адрес на сайте: <code>/raspisanie-avtobusov?from={{ editing.name }}</code>
       </p>
 
       <div v-if="editing.has_connection && !editing.is_manual" class="alert warn">

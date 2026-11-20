@@ -79,6 +79,23 @@ const { data: stationsResp } = await useAsyncData('schedule-stations', () =>
 
 const stations = computed(() => stationsResp.value?.data ?? [])
 
+/*
+ * АДРЕС СТРАНИЦЫ — ТОЛЬКО НАЗВАНИЕ СТАНЦИИ.
+ *
+ * Так было и в legacy: `?from=Орел АВ`. Латинские `orel-av` там были
+ * именами ФАЙЛОВ расписания (`url/raspisanie/orel-av.html`), а не
+ * адресами страниц, и два адреса на одну страницу сайту не нужны —
+ * поисковик считает их дублем. Поэтому `slug` в адресе поддерживается
+ * ровно затем, чтобы увести на канонический адрес ответом 301 (ниже).
+ */
+const selectedStation = computed(() =>
+  stations.value.find(s => s.name === from.value || s.slug === from.value) ?? null)
+
+/** Значение для селекта: название станции, пункт посадки или как в адресе. */
+const selectedDeparture = computed(() =>
+  selectedStation.value?.name
+  ?? (point.value ? boardingPointValue(point.value.slug) : from.value))
+
 const { data: scheduleResp, error } = await useAsyncData(
   'schedule',
   () => from.value && !isBoardingPoint(from.value)
@@ -179,6 +196,18 @@ if (legacyTo.value && from.value && !isBoardingPoint(from.value)) {
 }
 
 /*
+ * Адрес со slug («?from=orel-av») уводим на канонический с названием
+ * станции ответом 301: дублировать страницу двумя адресами незачем, а
+ * ссылки такого вида успели попасть в АИС и в закладки.
+ */
+if (selectedStation.value && from.value === selectedStation.value.slug && !legacyTo.value) {
+  await navigateTo(
+    { path: '/raspisanie-avtobusov', query: { from: selectedStation.value.name } },
+    { redirectCode: 301 },
+  )
+}
+
+/*
  * Расписания у станции нет (не опубликовано, или её убрали из раздела
  * признаком «Показывать в расписании») — страницы не существует, значит
  * и ответ 404. Иначе ссылка остаётся в поисковой выдаче и ведёт на текст
@@ -207,23 +236,6 @@ useSeoMeta({
     ? `Регулярное расписание отправлений автобусов от ${departureTitle.value}: маршруты, дни следования и время отправления.`
     : 'Расписание автобусов автовокзалов и кассовых пунктов Орловской области.',
 })
-
-/*
- * ЧТО СТОИТ В АДРЕСЕ, А ЧТО В СЕЛЕКТЕ.
- *
- * Адрес страницы принимает и НАЗВАНИЕ станции («Орел АВ» — так ведут
- * плитки и ссылки legacy), и её `slug` («orel-av» — так назывались
- * статические файлы legacy и так ссылается АИС). Селект же работает по
- * названию: без приведения поле показывало сырой `droskovo-kp` и не
- * открывалось — выбранного пункта в списке просто не было.
- */
-const selectedStation = computed(() =>
-  stations.value.find(s => s.name === from.value || s.slug === from.value) ?? null)
-
-/** Значение для селекта: название станции, пункт посадки или как в адресе. */
-const selectedDeparture = computed(() =>
-  selectedStation.value?.name
-  ?? (point.value ? boardingPointValue(point.value.slug) : from.value))
 
 const stationOptions = computed(() => [
   ...stations.value.map(s => ({ label: s.name, value: s.name })),
