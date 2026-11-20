@@ -268,11 +268,22 @@ useSeoMeta({
     : 'Расписание автобусов автовокзалов и кассовых пунктов Орловской области.',
 })
 
+/*
+ * Пункты посадки, которых ещё НЕТ в списке расписаний.
+ *
+ * Пункт с заведённым расписанием приходит уже из `/schedule` (там он
+ * стоит как источник расписания), и если добавить его ещё и отсюда, в
+ * списке получится два «Дросково» — ровно то, от чего избавлялись,
+ * объединяя пункт и станцию (docs/BOARDING_POINTS.md).
+ */
+const pointsWithoutSchedule = computed(() =>
+  boardingPoints.value.filter(p => !stations.value.some(s => s.name === p.name)))
+
 const stationOptions = computed(() => [
   ...stations.value.map(s => ({ label: s.name, value: s.name })),
   // Пункт посадки — таким же пунктом списка, как станция: на сайте это
   // одно место, а не «станция» и «остановка» по отдельности.
-  ...boardingPoints.value.map(p => ({ label: p.name, value: p.name })),
+  ...pointsWithoutSchedule.value.map(p => ({ label: p.name, value: p.name })),
 ])
 
 /** Смена пункта отправления меняет адрес страницы — ссылкой можно делиться. */
@@ -435,9 +446,12 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       >
         {{ s.name }}
       </NuxtLink>
-      <!-- Пункты посадки — такими же плитками, как станции. -->
+      <!--
+        Пункты посадки — такими же плитками, как станции; те, у которых
+        расписание уже заведено, пришли выше вместе со станциями.
+      -->
       <NuxtLink
-        v-for="p in boardingPoints"
+        v-for="p in pointsWithoutSchedule"
         :key="p.slug"
         :to="{ query: { from: p.name } }"
         class="border border-default rounded-lg p-4 font-medium hover:border-primary transition-colors"

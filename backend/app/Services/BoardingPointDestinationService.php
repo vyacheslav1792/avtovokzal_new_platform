@@ -47,6 +47,12 @@ class BoardingPointDestinationService
 
         $merged = [];
         $generatedAt = null;
+        /*
+         * Станции, которые не ответили при живом запросе. Нужны в ответе:
+         * пустой список «Куда» и «часть направлений не загрузилась» —
+         * разные состояния, и сайт должен их различать.
+         */
+        $unavailable = [];
 
         foreach ($point['stations'] as $binding) {
             $cached = $rows->first(
@@ -54,12 +60,35 @@ class BoardingPointDestinationService
                     && (string) $row->station_name === $binding['station_name'],
             );
 
-            // Привязки ещё не опрашивали (добавили только что) — читаем
-            // живьём: форма не должна остаться пустой из-за того, что мы
-            // не успели обновиться.
-            $destinations = $cached !== null
-                ? $this->decode($cached->destinations)
-                : $this->fetch($binding['awtcod'], $binding['station_name']);
+            /*
+             * Привязки ещё не опрашивали (добавили только что) — читаем
+             * живьём: форма не должна остаться пустой из-за того, что мы
+             * не успели обновиться.
+             *
+             * МОЛЧАНИЕ ОДНОЙ СТАНЦИИ НЕ ЛОМАЕТ СПИСОК: у Дросково их две
+             * (Орёл и Ливны), и отказ Ливен раньше уносил наверх 503 —
+             * покупатель не мог выбрать даже те направления, которые
+             * продаёт Орёл. Теперь привязка просто пропускается, а в
+             * журнал идёт одна строка (docs/BOARDING_POINTS.md).
+             */
+            if ($cached !== null) {
+                $destinations = $this->decode($cached->destinations);
+            } else {
+                try {
+                    $destinations = $this->fetch($binding['awtcod'], $binding['station_name']);
+                } catch (\Throwable $e) {
+                    Log::warning('Станция не ответила на запрос пунктов от остановки', [
+                        'slug' => $slug,
+                        'awtcod' => $binding['awtcod'],
+                        'station_name' => $binding['station_name'],
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    $unavailable[] = $binding['awtcod'];
+
+                    continue;
+                }
+            }
 
             if ($cached?->generated_at !== null) {
                 $generatedAt = max($generatedAt ?? '', (string) $cached->generated_at);
@@ -95,11 +124,13 @@ class BoardingPointDestinationService
         $list = array_values($merged);
         usort($list, fn (array $a, array $b) => StationNameSorter::compare($a['name'], $b['name']));
 
-        return [
+        return array_filter([
             'success' => true,
             'data' => $list,
             'generated_at' => $generatedAt,
-        ];
+            // Непустой — часть направлений могла не загрузиться.
+            'unavailable_stations' => $unavailable ?: null,
+        ], fn ($v) => $v !== null);
     }
 
     /**
