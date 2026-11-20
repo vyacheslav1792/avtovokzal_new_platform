@@ -18,10 +18,14 @@ class TripController extends Controller
     ) {}
 
     /**
-     * Рейсы: GET /api/v1/trips?awtcod=&station=&date=&for_sale=1
+     * Рейсы: GET /api/v1/trips?awtcod=&station=&date=&for_sale=1&from=
      *
      * Без date — режим «ближайшие» (legacy blij=1): рейсы всех дат начиная
      * с сегодняшней, не больше 200.
+     *
+     * `from` — остановка отправления на трассе рейса (продажа «от остановки
+     * до остановки», docs/BOARDING_POINTS.md). Пусто — от самой станции, как
+     * было всегда.
      */
     public function index(Request $request): JsonResponse
     {
@@ -34,6 +38,9 @@ class TripController extends Controller
              * список, а ошибку Firebird, то есть 500 (см. VendorText).
              */
             'station' => VendorText::rules(VendorText::MAX_STATION_NAME),
+            // Остановка отправления — то же поле TRACES.STATNAME, те же
+            // ограничения, что и у пункта назначения.
+            'from' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
             'date' => ['nullable', 'date_format:Y-m-d'],
             'for_sale' => ['sometimes', 'boolean'],
         ]);
@@ -50,11 +57,14 @@ class TripController extends Controller
 
         $gateway = $this->gateways->forStation($data['awtcod'], $request->attributes->get('agent'));
 
+        $fromStation = trim((string) ($data['from'] ?? ''));
+
         $trips = collect($gateway->routes(
             (int) $data['awtcod'],
             $data['station'],
             $date,
             (bool) ($data['for_sale'] ?? true),
+            $fromStation,
         ))->map(fn (array $r) => [
             'awtcod' => (int) $data['awtcod'],
             'napcod' => (int) $r['NAPCOD'],
@@ -68,6 +78,14 @@ class TripController extends Controller
             'time_start' => $r['TIMESTART'],
             'time_end' => $r['TIME_TO_END'],
             /*
+             * Отправление С ОСТАНОВКИ полным моментом времени: у продажи от
+             * остановки `time_start` — это по-прежнему отправление РЕЙСА (от
+             * Орла), а садится пассажир на 2 часа позже и, у вечерних рейсов,
+             * уже следующими сутками.
+             */
+            'departure_at' => $r['DEPARTURE_AT'],
+            'from_station' => $fromStation !== '' ? $fromStation : null,
+            /*
              * Время в пути в минутах. Прибытие считается ТОЛЬКО по нему:
              * `time_end` — время суток, и за сутками пути оно уже ничего
              * не говорит (11:15 + 25:35 = 12:50). null — у рейса нет
@@ -79,6 +97,13 @@ class TripController extends Controller
             'price_baggage' => (float) $r['PAYHARDBAG'],
             'price_insurance' => (float) $r['DOBRSTR'],
             'free_places' => (int) $r['COL_FREE_PL'],
+            /*
+             * Гарантированная нижняя граница свободных мест («свободно не
+             * менее N»): счётчик рейса не знает о билетах, проданных от
+             * остановок, и для посадки на остановке завышает. Точное число
+             * даёт выбор места (KS_ALL_PLACES) — см. BusterGateway::routes().
+             */
+            'free_places_min' => max(0, (int) $r['FREE_PL_MIN']),
             'total_places' => (int) $r['SETPLBUS'],
             'platform' => $r['PLATNOM'],
             'available' => (int) $r['AVAILABLE'] === 1,
@@ -102,7 +127,15 @@ class TripController extends Controller
         ]);
     }
 
-    /** Места рейса: GET /api/v1/trips/places?awtcod=&date=&napcod=&raicecod= */
+    /**
+     * Места рейса: GET /api/v1/trips/places?awtcod=&date=&napcod=&raicecod=&station=
+     *
+     * `station` — пункт назначения покупателя. Необязателен (прежние вызовы
+     * работают как раньше), но с ним станция учитывает участок пути: место,
+     * занятое только до середины трассы, для билета до этой середины
+     * свободно. Это же число мест — точный ответ на «свободно не менее N»
+     * из выдачи рейсов.
+     */
     public function places(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -110,11 +143,18 @@ class TripController extends Controller
             'date' => ['required', 'date_format:Y-m-d'],
             'napcod' => VendorCode::rules(),
             'raicecod' => VendorCode::rules(),
+            'station' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
         ]);
 
         $gateway = $this->gateways->forStation($data['awtcod'], $request->attributes->get('agent'));
 
-        $rows = $gateway->places((int) $data['awtcod'], $data['date'], (int) $data['napcod'], (int) $data['raicecod']);
+        $rows = $gateway->places(
+            (int) $data['awtcod'],
+            $data['date'],
+            (int) $data['napcod'],
+            (int) $data['raicecod'],
+            trim((string) ($data['station'] ?? '')),
+        );
 
         // KS_ALL_PLACES: строка на каждое место. Свободно, если TAKDIR=0
         // или резерв без билета просрочен (>30 мин) — правило legacy buy.php.

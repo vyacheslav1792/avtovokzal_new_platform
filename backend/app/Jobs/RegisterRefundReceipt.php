@@ -83,7 +83,7 @@ class RegisterRefundReceipt implements ShouldQueue
             $order->from_name,
             $order->to_name,
             $order->date_start->format('d.m.Y'),
-            substr((string) $order->time_start, 0, 5),
+            $order->displayTime(),
         );
 
         // Возврат удержания: денег за билет и багаж тут нет — отдаётся

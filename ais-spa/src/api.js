@@ -178,6 +178,40 @@ export function importStationsFromFile() {
   return request(`${API}/stations/import-file`, json('POST', {}))
 }
 
+/* Пункты посадки: остановки на трассе, с которых продаёт сайт. */
+
+export function fetchBoardingPoints() {
+  return request(`${API}/boarding-points`)
+}
+
+export function createBoardingPoint(point) {
+  return request(`${API}/boarding-points`, json('POST', point))
+}
+
+export function saveBoardingPoint(id, point) {
+  return request(`${API}/boarding-points/${id}`, json('PUT', point))
+}
+
+export function deleteBoardingPoint(id) {
+  return request(`${API}/boarding-points/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+/**
+ * Проверка привязки по живой базе станции: куда продаются билеты от
+ * остановки и что станции ещё нужно настроить (разрешить посадку в
+ * расписаниях, завести тариф).
+ */
+export function checkBoardingPointStation(awtcod, stationName) {
+  return request(`${API}/boarding-points/check`, json('POST', { awtcod, station_name: stationName }))
+}
+
+/** Подсказка названий остановок станции при вводе привязки. */
+export function fetchStationStops(awtcod, search) {
+  const query = search ? `?search=${encodeURIComponent(search)}` : ''
+
+  return request(`${API}/boarding-points/stops/${awtcod}${query}`)
+}
+
 /* Фискальный сервер (KkmServer): варианты подключения и переключение. */
 
 export function fetchKkmServers() {

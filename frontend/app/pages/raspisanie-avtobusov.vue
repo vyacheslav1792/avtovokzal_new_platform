@@ -52,6 +52,19 @@ interface ScheduleData {
 
 const from = computed(() => String(route.query.from ?? ''))
 
+/*
+ * Пункты посадки — остановки на трассе, с которых продаются билеты
+ * (docs/BOARDING_POINTS.md). РЕГУЛЯРНОГО расписания у них нет: рейсы ведут
+ * чужие станции, и собственного графика отправлений у остановки не
+ * существует. Поэтому для такого пункта страница показывает не таблицу
+ * маршрутов, а направления — выбор ведёт к рейсам с временем посадки.
+ */
+const { data: departuresResp } = await useDepartures()
+const boardingPoints = computed(() => departuresResp.value?.points ?? [])
+const pointSlug = computed(() => boardingPointSlug(from.value))
+const point = computed(() =>
+  boardingPoints.value.find(p => p.slug === pointSlug.value) ?? null)
+
 const { data: stationsResp } = await useAsyncData('schedule-stations', () =>
   api<{ success: boolean, data: ScheduleStation[] }>('/schedule'))
 
@@ -59,7 +72,7 @@ const stations = computed(() => stationsResp.value?.data ?? [])
 
 const { data: scheduleResp, error } = await useAsyncData(
   'schedule',
-  () => from.value
+  () => from.value && !isBoardingPoint(from.value)
     ? api<{ success: boolean, data: ScheduleData }>(`/schedule/${encodeURIComponent(from.value)}`)
     : Promise.resolve(null),
   { watch: [from] },
@@ -134,8 +147,13 @@ useSeoMeta({
     : 'Расписание автобусов автовокзалов и кассовых пунктов Орловской области.',
 })
 
-const stationOptions = computed(() =>
-  stations.value.map(s => ({ label: s.name, value: s.name })))
+const stationOptions = computed(() => [
+  ...stations.value.map(s => ({ label: s.name, value: s.name })),
+  ...boardingPoints.value.map(p => ({
+    label: `${p.name} (остановка в пути)`,
+    value: boardingPointValue(p.slug),
+  })),
+])
 
 /** Смена пункта отправления меняет адрес страницы — ссылкой можно делиться. */
 function selectStation(name: string | number | null | undefined) {
@@ -148,11 +166,19 @@ function selectStation(name: string | number | null | undefined) {
  */
 const destinationsResp = await useAsyncData(
   'schedule-destinations',
-  () => schedule.value
-    ? api<{ success: boolean, data: { name: string }[] }>(`/stations/${schedule.value.awtcod}/destinations`)
-    : Promise.resolve(null),
+  () => {
+    if (point.value) {
+      return api<{ success: boolean, data: { name: string }[] }>(
+        destinationsUrl(boardingPointValue(point.value.slug)),
+      )
+    }
+
+    return schedule.value
+      ? api<{ success: boolean, data: { name: string }[] }>(`/stations/${schedule.value.awtcod}/destinations`)
+      : Promise.resolve(null)
+  },
   // Список нужен только для формы — на SSR его не тянем.
-  { server: false, watch: [schedule] },
+  { server: false, watch: [schedule, point] },
 )
 
 const destinations = computed(() =>
@@ -170,12 +196,13 @@ const to = ref<string | null>(null)
 const tripDate = ref(today)
 
 function showTrips(nearest = false) {
-  if (!schedule.value || !to.value) return
+  if (!to.value || (!schedule.value && !point.value)) return
   router.push({
     path: '/trips',
     query: {
-      awtcod: schedule.value.awtcod,
-      from: schedule.value.name,
+      ...(point.value
+        ? { from_point: point.value.slug, from: point.value.name }
+        : { awtcod: schedule.value!.awtcod, from: schedule.value!.name }),
       to: to.value,
       ...(nearest || !tripDate.value ? {} : { date: tripDate.value }),
       // На странице расписания legacy показывал ВСЕ рейсы, а не только те,
@@ -220,7 +247,9 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
     <BackButton v-if="from" fallback="/raspisanie-avtobusov" />
 
     <h1 class="text-3xl font-light mb-2">
-      Расписание автобусов<span v-if="schedule"> · {{ schedule.name }}</span>
+      Расписание автобусов<span v-if="schedule"> · {{ schedule.name }}</span><span
+        v-else-if="point"
+      > · {{ point.name }}</span>
     </h1>
 
     <!-- Объявление над расписанием: в legacy сюда включался тот же
@@ -286,7 +315,31 @@ function tariffLink(r: ScheduleRoute, d: Departure) {
       >
         {{ s.name }}
       </NuxtLink>
+      <!-- Остановки в пути — рядом со станциями, но с пометкой: кассы там нет. -->
+      <NuxtLink
+        v-for="p in boardingPoints"
+        :key="p.slug"
+        :to="{ query: { from: boardingPointValue(p.slug) } }"
+        class="border border-default rounded-lg p-4 font-medium hover:border-primary transition-colors"
+      >
+        {{ p.name }}
+        <span class="block text-xs font-normal text-muted">остановка в пути</span>
+      </NuxtLink>
     </div>
+
+    <!--
+      Пункт посадки: своего графика у остановки нет (рейсы ведут чужие
+      станции), поэтому вместо таблицы маршрутов — направления и переход к
+      рейсам, где время указано уже для этой остановки.
+    -->
+    <UAlert
+      v-else-if="point"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-map-pin"
+      :title="`Остановка «${point.name}»`"
+      description="Это остановка в пути: кассы на ней нет, билет оформляет автостанция, которая ведёт рейс. Выберите пункт прибытия выше — покажем рейсы с временем отправления от этой остановки."
+    />
 
     <UAlert
       v-else-if="error"

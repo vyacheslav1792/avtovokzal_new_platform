@@ -35,6 +35,13 @@ class SaleController extends Controller
             'raicecod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
             'statcod' => ['required_without:reservation_id', ...VendorCode::rules(required: false)],
             'date' => ['required_without:reservation_id', 'date_format:Y-m-d'],
+            /*
+             * Остановка отправления (продажа «от остановки до остановки»).
+             * По нашему резерву её брать неоткуда больше — она записана в
+             * резерве, и параметр нужен только при продаже по явному
+             * id_time_places (docs/BOARDING_POINTS.md).
+             */
+            'from' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
             'tickets' => ['required', 'array', 'min:1', 'max:20'],
             /*
              * Место — SMALLINT в SALONINFO/SALE (N_PLACE). Без границ
@@ -134,6 +141,8 @@ class SaleController extends Controller
                 'napcod' => $reservation->napcod,
                 'raicecod' => $reservation->raicecod,
                 'statcod' => $reservation->statcod,
+                'start_statcod' => (int) $reservation->start_statcod,
+                'start_station' => $reservation->start_station,
                 'date' => $reservation->date_start->format('Y-m-d'),
                 'id_time_places' => $reservation->id_time_places,
             ];
@@ -143,6 +152,8 @@ class SaleController extends Controller
                 'napcod' => (int) $data['napcod'],
                 'raicecod' => (int) $data['raicecod'],
                 'statcod' => (int) $data['statcod'],
+                'start_statcod' => 0,
+                'start_station' => null,
                 'date' => $data['date'],
                 'id_time_places' => $data['id_time_places'],
             ];
@@ -155,6 +166,27 @@ class SaleController extends Controller
 
         $gateway = $this->gateways->forStation($trip['awtcod'], $agent);
 
+        /*
+         * Остановка отправления: по нашему резерву она уже известна, при
+         * продаже по явному id_time_places её присылают параметром `from`.
+         * Код в этом случае проверяем заново (тариф, посадка) — иначе
+         * станция оформит билет по цене, которую ей передали, и с нулевым
+         * START_NOMSTAT: цену и остановку KS_SALE_PLACES не сверяет.
+         */
+        $fromStation = trim((string) ($data['from'] ?? ''));
+
+        if ($reservation === null && $fromStation !== '') {
+            $trip['start_statcod'] = $gateway->boardingStop(
+                $trip['awtcod'],
+                $trip['napcod'],
+                $trip['raicecod'],
+                $trip['date'],
+                $trip['statcod'],
+                $fromStation,
+            );
+            $trip['start_station'] = $fromStation;
+        }
+
         $result = $gateway->sell(
             $trip['awtcod'],
             $trip['napcod'],
@@ -163,6 +195,7 @@ class SaleController extends Controller
             $trip['date'],
             $trip['id_time_places'],
             $data['tickets'],
+            $trip['start_statcod'],
         );
 
         $total = collect($result['tickets'])->sum(
@@ -178,6 +211,8 @@ class SaleController extends Controller
             'napcod' => $trip['napcod'],
             'raicecod' => $trip['raicecod'],
             'statcod' => $trip['statcod'],
+            'start_statcod' => $trip['start_statcod'],
+            'start_station' => $trip['start_station'],
             'date_start' => $trip['date'],
             'id_time_places' => $trip['id_time_places'],
             'tickets' => $result['tickets'],
@@ -192,6 +227,7 @@ class SaleController extends Controller
             'data' => [
                 'sale_id' => $sale->id,
                 'tickets' => $result['tickets'],
+                'from_station' => $trip['start_station'],
                 'total_price' => $total,
             ],
         ], 201);

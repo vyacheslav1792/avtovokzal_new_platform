@@ -117,13 +117,66 @@ class BusterGateway
     }
 
     /**
+     * Пункты назначения, до которых продаются билеты ОТ ОСТАНОВКИ на трассе
+     * (аналог KS_STATIONS, но для продажи «от остановки до остановки»).
+     *
+     * Вендорной процедуры для этого нет: KS_STATIONS и KS_STATIONS_FROM
+     * решают обратную задачу — «откуда можно уехать до этого пункта».
+     * Поэтому свой запрос по TARIFS2D: тариф от остановки существует, когда
+     * у него STARTSTATCODE = код остановки (а не 0, как у продажи от своей
+     * автостанции). Разбор — docs/BOARDING_POINTS.md.
+     *
+     * Запрет посадки (TRACETIME.SET_DISABLED) здесь НЕ проверяется: он
+     * задаётся на расписание остановок конкретного рейса, а список пунктов
+     * общий для станции. Рейсы с запрещённой посадкой отсеивает `routes()`.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function destinationsFromStop(int $awtcod, string $stationName): array
+    {
+        return $this->db->select(
+            'select distinct tr_to.statname as station_name, tr_to.kilom as kilom
+               from tarifs2d t
+               inner join traces tr_from on (tr_from.awtcod = t.awtcode) and (tr_from.napcod = t.napcode)
+                    and (tr_from.statcod = t.startstatcode) and (tr_from.isdel = 0)
+               inner join traces tr_to on (tr_to.awtcod = t.awtcode) and (tr_to.napcod = t.napcode)
+                    and (tr_to.statcod = t.statcode) and (tr_to.isdel = 0)
+               inner join naplst on (naplst.awtcod = t.awtcode) and (naplst.napcod = t.napcode)
+                    and (naplst.isdel = 0)
+              where t.awtcode = ?
+                and t.prim = 1
+                and t.startstatcode <> 0
+                and (t.paysoftall > 0 or t.payhardall > 0)
+                and tr_from.statname = ?
+                and tr_to.kilom > tr_from.kilom',
+            [$awtcod, $stationName],
+        );
+    }
+
+    /**
      * Рейсы до станции назначения (по имени станции в TRACES).
      *
      * $date = null — режим «ближайшие» legacy (blij=1 на raspisanie-avtobusov):
      * рейсы всех дат начиная с сегодняшней, не больше 200 строк.
+     *
+     * $fromStation — ОСТАНОВКА ОТПРАВЛЕНИЯ на трассе рейса; пустая строка
+     * означает «от своей автостанции», как было всегда. Для продажи от
+     * остановки нужен свой тариф (TARIFS2D.STARTSTATCODE = код остановки) и
+     * разрешённая посадка в расписании остановок ИМЕННО ЭТОГО рейса
+     * (TRACETIME.SET_DISABLED = 0) — иначе станция билет не оформит, а
+     * процедура резерва об этом молчит (docs/BOARDING_POINTS.md).
+     *
+     * Код остановки в условие НЕ годится: у одной и той же остановки в разных
+     * направлениях станции разные STATCOD (у «Дросково КП» в базе Орла — 3,
+     * 11 и 12), поэтому сравниваем по названию, как и пункт назначения.
      */
-    public function routes(int $awtcod, string $stationName, ?string $date, bool $forSale = true): array
-    {
+    public function routes(
+        int $awtcod,
+        string $stationName,
+        ?string $date,
+        bool $forSale = true,
+        string $fromStation = '',
+    ): array {
         $today = date('Y-m-d');
         $nearest = $date === null;
         $dateWhere = $nearest ? 'evryraice.datestart >= ?' : 'evryraice.datestart = ?';
@@ -132,11 +185,65 @@ class BusterGateway
         // рейсов заведомо меньше.
         $limit = $nearest ? 'first 200' : '';
 
+        $fromStop = $fromStation !== '';
+
+        /*
+         * СМЕЩЕНИЕ ПОСАДКИ — сколько минут от отправления рейса до того
+         * момента, когда автобус уходит с нашей остановки: время до неё плюс
+         * стоянка. У продажи от автостанции смещение нулевое.
+         *
+         * TIME_OF_STOP у станций нередко не заполнен, а в Firebird
+         * `135 + null` даёт null — поэтому coalesce обязателен. Вендорная
+         * KS_TARIFS_STATIONS этого не делает и отдаёт пустое время
+         * отправления; KSR_TERM_RAICEINFO делает (там `if (… is null) then
+         * … = 0`), то есть вендор сам считает нулевую стоянку нормой.
+         */
+        $offset = $fromStop
+            ? '(coalesce(tt_from.time_to_stat, 0) + coalesce(tt_from.time_of_stop, 0))'
+            : '0';
+
+        $fromJoins = $fromStop ? '
+                inner join traces tr_from on (tr_from.awtcod = TARIFS2D.awtcode)
+                    and (tr_from.napcod = TARIFS2D.napcode)
+                    and (tr_from.statcod = TARIFS2D.startstatcode) and (tr_from.isdel = 0)
+                    and (tr_from.statname = ?)
+                inner join tracetime tt_from on (tt_from.awtcod = tr_from.awtcod)
+                    and (tt_from.napcod = tr_from.napcod) and (tt_from.statcod = tr_from.statcod)
+                    and (tt_from.traicetimecod = evryraice.tracetimecod)' : '';
+
+        /*
+         * Посадка на остановке должна быть разрешена, а пункт назначения —
+         * лежать ДАЛЬШЕ её по трассе (тариф назад станция всё равно не
+         * оформит, но и показывать такой рейс покупателю незачем).
+         */
+        $fromWhere = $fromStop
+            ? ' and (TARIFS2D.startstatcode <> 0)
+                and (coalesce(tt_from.set_disabled, 0) = 0)
+                and (traces.kilom > tr_from.kilom)'
+            : ' and TARIFS2D.startstatcode=0';
+
         $extraWhere = '';
         if ($forSale) {
             $extraWhere = ' and available=1 and evryraice.transit=0';
             $notSoon = date('H:i:s', time() + 2000);
-            if ($date === $today) {
+
+            if ($fromStop) {
+                /*
+                 * Отсечка «до отправления меньше ~33 минут» считается от
+                 * времени отправления С ОСТАНОВКИ, а не рейса: от Дросково
+                 * автобус уходит на 2 ч 15 мин позже, чем из Орла.
+                 *
+                 * Сравниваем полным timestamp, а не временем суток: смещение
+                 * посадки перебрасывает отправление на следующие сутки у
+                 * вечерних рейсов, и TIME в Firebird такое сложение
+                 * заворачивает через 24 часа (тот же подвох, что у
+                 * `time_to_end`, см. ниже). Момент берём из PHP, как и
+                 * раньше, — часы базы станции тут ни при чём.
+                 */
+                $notSoonAt = date('Y-m-d H:i:s', time() + 2000);
+                $extraWhere .= " and (dateadd(minute, {$offset}, evryraice.datestart + evryraice.timestart)"
+                    ." > timestamp '{$notSoonAt}')";
+            } elseif ($date === $today) {
                 // Не показываем рейсы, до отправления которых < ~33 минут.
                 $extraWhere .= " and timestart>'{$notSoon}'";
             } elseif ($nearest) {
@@ -148,7 +255,49 @@ class BusterGateway
             }
         }
 
-        $fields = <<<'SQL'
+        /*
+         * СКОЛЬКО МЕСТ СВОБОДНО — гарантированная нижняя граница.
+         *
+         * Привычный счётчик рейса (`setplbus - setpl - setpl_otl`) знает
+         * только о сквозных продажах: место, проданное ОТ ОСТАНОВКИ, остаётся
+         * в SALONINFO с TAKDIR=0 и FREEDIR=1 и в SETPL не попадает (так
+         * вендор оставляет участок до остановки в продаже). Для покупателя,
+         * который садится на этой остановке, такое место занято, и счётчик
+         * завышает: на рейсе Ливны 06:00 с двумя проданными от Дросково
+         * местами SETPL = 0.
+         *
+         * Поэтому считаем места, с которыми хоть что-то связано: занято,
+         * заказано, абонемент, любая бронь (включая жёсткую и «от остановки»),
+         * пересадка, квота чужого вокзала, живая отметка резерва или
+         * непогашенный билет в SALE. Величина НИКОГДА не больше реальной —
+         * спорные случаи идут в минус, поэтому сайт и пишет «не менее».
+         * Точное число даёт KS_ALL_PLACES при выборе места; на каждый рейс
+         * выдачи его не зовём — это процедура вместо одного запроса.
+         *
+         * Сверено с KS_ALL_PLACES на 11 рейсах в базах Орла и Ливен —
+         * совпало везде (docs/BOARDING_POINTS.md).
+         */
+        $freeMin = <<<'SQL'
+                (evryraice.setplbus - (
+                    select count(distinct si.n_place)
+                      from saloninfo si
+                     where si.awtcod = evryraice.awtcod and si.napcod = evryraice.napcod
+                       and si.raicecod = evryraice.raicecod and si.datestart = evryraice.datestart
+                       and (si.takdir = 1 or si.zkz = 1 or si.abn = 1 or si.beznal_zkz = 1
+                            or si.brontype > 0 or si.handhardbron = 1
+                            or coalesce(si.bron_statnom, 0) > 0 or si.brodisr = 1
+                            or si.hostcod is not null
+                            or (si.timemark is not null
+                                and dateadd(minute, 30, si.timemark) > current_timestamp)
+                            or exists (
+                                select 1 from sale s
+                                 where s.awtcod = si.awtcod and s.napcod = si.napcod
+                                   and s.raicecod = si.raicecod and s.datestart = si.datestart
+                                   and s.n_place = si.n_place and s.tick_back = 0 and s.type_oper = 0))
+                )) free_pl_min
+SQL;
+
+        $fields = <<<SQL
                 buslst.busname,
                 evryraice.raicename,
                 evryraice.platnom,
@@ -182,7 +331,9 @@ class BusterGateway
                 evryraice.internet_sale_available,
                 evryraice.RAICE_CATEGORY AS FRAHT,
                 (evryraice.martypcod * naplst.reg_pasp_data) reg_pas_data,
-                %TIME_WAY% time_way_minutes
+                %TIME_WAY% time_way_minutes,
+                dateadd(minute, {$offset}, evryraice.datestart + evryraice.timestart) departure_at,
+                {$freeMin}
 SQL;
 
         /*
@@ -201,10 +352,13 @@ SQL;
          * расписания остановок (вторая ветка UNION, `tracetimecod is
          * null`) её нет: там и `time_to_end` равен времени отправления,
          * то есть прибытие неизвестно в принципе.
+         *
+         * При продаже ОТ ОСТАНОВКИ из времени в пути вычитается смещение
+         * посадки: пассажир из Дросково едет 45 минут, а не 180.
          */
         $fieldsWithArrival = str_replace(
             ['%TIME_TO_END%', '%TIME_WAY%'],
-            ['(evryraice.timestart + tracetime.time_to_stat*60)', 'tracetime.time_to_stat'],
+            ['(evryraice.timestart + tracetime.time_to_stat*60)', "(tracetime.time_to_stat - {$offset})"],
             $fields,
         );
         $fieldsNoArrival = str_replace(
@@ -225,7 +379,7 @@ SQL;
                 inner join traces on (TARIFS2D.awtcode = traces.awtcod) and (TARIFS2D.napcode = traces.napcod)
                     and (TARIFS2D.statcode = traces.statcod)
                 left outer join tracetime on (traces.awtcod = tracetime.awtcod) and (traces.napcod = tracetime.napcod)
-                    and (traces.statcod = tracetime.statcod)
+                    and (traces.statcod = tracetime.statcod){$fromJoins}
             where
                 ((traces.statname = ?)
                 and (traces.isdel = 0) and (TARIFS2D.paysoftall>0)
@@ -235,11 +389,10 @@ SQL;
                 and (not (evryraice.tracetimecod is null) and (evryraice.tracetimecod = tracetime.traicetimecod))
                 and (TARIFS2D.prim = 1)
                 and RAICETYPCOD<>3
-                and not((evryraice.canceled = 5))
-                and TARIFS2D.startstatcode=0)
+                and not((evryraice.canceled = 5)){$fromWhere})
             /*
-             * ВТОРАЯ ВЕТВЬ — рейсы, у которых времени в пути до этой
-             * остановки НЕТ.
+             * ВТОРАЯ ВЕТВЬ — рейсы, у которых времени в пути ДО ЭТОЙ
+             * ОСТАНОВКИ нет.
              *
              * ДЕФЕКТ LEGACY, который здесь исправлен: в legacy
              * (`ais/api/api2.php`) условие было
@@ -267,7 +420,10 @@ SQL;
              * Прибытие у таких рейсов неизвестно: `time_to_end` равен
              * времени отправления, `time_way_minutes` — null, и сайт
              * обязан писать «уточняйте на станции», а не выдавать время
-             * отправления за время прибытия.
+             * отправления за время прибытия. На продажу ОТ ОСТАНОВКИ это
+             * не распространяется: там строка `tracetime` нужна для самой
+             * посадки (из неё берётся время отправления и признак
+             * SET_DISABLED), и рейсы без неё в выдачу не попадают вовсе.
              */
             union
             select {$limit} {$fieldsNoArrival},
@@ -279,7 +435,7 @@ SQL;
                 inner join tarifs2D on (evryraice.nomkat = TARIFS2D.katcode) and (evryraice.napcod = TARIFS2D.napcode)
                     and (evryraice.awtcod = TARIFS2D.awtcode)
                 inner join traces on (TARIFS2D.awtcode = traces.awtcod) and (TARIFS2D.napcode = traces.napcod)
-                    and (TARIFS2D.statcode = traces.statcod)
+                    and (TARIFS2D.statcode = traces.statcod){$fromJoins}
             where
                 ((traces.statname = ?)
                 and (traces.isdel = 0) and (TARIFS2D.paysoftall>0)
@@ -294,15 +450,15 @@ SQL;
                 ))
                 and (TARIFS2D.prim = 1)
                 and RAICETYPCOD<>3
-                and not((evryraice.canceled = 5))
-                and TARIFS2D.startstatcode=0)
-            order by 6, 7
+                and not((evryraice.canceled = 5)){$fromWhere})
+            order by 6, 35
         ";
 
-        $rows = $this->db->select($sql, [
-            $stationName, $dateParam, $awtcod,
-            $stationName, $dateParam, $awtcod,
-        ]);
+        $branchParams = $fromStop
+            ? [$fromStation, $stationName, $dateParam, $awtcod]
+            : [$stationName, $dateParam, $awtcod];
+
+        $rows = $this->db->select($sql, [...$branchParams, ...$branchParams]);
 
         return $this->applySaleBounds($awtcod, $rows);
     }
@@ -368,12 +524,27 @@ SQL;
         return $rows;
     }
 
-    /** Все места рейса со статусами (KS_ALL_PLACES). */
-    public function places(int $awtcod, string $date, int $napcod, int $raicecod): array
-    {
+    /**
+     * Все места рейса со статусами (KS_ALL_PLACES).
+     *
+     * $stationName — ПУНКТ НАЗНАЧЕНИЯ покупателя. Без него процедура (а
+     * точнее KS_FIND_FREE_PL внутри) считает занятым любое место, на котором
+     * есть билет; с ним — учитывает участок пути: место, проданное «от
+     * остановки до конца», свободно для билета ДО этой остановки. Ровно так
+     * же смотрит на место резерв (`KS_BRONTIME_PLACE` получает код пункта
+     * назначения), поэтому с названием картина мест совпадает с тем, что
+     * станция реально даст оформить (docs/BOARDING_POINTS.md).
+     */
+    public function places(
+        int $awtcod,
+        string $date,
+        int $napcod,
+        int $raicecod,
+        string $stationName = '',
+    ): array {
         $rows = $this->db->select(
-            'SELECT * FROM KS_ALL_PLACES(?,?,?,?)',
-            [$date, $awtcod, $napcod, $raicecod],
+            'SELECT * FROM KS_ALL_PLACES(?,?,?,?,?)',
+            [$date, $awtcod, $napcod, $raicecod, $stationName !== '' ? $stationName : null],
         );
 
         $this->assertNoError($rows, 'Не удалось получить места рейса');
@@ -393,6 +564,84 @@ SQL;
     }
 
     /**
+     * Остановка отправления рейса: её код в этом направлении плюс проверка,
+     * что продажа от неё вообще возможна.
+     *
+     * Проверять ОБЯЗАТЕЛЬНО до резерва, потому что станция об этом молчит:
+     * `KS_BRONTIME_PLACE` с кодом остановки, у которой нет тарифа, отвечает
+     * `err_code = 0`, место бронирует, а цену отдаёт `0.00` и время
+     * отправления `null`; при запрещённой посадке
+     * (`TRACETIME.SET_DISABLED = 1`) бронирует как ни в чём не бывало.
+     * Проверено на базах Орла и Ливен, разбор — docs/BOARDING_POINTS.md.
+     *
+     * Код остановки берём по НАЗВАНИЮ и направлению рейса: у одной
+     * остановки в разных направлениях станции разные STATCOD.
+     *
+     * @return int код остановки (`TRACES.STATCOD`) для этого направления
+     */
+    public function boardingStop(
+        int $awtcod,
+        int $napcod,
+        int $raicecod,
+        string $date,
+        int $toStatcod,
+        string $fromStation,
+    ): int {
+        $rows = $this->db->select(
+            'select first 1 tr.statcod, tr.kilom, tr_to.kilom as to_kilom,
+                    coalesce(tt.set_disabled, 1) as set_disabled,
+                    (select count(*) from tarifs2d t
+                      where t.awtcode = e.awtcod and t.napcode = e.napcod
+                        and t.katcode = e.nomkat and t.prim = 1
+                        and t.startstatcode = tr.statcod and t.statcode = ?
+                        and (t.paysoftall > 0 or t.payhardall > 0)) as tariffs
+               from evryraice e
+               inner join traces tr on (tr.awtcod = e.awtcod) and (tr.napcod = e.napcod)
+                    and (tr.isdel = 0) and (tr.statname = ?)
+               left join traces tr_to on (tr_to.awtcod = e.awtcod) and (tr_to.napcod = e.napcod)
+                    and (tr_to.statcod = ?)
+               left join tracetime tt on (tt.awtcod = tr.awtcod) and (tt.napcod = tr.napcod)
+                    and (tt.statcod = tr.statcod) and (tt.traicetimecod = e.tracetimecod)
+              where e.datestart = ? and e.awtcod = ? and e.napcod = ? and e.raicecod = ?',
+            [$toStatcod, $fromStation, $toStatcod, $date, $awtcod, $napcod, $raicecod],
+        );
+
+        $row = $rows[0] ?? null;
+
+        if ($row === null) {
+            throw new BusterException(
+                'Остановка «'.$fromStation.'» на этом рейсе не найдена',
+                'stop_not_found',
+            );
+        }
+
+        if ((int) $row['TARIFFS'] === 0) {
+            throw new BusterException(
+                'От остановки «'.$fromStation.'» билеты на этот рейс не продаются',
+                'no_tariff_from_stop',
+            );
+        }
+
+        // Строки расписания у остановки нет — считаем посадку запрещённой:
+        // без неё неизвестно даже время отправления (coalesce(..., 1) выше).
+        if ((int) $row['SET_DISABLED'] !== 0) {
+            throw new BusterException(
+                'На остановке «'.$fromStation.'» посадка на этот рейс запрещена',
+                'boarding_not_allowed',
+            );
+        }
+
+        if ($row['TO_KILOM'] !== null && (float) $row['TO_KILOM'] <= (float) $row['KILOM']) {
+            throw new BusterException(
+                'Пункт назначения находится не дальше остановки «'.$fromStation.'» по трассе',
+                'destination_before_stop',
+            );
+        }
+
+        return (int) $row['STATCOD'];
+    }
+
+    /**
      * Резерв мест (KS_BRONTIME_PLACE, бронь ~24 мин c поправкой процедуры).
      *
      * @param  int[]  $places  конкретные места; пусто — любые $seatCount мест
@@ -406,6 +655,7 @@ SQL;
         string $date,
         array $places = [],
         int $seatCount = 0,
+        int $fromStatcod = 0,
     ): array {
         if ($places !== []) {
             $packedPlaces = implode('@', $places).'@';
@@ -419,9 +669,15 @@ SQL;
         $this->db->begin();
 
         try {
+            /*
+             * START_STAT_CODE (13-й параметр) — остановка отправления:
+             * от неё процедура считает и цену (тариф с этим
+             * STARTSTATCODE), и время отправления по расписанию остановок.
+             * 0 — от своей автостанции, как было всегда.
+             */
             $rows = $this->db->select(
-                'SELECT * FROM KS_BRONTIME_PLACE(?,?,?,?,?,?,?,?,?,?,null,24)',
-                [$packedPlaces, $seatCount, 0, $awtcod, $napcod, $raicecod, $statcod, $date, $this->agentCode, $this->workerCode],
+                'SELECT * FROM KS_BRONTIME_PLACE(?,?,?,?,?,?,?,?,?,?,null,24,?,null)',
+                [$packedPlaces, $seatCount, 0, $awtcod, $napcod, $raicecod, $statcod, $date, $this->agentCode, $this->workerCode, $fromStatcod],
             );
 
             $row = $rows[0] ?? null;
@@ -506,13 +762,14 @@ SQL;
         string $date,
         string $idTimePlaces,
         array $tickets,
+        int $fromStatcod = 0,
     ): array {
         $marshKvit = '00130000009353285701'; // константа legacy (N_MARSH_KVIT)
 
         $packed = [
             'places' => '', 'places_kats' => '', 'f' => '', 'i' => '', 'o' => '',
             'dr' => '', 'doc_s' => '', 'doc_num' => '', 'doc' => '', 'grajd' => '',
-            'pol' => '', 'comments' => '',
+            'pol' => '', 'comments' => '', 'start_stations' => '',
         ];
         $priceBag = '0.00';
 
@@ -545,6 +802,9 @@ SQL;
             $packed['grajd'] .= ($t['citizenship'] ?? 185).'@';
             $packed['pol'] .= 'М@'; // legacy всегда 'М'
             $packed['comments'] .= mb_substr(str_replace('@', ';', $t['comment'] ?? ''), 0, 20).'@';
+            // S_START_STATION — остановка отправления на КАЖДЫЙ билет
+            // (процедура разбирает строку в том же цикле, что и места).
+            $packed['start_stations'] .= $fromStatcod.'@';
 
             if (! empty($t['price_bag'])) {
                 $priceBag = (string) $t['price_bag'];
@@ -559,7 +819,7 @@ SQL;
 
         try {
             $rows = $this->db->select(
-                'SELECT * FROM KS_SALE_PLACES(?,?,?,?,?,?,0,?,?,   ?,    ?,?,?,       ?,?,?, NULL,   NULL,  ?,NULL,?,?,NULL,NULL,?,?,NULL,NULL,?,?,'.$zakazLiteral.',?)',
+                'SELECT * FROM KS_SALE_PLACES(?,?,?,?,?,?,0,?,?,   ?,    ?,?,?,       ?,?,?, NULL,   NULL,  ?,NULL,?,?,NULL,NULL,?,?,NULL,?,?,?,'.$zakazLiteral.',?)',
                 [
                     $packed['places'], $awtcod, $date, $napcod, $raicecod, $statcod,
                     0,                       // STRAX_SBOR
@@ -569,6 +829,12 @@ SQL;
                     $packed['doc_s'], $packed['doc_num'], $packed['dr'], $packed['doc'],
                     $packed['grajd'], $packed['pol'],
                     $this->agentCode, $this->workerCode,
+                    // S_START_STATION: остановки отправления по билетам
+                    // ('12@12@'); пустая строка — от своей автостанции.
+                    // NULL, а не пустая строка: прежнее поведение продажи от
+                    // автостанции не меняем (процедура разбирает этот
+                    // параметр безусловно).
+                    $fromStatcod > 0 ? $packed['start_stations'] : null,
                     $marshKvit,
                     0,                       // COL_BAGS: багаж продаём отдельной процедурой
                     $packed['comments'],
@@ -617,7 +883,10 @@ SQL;
                     $bagRows = $this->db->select(
                         'SELECT * FROM SH0_SALE_BAG_ON_RAICE(?,?,?,?,?,?,?,?,   ?,    ?,?,?,       ?,?,?,?,?,?,?,?)',
                         [
-                            $bagCount, $awtcod, $date, $napcod, $raicecod, 0, $statcod,
+                            // 6-й параметр — START_STATION_COD: багажная
+                            // квитанция должна ехать с того же места, что и
+                            // билет, иначе в ведомости она «от автостанции».
+                            $bagCount, $awtcod, $date, $napcod, $raicecod, $fromStatcod, $statcod,
                             mb_substr($sold['last_name'], 0, 20).'@',
                             mb_substr($sold['first_name'], 0, 14).'@',
                             mb_substr($sold['middle_name'] ?? '', 0, 14).'@',
@@ -796,6 +1065,23 @@ SQL;
                 fn ($v) => $v !== '',
             )),
             'trip_name' => implode('–', array_slice($marshParts, 0, 2)),
+            /*
+             * Маршрут САМОГО билета — «от остановки@до остановки@»
+             * (START_ARIVAL_STAT_NAME). У билета от промежуточной остановки
+             * это «Дросково КП» → «Ливны АС», тогда как `trip_name` остаётся
+             * названием рейса («Орел–Ливны»). Карточке возврата нужно
+             * показывать именно маршрут билета.
+             */
+            'ticket_route' => array_values(array_filter(
+                explode('@', (string) ($row['START_ARIVAL_STAT_NAME'] ?? '')),
+                fn ($v) => $v !== '',
+            )),
+            /*
+             * ВНИМАНИЕ: станция отдаёт время отправления РЕЙСА, а не
+             * остановки (у билета Дросково→Ливны здесь 07:00 — это Орёл), и
+             * удержание считает от него же. Пересчёт на время посадки — дело
+             * вызывающей стороны: она знает остановку заказа.
+             */
             'datetime_start' => $dateTimeStart[0] ?? null,
             // Итог переноса даты возврата в журнале станции: сколько
             // записей сдвинуто и почему не вышло (null — не просили).

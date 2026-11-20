@@ -3,13 +3,19 @@ const api = useApi()
 const router = useRouter()
 const toast = useToast()
 
-const { data: stationsResp } = await useAsyncData('stations', () =>
-  api<{ success: boolean, data: { awtcod: number, name: string }[] }>('/stations'))
+/*
+ * «Откуда» — автостанции И пункты посадки (остановки на трассе рейсов, с
+ * которых тоже продаются билеты, docs/BOARDING_POINTS.md). Значение
+ * селекта у станции — число (awtcod), у пункта посадки — `bp:<slug>`;
+ * дальше `destinationsUrl` и `departureQuery` сами выбирают, куда идти.
+ */
+const { data: departuresResp } = await useDepartures()
 
-const stations = computed(() =>
-  (stationsResp.value?.data ?? []).map(s => ({ label: s.name, value: s.awtcod })))
+const stationList = computed(() => departuresResp.value?.stations ?? [])
+const pointList = computed(() => departuresResp.value?.points ?? [])
+const stations = computed(() => departureItems(stationList.value, pointList.value))
 
-const from = ref<number | null>(null)
+const from = ref<DepartureValue | null>(null)
 const to = ref<string | null>(null)
 // Дата в поясе автовокзала, а не UTC: иначе ночью форма предлагает вчера.
 const today = siteDate()
@@ -29,14 +35,14 @@ const SEARCH_STATE = 'home-search'
 /** Пункт назначения ждёт, пока догрузится список станции (восстановление). */
 let pendingTo: string | null = null
 
-watch(from, async (awtcod) => {
+watch(from, async (departure) => {
   to.value = null
   destinations.value = []
-  if (!awtcod) return
+  if (departure === null || departure === undefined || departure === '') return
   destinationsLoading.value = true
   try {
     const resp = await api<{ success: boolean, data: { name: string }[] }>(
-      `/stations/${awtcod}/destinations`,
+      destinationsUrl(departure),
     )
     destinations.value = resp.data.map(d => ({ label: d.name, value: d.name }))
     // Остановку подставляем только если она ещё есть в расписании станции.
@@ -71,7 +77,7 @@ function search() {
     toast.add({ title: 'Выберите маршрут и дату поездки', color: 'warning' })
     return
   }
-  const fromName = stations.value.find(s => s.value === from.value)?.label ?? ''
+  const fromName = departureLabel(from.value, stationList.value, pointList.value)
   sessionStorage.setItem(SEARCH_STATE, JSON.stringify({
     from: from.value,
     to: to.value,
@@ -79,7 +85,12 @@ function search() {
   }))
   router.push({
     path: '/trips',
-    query: { awtcod: from.value, from: fromName, to: to.value, date: date.value },
+    query: {
+      ...departureQuery(from.value),
+      from: fromName,
+      to: to.value,
+      date: date.value,
+    },
   })
 }
 
@@ -98,7 +109,7 @@ const popularAll = [
   { title: 'Орел – Тула', img: '/img/tula.jpg', from: 5701, fromName: 'Орел АВ', to: 'Тула' },
 ]
 const popular = computed(() =>
-  popularAll.filter(p => stations.value.some(s => s.value === p.from)))
+  popularAll.filter(p => stationList.value.some(s => s.awtcod === p.from)))
 
 /** Фон hero — картинка главной из legacy. */
 const heroImage = { backgroundImage: 'url(/img/bus.jpg)' }
@@ -156,9 +167,9 @@ const tileOverlay = {
               <ResponsiveSelect
                 v-model="from"
                 :items="stations"
-                placeholder="Станция отправления"
+                placeholder="Станция или остановка"
                 title="Откуда едем"
-                search-placeholder="Название автовокзала или кассы"
+                search-placeholder="Название автовокзала, кассы или остановки"
                
               />
             </UFormField>

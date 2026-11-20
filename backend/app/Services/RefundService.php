@@ -61,6 +61,12 @@ class RefundService
 
         $canceledTrip = $this->isTripCanceled($order);
 
+        /*
+         * Срок возврата считаем от отправления РЕЙСА, а не от посадки на
+         * остановке, даже если пассажир садится позже: удержание и запрет
+         * возврата станция (KS_ANN_TICKET_FROM_AW) считает по рейсу, и
+         * обещать покупателю больше, чем сделает станция, нельзя.
+         */
         $departureAt = strtotime($order->date_start->format('Y-m-d').' '.$order->time_start);
 
         if (! $canceledTrip && time() > $departureAt - self::REFUND_DEADLINE) {
@@ -89,7 +95,7 @@ class RefundService
             'to_name' => $order->to_name,
             'trip_name' => $preview['trip_name'] ?: $order->trip_name,
             'date_start' => $order->date_start->format('Y-m-d'),
-            'time_start' => substr((string) $order->time_start, 0, 5),
+            'time_start' => $order->displayTime(),
             'place' => $ticket['place'],
             'penalty_percent' => $penalty,
             'amount' => $amount,
@@ -179,7 +185,7 @@ class RefundService
             'to_name' => $order->to_name,
             'trip_name' => $result['trip_name'] ?: $order->trip_name,
             'date_start' => $order->date_start->format('Y-m-d'),
-            'time_start' => substr((string) $order->time_start, 0, 5),
+            'time_start' => $order->displayTime(),
             'place' => $ticket['place'],
             'amount' => (float) $payload['amount'],
             'bank_error' => $bankError,

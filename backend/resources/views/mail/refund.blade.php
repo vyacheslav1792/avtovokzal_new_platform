@@ -14,7 +14,7 @@
 # Билет возвращён
 
 Билет на рейс **{{ $order->from_name }} — {{ $order->to_name }}**,
-отправление {{ $order->date_start->format('d.m.Y') }} в {{ substr((string) $order->time_start, 0, 5) }},
+отправление {{ $order->date_start->format('d.m.Y') }} в {{ $order->displayTime() }},
 место {{ $refund->place }}@if($refund->serial || $refund->number) (бланк {{ trim($refund->serial.' '.$refund->number) }})@endif,
 аннулирован.
 

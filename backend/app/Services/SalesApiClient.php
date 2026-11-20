@@ -30,6 +30,18 @@ class SalesApiClient
         return $this->call(fn () => $this->http()->get("stations/{$awtcod}/destinations"));
     }
 
+    /**
+     * Пункты назначения ОТ ОСТАНОВКИ на трассе (продажа от пункта
+     * посадки, docs/BOARDING_POINTS.md): у остановки свои тарифы, и
+     * список «Куда» у неё короче станционного.
+     */
+    public function destinationsFromStop(int $awtcod, string $stop): array
+    {
+        return $this->call(fn () => $this->http()->get("stations/{$awtcod}/destinations", [
+            'from' => $stop,
+        ]));
+    }
+
     /** Регулярное расписание станции (legacy action=raspisanie). */
     public function schedule(int $awtcod): array
     {
@@ -53,25 +65,49 @@ class SalesApiClient
         ], fn ($v) => $v !== null)));
     }
 
-    /** $date = null — «ближайшие» рейсы по всем датам (legacy blij=1). */
-    public function trips(int $awtcod, string $station, ?string $date, bool $forSale = true): array
-    {
+    /**
+     * $date = null — «ближайшие» рейсы по всем датам (legacy blij=1).
+     *
+     * $fromStop — остановка отправления на трассе рейса: тогда и цена, и
+     * время отправления считаются от неё, а рейсы без тарифа или с
+     * запрещённой посадкой в список не попадают.
+     */
+    public function trips(
+        int $awtcod,
+        string $station,
+        ?string $date,
+        bool $forSale = true,
+        string $fromStop = '',
+    ): array {
         return $this->call(fn () => $this->http()->get('trips', array_filter([
             'awtcod' => $awtcod,
             'station' => $station,
             'date' => $date,
             'for_sale' => $forSale ? 1 : 0,
+            'from' => $fromStop !== '' ? $fromStop : null,
         ], fn ($v) => $v !== null)));
     }
 
-    public function places(int $awtcod, string $date, int $napcod, int $raicecod): array
-    {
-        return $this->call(fn () => $this->http()->get('trips/places', [
+    /**
+     * Места рейса. $station — пункт назначения покупателя: с ним станция
+     * учитывает участок пути (место, занятое только до середины трассы,
+     * для билета до неё свободно) и картина совпадает с тем, что даст
+     * оформить резерв.
+     */
+    public function places(
+        int $awtcod,
+        string $date,
+        int $napcod,
+        int $raicecod,
+        string $station = '',
+    ): array {
+        return $this->call(fn () => $this->http()->get('trips/places', array_filter([
             'awtcod' => $awtcod,
             'date' => $date,
             'napcod' => $napcod,
             'raicecod' => $raicecod,
-        ]));
+            'station' => $station !== '' ? $station : null,
+        ], fn ($v) => $v !== null)));
     }
 
     public function reserve(array $payload): array

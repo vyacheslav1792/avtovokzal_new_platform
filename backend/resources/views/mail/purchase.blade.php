@@ -21,7 +21,7 @@
 @if($order->trip_name)
 **Маршрут:** {{ $order->trip_name }}
 @endif
-**Отправление:** {{ $order->date_start->format('d.m.Y') }} в {{ substr((string) $order->time_start, 0, 5) }}
+**Отправление:** {{ $order->date_start->format('d.m.Y') }} в {{ $order->displayTime() }}
 @if($order->arrival_at)
 **Прибытие:** {{ $order->arrival_at->format('d.m.Y H:i') }}
 @endif

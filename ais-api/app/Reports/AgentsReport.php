@@ -146,7 +146,7 @@ class AgentsReport implements Report
                     'N_TICKET' => $v['N_TICKET'],
                     'ATPNAME' => $v['ATPNAME'],
                     'raice' => $v['RAICENAME'].'-'.$v['NAPNAME'],
-                    'STATNAME' => $v['STATNAME'],
+                    'STATNAME' => $this->route($v),
                     'datestart' => date('d.m.Y', strtotime($v['DATESTART'])),
                     'timestart' => date('H:i', strtotime((string) $v['TIMESTART'])),
                     'N_PLACE' => $v['N_PLACE'],
@@ -176,6 +176,25 @@ class AgentsReport implements Report
 
         return $this->result($rowsSales, $rowsRet, $rowsCash, $tSales, $tRet, $tCash,
             $inved, $inved2211, $dolg, $errors, $filters);
+    }
+
+    /**
+     * Куда (и откуда) продан билет.
+     *
+     * Обычная продажа — только пункт назначения: отправление и так от
+     * нашей автостанции. Продажа от промежуточной остановки показывается
+     * маршрутом «Дросково КП → Ливны АС»: иначе её не отличить от проезда
+     * с вокзала, а это другой километраж, цена и место в салоне
+     * (docs/BOARDING_POINTS.md).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function route(array $row): string
+    {
+        $to = (string) ($row['STATNAME'] ?? '');
+        $from = trim((string) ($row['STARTSTATNAME'] ?? ''));
+
+        return $from !== '' ? $from.' → '.$to : $to;
     }
 
     /** Строка секции возвратов/возвратов кассирами (структуры совпадают). */
@@ -225,7 +244,7 @@ class AgentsReport implements Report
             'i' => $i, 'AV' => $av, 'N_TICKET' => $v['N_TICKET'],
             'ATPNAME' => $v['ATPNAME'],
             'raice' => $raice,
-            'STATNAME' => $v['STATNAME'],
+            'STATNAME' => $this->route($v),
             'datestart' => date('d.m.Y', strtotime($v['DATESTART'])),
             'timestart' => date('H:i', strtotime((string) $v['TIMESTART'])),
             'N_PLACE' => $v['N_PLACE'],
@@ -334,7 +353,18 @@ class AgentsReport implements Report
 
         return "SELECT sale.datesale,sale.timesale,SALE.IS_PRN,SALE.ATPCOD,SALE.N_TICKET,SALE.n_PLACE,SALE.STRWANT_BACK,
                 ATPLSTALL.ATPNAME,EVRYRAICE.RAICENAME,SALE.MAY_BACK,SALE.TICK_BACK,NAPLST.NAPNAME,EVRYRAICE.TIMESTART,
-                SALE.DATESTART,SALE.STRWANT,SALE.PRICE_PLACE,SALE.PRICE_BAG,TRACES.STATNAME
+                SALE.DATESTART,SALE.STRWANT,SALE.PRICE_PLACE,SALE.PRICE_BAG,TRACES.STATNAME,
+                /*
+                 * Остановка, С КОТОРОЙ продан билет (SALE.START_NOMSTAT).
+                 * У обычной продажи это 0 и поле пустое; у продажи от
+                 * промежуточной остановки («Дросково КП → Ливны АС», см.
+                 * docs/BOARDING_POINTS.md) без неё строка отчёта читается
+                 * как проезд от вокзала — то есть другой километраж и
+                 * другие деньги.
+                 */
+                (SELECT FIRST 1 t2.STATNAME FROM TRACES t2
+                  WHERE t2.AWTCOD = SALE.AWTCOD AND t2.NAPCOD = SALE.NAPCOD
+                    AND t2.STATCOD = SALE.START_NOMSTAT AND SALE.START_NOMSTAT > 0) AS STARTSTATNAME
             FROM SALE
             LEFT JOIN TRACES ON (TRACES.AWTCOD=SALE.AWTCOD AND TRACES.NAPCOD=SALE.NAPCOD AND TRACES.STATCOD=SALE.NOMSTAT)
             LEFT JOIN EVRYRAICE ON (EVRYRAICE.AWTCOD=SALE.AWTCOD AND EVRYRAICE.DATESTART=SALE.DATESTART AND EVRYRAICE.NAPCOD=SALE.NAPCOD AND EVRYRAICE.RAICECOD=SALE.RAICECOD)
@@ -354,7 +384,18 @@ class AgentsReport implements Report
         return "SELECT sale.dob_n_ticket,sale.price_pl_isx,sale.datesale as DATESALE,sale.timesale,sale.awtcodsale,
                 SALE.ATPCOD,SALE.N_TICKET,SALE.n_PLACE,SALE.STRWANT_BACK,ATPLSTALL.ATPNAME,EVRYRAICE.RAICENAME,
                 SALE.MAY_BACK,SALE.TICK_BACK,NAPLST.NAPNAME,EVRYRAICE.TIMESTART,SALE.DATESTART,
-                SALE.STRWANT,SALE.PRICE_PLACE,SALE.PRICE_BAG,TRACES.STATNAME
+                SALE.STRWANT,SALE.PRICE_PLACE,SALE.PRICE_BAG,TRACES.STATNAME,
+                /*
+                 * Остановка, С КОТОРОЙ продан билет (SALE.START_NOMSTAT).
+                 * У обычной продажи это 0 и поле пустое; у продажи от
+                 * промежуточной остановки («Дросково КП → Ливны АС», см.
+                 * docs/BOARDING_POINTS.md) без неё строка отчёта читается
+                 * как проезд от вокзала — то есть другой километраж и
+                 * другие деньги.
+                 */
+                (SELECT FIRST 1 t2.STATNAME FROM TRACES t2
+                  WHERE t2.AWTCOD = SALE.AWTCOD AND t2.NAPCOD = SALE.NAPCOD
+                    AND t2.STATCOD = SALE.START_NOMSTAT AND SALE.START_NOMSTAT > 0) AS STARTSTATNAME
             FROM SALE
             LEFT JOIN TRACES ON (TRACES.AWTCOD=SALE.AWTCOD AND TRACES.NAPCOD=SALE.NAPCOD AND TRACES.STATCOD=SALE.NOMSTAT)
             LEFT JOIN EVRYRAICE ON (EVRYRAICE.AWTCOD=SALE.AWTCOD AND EVRYRAICE.DATESTART=SALE.DATESTART AND EVRYRAICE.NAPCOD=SALE.NAPCOD AND EVRYRAICE.RAICECOD=SALE.RAICECOD)
@@ -375,6 +416,10 @@ class AgentsReport implements Report
                 s.STRWANT, s.PRICE_USL, (s.ZAKAZ + s.ZAKAZ_INT + s.BRON) as ZAKAZ, s.PRICE_PL_ISX, s.PRICE_BAG_ISX,
                 s.GO_DATESTART, s.GO_NAPCOD, s.GO_RAICECOD, s.GO_ATPCOD, s.PROC_BACK, s.TYPE_TICK, s.KKM_OK, s.COMMENT_TICK,
                 s.MAY_BACK, s.TICK_BACK, s.INTERNET_SALE, TRACES.STATNAME, NAPLST.NAPNAME, WRKLST.WRKNAME, EVRYRAICE.TIMESTART,
+                -- Остановка отправления билета (0 — сама автостанция).
+                (SELECT FIRST 1 t2.STATNAME FROM TRACES t2
+                  WHERE t2.AWTCOD = s.AWTCOD AND t2.NAPCOD = s.NAPCOD
+                    AND t2.STATCOD = s.START_NOMSTAT AND s.START_NOMSTAT > 0) AS STARTSTATNAME,
                 atplstall.atpname, s.N_Zakaz_Tour
             FROM SALE s
             left join atplstall on atplstall.atpcod = s.GO_ATPCOD

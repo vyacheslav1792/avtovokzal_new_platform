@@ -103,7 +103,8 @@ class CabinetService
 
     private function present(Order $order): array
     {
-        $departureAt = strtotime($order->date_start->format('Y-m-d').' '.$order->time_start);
+        // Для заказа от остановки — время посадки, а не отправления рейса.
+        $departureAt = $order->departureMoment()->getTimestamp();
         $refunds = $order->refunds->keyBy(fn (Refund $r) => $r->serial.':'.$r->number);
 
         $tickets = $order->tickets->map(function (Ticket $ticket) use ($order, $refunds, $departureAt) {
@@ -153,7 +154,7 @@ class CabinetService
             'trip_name' => $order->trip_name,
             'carrier' => $order->carrier,
             'date_start' => $order->date_start->format('Y-m-d'),
-            'time_start' => substr((string) $order->time_start, 0, 5),
+            'time_start' => $order->displayTime(),
             'arrival_at' => $order->arrival_at?->timezone(config('app.timezone'))->format('d.m.Y H:i'),
             'total_price' => (float) $order->total_price,
             'refunded_total' => round($refundedTotal, 2),

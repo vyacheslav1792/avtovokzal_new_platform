@@ -563,7 +563,7 @@ class CustomerAdminService
             'id' => $o->id,
             'created_at' => $this->date($o->created_at),
             'date_start' => $o->date_start?->format('d.m.Y'),
-            'time_start' => mb_substr((string) $o->time_start, 0, 5),
+            'time_start' => $o->displayTime(),
             'route' => $o->from_name.' → '.$o->to_name,
             'total_price' => (float) $o->total_price,
             'status' => $o->status,

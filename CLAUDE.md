@@ -47,6 +47,7 @@ Compose. Вендорные Firebird-базы продаж (BUSTER и др.) **�
 | [docs/SITE.md](docs/SITE.md) | кабинет покупателя, вход через VK, содержимое сайта, настройки, перенос истории |
 | [docs/AIS.md](docs/AIS.md) | `ais-api/` и `ais-spa/`: отчёты, справочник станций, сотрудники и права, журналы |
 | [docs/STATION_SALES.md](docs/STATION_SALES.md) | сбор продаж станций (отчёт `station-sales`) |
+| [docs/BOARDING_POINTS.md](docs/BOARDING_POINTS.md) | продажа от промежуточных остановок: тарифы `startstatcode`, маршрутизация по станциям, пункты посадки |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | выкладка на прод, восстановление из бэкапа |
 | [docs/LEGACY.md](docs/LEGACY.md) | как устроен старый код, откуда что переносим |
 | [docs/TESTING.md](docs/TESTING.md) | прогоны и проверки |

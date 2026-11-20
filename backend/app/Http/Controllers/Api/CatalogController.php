@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Citizenship;
+use App\Services\BoardingPointCatalog;
+use App\Services\BoardingPointDestinationService;
 use App\Services\DestinationService;
+use App\Services\SalesApiException;
 use App\Services\SalesApiClient;
 use App\Support\VendorCode;
 use App\Support\VendorText;
@@ -17,6 +20,8 @@ class CatalogController extends Controller
     public function __construct(
         private readonly SalesApiClient $salesApi,
         private readonly DestinationService $destinations,
+        private readonly BoardingPointCatalog $boardingPoints,
+        private readonly BoardingPointDestinationService $stopDestinations,
     ) {}
 
     public function stations(): JsonResponse
@@ -64,15 +69,54 @@ class CatalogController extends Controller
     }
 
     /**
+     * Пункты посадки — остановки на трассе, с которых сайт продаёт билеты
+     * («Дросково» на рейсах Орёл–Ливны и Ливны–Орёл). Для формы поиска
+     * они стоят в «Откуда» рядом со станциями (docs/BOARDING_POINTS.md).
+     */
+    public function boardingPoints(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'place' => ['sometimes', 'in:home,schedule'],
+        ]);
+
+        $points = collect($this->boardingPoints->forPlace($data['place'] ?? 'home'))
+            ->map(fn (array $p) => [
+                'slug' => $p['slug'],
+                'name' => $p['name'],
+                // Станции, которые обслуживают пункт: сайту они нужны лишь
+                // для подсказки «билет оформляет такая-то автостанция».
+                'stations' => collect($p['stations'])->pluck('awtcod')->unique()->values()->all(),
+            ])
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $points]);
+    }
+
+    /** Куда можно уехать от пункта посадки (объединение по его станциям). */
+    public function boardingPointDestinations(string $slug): JsonResponse
+    {
+        $result = $this->stopDestinations->forPoint($slug);
+
+        return response()->json($result, $result['success'] ? 200 : 404);
+    }
+
+    /**
      * Рейсы маршрута. Без date — «ближайшие» (перенос legacy blij=1),
      * all=1 — показывать и рейсы, недоступные для покупки через сайт
      * (транзитные, снятые с продажи, отменённые — как на legacy-странице
      * расписания; поиск билетов показывает только доступные).
+     *
+     * `from_point` вместо `awtcod` — поиск от ПУНКТА ПОСАДКИ. Тогда
+     * станцию выбираем не мы и не покупатель, а тариф: у Дросково билет
+     * до Ливен продаёт база Орла, а до Орла — база Ливен. Если нужный
+     * пункт назначения продают несколько станций, спрашиваем все и
+     * складываем рейсы в один список.
      */
     public function trips(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'awtcod' => VendorCode::rules(),
+            'awtcod' => ['required_without:from_point', ...VendorCode::rules(required: false)],
+            'from_point' => ['required_without:awtcod', 'string', 'max:64'],
             /*
              * Пункт назначения уходит в базу станции параметром сравнения
              * (TRACES.STATNAME, WIN1251), поэтому проверяется и кодировка:
@@ -86,11 +130,22 @@ class CatalogController extends Controller
             'all' => ['sometimes', 'boolean'],
         ], [], ['to' => 'пункт назначения']);
 
+        $forSale = ! filter_var($data['all'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if (! empty($data['from_point'])) {
+            return response()->json($this->tripsFromPoint(
+                (string) $data['from_point'],
+                $data['to'],
+                $data['date'] ?? null,
+                $forSale,
+            ));
+        }
+
         return response()->json($this->salesApi->trips(
             (int) $data['awtcod'],
             $data['to'],
             $data['date'] ?? null,
-            ! filter_var($data['all'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            $forSale,
         ));
     }
 
@@ -101,6 +156,10 @@ class CatalogController extends Controller
             'date' => ['required', 'date_format:Y-m-d'],
             'napcod' => VendorCode::rules(),
             'raicecod' => VendorCode::rules(),
+            // Пункт назначения: с ним станция учитывает участок пути —
+            // место, занятое только до середины трассы, для билета до неё
+            // свободно (docs/BOARDING_POINTS.md).
+            'to' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
         ]);
 
         return response()->json($this->salesApi->places(
@@ -108,6 +167,88 @@ class CatalogController extends Controller
             $data['date'],
             (int) $data['napcod'],
             (int) $data['raicecod'],
+            trim((string) ($data['to'] ?? '')),
         ));
+    }
+
+    /**
+     * Поиск рейсов от пункта посадки: опрашиваем все станции, у которых
+     * от этой остановки продаётся билет до нужного пункта.
+     *
+     * Недоступная станция не рушит выдачу: рейсы остальных покупатель
+     * видит, а по недоступной уходит обычное предупреждение (правило
+     * «недоступная станция — не сбой», docs/STATIONS.md). Если не
+     * ответила ни одна — отдаём её отказ как есть, иначе покупатель
+     * увидит «рейсов нет» там, где просто нет связи.
+     *
+     * @return array<string, mixed>
+     */
+    private function tripsFromPoint(string $slug, string $to, ?string $date, bool $forSale): array
+    {
+        $point = $this->boardingPoints->find($slug);
+
+        if ($point === null) {
+            return ['success' => false, 'error' => 'Пункт посадки не найден', 'data' => []];
+        }
+
+        $route = $this->stopDestinations->routeFor($slug, $to);
+
+        if ($route === []) {
+            return [
+                'success' => true,
+                'from_point' => $slug,
+                'awtname' => $point['name'],
+                'data' => [],
+            ];
+        }
+
+        $trips = [];
+        $errors = [];
+        $warnings = [];
+
+        foreach ($route as $binding) {
+            try {
+                $response = $this->salesApi->trips(
+                    $binding['awtcod'],
+                    $to,
+                    $date,
+                    $forSale,
+                    $binding['station_name'],
+                );
+            } catch (SalesApiException $e) {
+                $errors[] = $e;
+                $warnings[] = $e->getMessage();
+
+                continue;
+            }
+
+            foreach ($response['data'] ?? [] as $trip) {
+                // Станция оформления у каждого рейса своя — без неё
+                // покупка не найдёт ни рейс, ни места.
+                $trip['awtcod'] = $binding['awtcod'];
+                $trip['awtname'] = $response['awtname'] ?? null;
+                $trip['from_point'] = $slug;
+                $trip['from_name'] = $point['name'];
+                $trip['from_station'] = $binding['station_name'];
+                $trips[] = $trip;
+            }
+        }
+
+        if ($trips === [] && $errors !== []) {
+            throw $errors[0];
+        }
+
+        // Рейсы из разных баз складываются в один список — порядок задаём
+        // по времени посадки, иначе он идёт блоками по станциям.
+        usort($trips, fn (array $a, array $b) => [$a['date_start'], $a['departure_at'] ?? $a['time_start']]
+            <=> [$b['date_start'], $b['departure_at'] ?? $b['time_start']]);
+
+        return array_filter([
+            'success' => true,
+            'from_point' => $slug,
+            'awtname' => $point['name'],
+            'data' => $trips,
+            'warnings' => $warnings ?: null,
+        ], fn ($v) => $v !== null);
     }
 }

@@ -23,6 +23,13 @@ const { data: siteSettings } = await useSiteSettings()
 const salesEnabled = computed(() => siteSettings.value.sales_enabled)
 
 const awtcod = computed(() => Number(route.query.awtcod))
+/*
+ * Поиск от ПУНКТА ПОСАДКИ (остановка на трассе): станцию выбирает сервер
+ * по тарифам — от Дросково до Ливен везёт база Орла, до Орла — база Ливен
+ * (docs/BOARDING_POINTS.md). У каждого рейса в ответе своя `awtcod`,
+ * поэтому дальше покупка берёт её у рейса, а не из адреса страницы.
+ */
+const fromPoint = computed(() => String(route.query.from_point ?? ''))
 const fromName = computed(() => String(route.query.from ?? ''))
 const toName = computed(() => String(route.query.to ?? ''))
 /** Пусто — «ближайшие рейсы» по всем датам. */
@@ -30,17 +37,23 @@ const date = computed(() => String(route.query.date ?? ''))
 const showAll = computed(() => queryFlag(route.query.all))
 
 const { data, status, error } = await useAsyncData(
-  () => `trips-${awtcod.value}-${toName.value}-${date.value}-${showAll.value}`,
-  () => api<{ success: boolean, awtname: string, data: Trip[] }>('/trips', {
+  () => `trips-${fromPoint.value || awtcod.value}-${toName.value}-${date.value}-${showAll.value}`,
+  () => api<{ success: boolean, awtname: string, data: Trip[], warnings?: string[] }>('/trips', {
     query: {
-      awtcod: awtcod.value,
+      ...(fromPoint.value ? { from_point: fromPoint.value } : { awtcod: awtcod.value }),
       to: toName.value,
       ...(date.value ? { date: date.value } : {}),
       ...(showAll.value ? { all: 1 } : {}),
     },
   }),
-  { watch: [awtcod, toName, date, showAll] },
+  { watch: [awtcod, fromPoint, toName, date, showAll] },
 )
+
+/**
+ * Станция не ответила, а рейсы других есть: пункт посадки обслуживают
+ * несколько баз, и молчание одной не должна скрывать пустая выдача.
+ */
+const warnings = computed(() => data.value?.warnings ?? [])
 
 const trips = computed(() => {
   const list = data.value?.data ?? []
@@ -66,7 +79,7 @@ function linkTo(d: string) {
   return {
     path: '/trips',
     query: {
-      awtcod: awtcod.value,
+      ...(fromPoint.value ? { from_point: fromPoint.value } : { awtcod: awtcod.value }),
       from: fromName.value,
       to: toName.value,
       ...(d ? { date: d } : {}),
@@ -93,6 +106,13 @@ function formatDateTime(d: Date) {
 
 function formatTime(d: Date) {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+/** Отправление, которое ждёт пассажир: от его остановки, а не рейса. */
+function departureTime(trip: Trip) {
+  const departure = tripDeparture(trip)
+
+  return departure ? formatTime(departure) : trip.time_start.slice(0, 5)
 }
 
 function statusColor(kind: TripStatus['kind']) {
@@ -125,26 +145,28 @@ interface TripStatus {
  * открытой полчаса назад.
  */
 function tripStatus(trip: Trip, now: number): TripStatus {
-  const departure = new Date(`${trip.date_start}T${trip.time_start}`).getTime()
+  // Отправление — от остановки покупателя, если он садится в пути.
+  const departure = (tripDeparture(trip) ?? new Date(`${trip.date_start}T${trip.time_start}`)).getTime()
   // legacy: продажа через сайт закрывается за 2000 секунд до отправления
   const openForSale = trip.available && !trip.transit && departure > now + 2000 * 1000
+  const places = placesNote(trip)
   let status: TripStatus = { kind: 'none' }
 
   if (openForSale && trip.free_places > 0) {
-    status = { kind: 'buy', note: `Осталось: ${trip.free_places} мест` }
+    status = { kind: 'buy', note: places }
 
     if (trip.min_kilom) {
       status = {
         kind: 'limited',
         text: 'Продажа ограничена',
-        note: `билет можно купить не ближе чем до: ${trip.min_kilom}. Осталось: ${trip.free_places} мест`,
+        note: `билет можно купить не ближе чем до: ${trip.min_kilom}. ${places}`,
       }
     }
     if (trip.max_kilom) {
       status = {
         kind: 'limited',
         text: 'Продажа ограничена',
-        note: `билет можно купить не дальше чем до: ${trip.max_kilom}. Осталось: ${trip.free_places} мест`,
+        note: `билет можно купить не дальше чем до: ${trip.max_kilom}. ${places}`,
       }
     }
     if (!trip.internet_sale_available) {
@@ -153,7 +175,7 @@ function tripStatus(trip: Trip, now: number): TripStatus {
   }
   else {
     if (trip.available && !trip.transit && departure <= now + 2000 * 1000 && trip.free_places > 0) {
-      status = { kind: 'cash', text: 'Продажа в кассах', note: `Осталось: ${trip.free_places} мест` }
+      status = { kind: 'cash', text: 'Продажа в кассах', note: places }
     }
     if (trip.available && !trip.transit && trip.free_places === 0) {
       status = { kind: 'closed', text: 'Нет свободных мест' }
@@ -180,19 +202,45 @@ function tripStatus(trip: Trip, now: number): TripStatus {
 }
 
 /**
+ * Подпись о местах.
+ *
+ * У посадки на остановке точного числа НЕТ: счётчик рейса не знает о
+ * билетах, проданных от других остановок, поэтому сервер отдаёт
+ * гарантированную нижнюю границу (`free_places_min`) — её и показываем
+ * как «не менее». Ноль — не повод скрывать кнопку: точную картину даёт
+ * выбор места, и отказ (если мест правда нет) покупатель увидит там
+ * (docs/BOARDING_POINTS.md).
+ */
+function placesNote(trip: Trip): string {
+  if (!trip.from_station) {
+    return `Осталось: ${trip.free_places} мест`
+  }
+
+  const min = trip.free_places_min ?? 0
+
+  return min > 0
+    ? `Свободно не менее ${min} мест`
+    : 'Мест может не быть — уточните при выборе места'
+}
+
+/**
  * Рейс передаётся странице покупки адресом, а не состоянием приложения:
  * такую ссылку можно отправить или опубликовать. Дата берётся у самого
  * рейса — в режиме «ближайшие» её в адресе списка нет.
+ *
+ * `awtcod` берём У РЕЙСА: при поиске от пункта посадки рейсы приходят из
+ * разных станционных баз, и в адресе страницы станции нет вовсе.
  */
 function buy(trip: Trip) {
   router.push({
     path: '/buy',
     query: {
-      awtcod: awtcod.value,
+      awtcod: trip.awtcod || awtcod.value,
       to: toName.value,
       date: trip.date_start,
       napcod: trip.napcod,
       raicecod: trip.raicecod,
+      ...(fromPoint.value ? { from_point: fromPoint.value, from: fromName.value } : {}),
     },
   })
 }
@@ -224,7 +272,7 @@ function tariffLink(trip: Trip) {
   return {
     path: '/tarif',
     query: {
-      from: awtcod.value,
+      from: trip.awtcod || awtcod.value,
       napcod: trip.napcod,
       raicecod: trip.raicecod,
       date: trip.date_start,
@@ -250,6 +298,29 @@ useSeoMeta({
 
     <!-- Предупреждения об отменах и изменениях — блок из АИС -->
     <SiteBlock name="trips_top" />
+
+    <!--
+      Пункт посадки: билет оформляет автостанция, которая ведёт рейс, а
+      сесть нужно на остановке. Кассы там нет — это стоит сказать прямо.
+    -->
+    <UAlert
+      v-if="fromPoint && trips.length"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-map-pin"
+      :title="`Посадка на остановке «${fromName}»`"
+      description="Время отправления указано для этой остановки. Билет оформляется автостанцией, которая ведёт рейс; на остановке кассы нет — покажите водителю электронный билет."
+    />
+
+    <!-- Одна из станций пункта посадки не ответила — рейсы остальных показаны. -->
+    <UAlert
+      v-for="w in warnings"
+      :key="w"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :description="w"
+    />
 
     <UAlert
       v-if="!salesEnabled"
@@ -342,7 +413,13 @@ useSeoMeta({
         <div class="flex flex-col md:flex-row md:items-center gap-4">
           <div class="flex items-center gap-3 text-2xl font-semibold shrink-0">
             <UIcon name="i-lucide-bus" class="text-error" />
-            <span>{{ trip.time_start.slice(0, 5) }}</span>
+            <!--
+              Время отправления — ОТ ОСТАНОВКИ покупателя: у рейса из
+              Орла в 07:00 посадка в Дросково в 09:15, и показывать здесь
+              время рейса значило бы отправить пассажира на два часа
+              раньше (docs/BOARDING_POINTS.md).
+            -->
+            <span>{{ departureTime(trip) }}</span>
             <UIcon name="i-lucide-arrow-right" class="text-muted size-5" />
             <!--
               Время прибытия само по себе врёт на сутки у рейсов дольше

@@ -11,9 +11,18 @@ class StationSalesSource
 
     public function __construct(private readonly StationRegistry $stations, private readonly SiteSettings $settings) {}
 
+    /*
+     * STARTSTATNAME — остановка, С КОТОРОЙ продан билет (`SALE.START_NOMSTAT`).
+     * У обычной продажи это 0, то есть сама автостанция, и поле пустое; у
+     * продажи от промежуточной остановки («Дросково КП → Ливны АС», см.
+     * docs/BOARDING_POINTS.md) без него строка отчёта читалась бы как
+     * проезд от вокзала — то есть за другие деньги и другой километраж.
+     */
     private const DETAIL_FIELDS = "s.*, CAST(s.TIMESALE AS VARCHAR(20)) AS TIMESALE,
         (SELECT n.napname FROM naplst n WHERE n.napcod = s.napcod) AS NAPNAME,
-        (SELECT FIRST 1 t.statname FROM traces t WHERE t.napcod = s.napcod AND t.statcod = s.nomstat) AS STATNAME";
+        (SELECT FIRST 1 t.statname FROM traces t WHERE t.napcod = s.napcod AND t.statcod = s.nomstat) AS STATNAME,
+        (SELECT FIRST 1 t.statname FROM traces t WHERE t.napcod = s.napcod AND t.statcod = s.start_nomstat
+          AND s.start_nomstat > 0) AS STARTSTATNAME";
 
     public static function extraDays(object $run): array
     {

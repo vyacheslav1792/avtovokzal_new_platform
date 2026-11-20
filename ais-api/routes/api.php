@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BoardingPointController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ImpersonationController;
 use App\Http\Controllers\Api\KkmServerController;
@@ -86,6 +87,24 @@ Route::prefix('v1')->group(function () {
         // Проверка связи ничего не меняет — отдельное право попроще.
         Route::post('stations/{awtcod}/test', [StationController::class, 'test'])
             ->whereNumber('awtcod')->middleware('employee.can:stations.test');
+
+        /*
+         * Пункты посадки — остановки на трассе, с которых продаёт сайт
+         * (docs/BOARDING_POINTS.md). Проверка привязки ходит в живую базу
+         * станции, поэтому требует права на проверку связи.
+         */
+        Route::get('boarding-points', [BoardingPointController::class, 'index'])
+            ->middleware('employee.can:boarding-points.view');
+        Route::post('boarding-points', [BoardingPointController::class, 'store'])
+            ->middleware('employee.can:boarding-points.edit');
+        Route::put('boarding-points/{id}', [BoardingPointController::class, 'update'])
+            ->whereNumber('id')->middleware('employee.can:boarding-points.edit');
+        Route::delete('boarding-points/{id}', [BoardingPointController::class, 'destroy'])
+            ->whereNumber('id')->middleware('employee.can:boarding-points.edit');
+        Route::post('boarding-points/check', [BoardingPointController::class, 'check'])
+            ->middleware('employee.can:boarding-points.view');
+        Route::get('boarding-points/stops/{awtcod}', [BoardingPointController::class, 'stops'])
+            ->whereNumber('awtcod')->middleware('employee.can:boarding-points.view');
 
         // Настройки KkmServer (фискальные чеки).
         Route::get('kkm-servers', [KkmServerController::class, 'index'])

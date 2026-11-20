@@ -34,6 +34,16 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::get('stations', [CatalogController::class, 'stations']);
     Route::get('stations/{awtcod}/destinations', [CatalogController::class, 'destinations'])->whereNumber('awtcod');
+
+    /*
+     * Пункты посадки — остановки на трассе рейсов, с которых продаётся
+     * билет (docs/BOARDING_POINTS.md). В «Откуда» они стоят рядом со
+     * станциями, но рейсы у них могут вести РАЗНЫЕ станционные базы, и
+     * выбор базы делает сервер по тарифам.
+     */
+    Route::get('boarding-points', [CatalogController::class, 'boardingPoints']);
+    Route::get('boarding-points/{slug}/destinations', [CatalogController::class, 'boardingPointDestinations'])
+        ->where('slug', '[a-z0-9-]+');
     Route::get('trips', [CatalogController::class, 'trips']);
     Route::get('trips/places', [CatalogController::class, 'places']);
     Route::get('citizenships', [CatalogController::class, 'citizenships']);

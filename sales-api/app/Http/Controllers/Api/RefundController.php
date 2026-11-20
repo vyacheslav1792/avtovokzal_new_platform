@@ -89,6 +89,13 @@ class RefundController extends Controller
                 'prices' => $result['prices'],
                 'penalties' => $result['penalties'],
                 'trip_name' => $result['trip_name'],
+                /*
+                 * Маршрут билета («Дросково КП» → «Ливны АС»): у билета от
+                 * промежуточной остановки он не совпадает с названием рейса.
+                 */
+                'ticket_route' => $result['ticket_route'] ?? [],
+                // Время отправления РЕЙСА (станция другого не отдаёт), а не
+                // остановки — см. BusterGateway::refund().
                 'datetime_start' => $result['datetime_start'],
                 // Итог переноса даты в журнале станции (null — не просили).
                 'backdate' => $result['backdate'] ?? null,

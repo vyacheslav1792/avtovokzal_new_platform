@@ -9,6 +9,7 @@ use App\Services\Buster\StationRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Support\VendorCode;
+use App\Support\VendorText;
 
 class ReservationController extends Controller
 {
@@ -19,7 +20,11 @@ class ReservationController extends Controller
 
     /**
      * Зарезервировать места (бронь ~24 мин): POST /api/v1/reservations
-     * {awtcod, napcod, raicecod, statcod, date, places[] | seat_count}
+     * {awtcod, napcod, raicecod, statcod, date, places[] | seat_count, from}
+     *
+     * `from` — остановка отправления на трассе рейса (продажа «от остановки
+     * до остановки»): от неё станция считает цену и время отправления.
+     * Пусто — от самой станции, как было всегда.
      */
     public function store(Request $request): JsonResponse
     {
@@ -32,6 +37,7 @@ class ReservationController extends Controller
             'places' => ['sometimes', 'array', 'min:1', 'max:20'],
             'places.*' => ['integer', 'min:1', 'max:200'],
             'seat_count' => ['required_without:places', 'integer', 'min:1', 'max:20'],
+            'from' => ['sometimes', ...VendorText::rules(VendorText::MAX_STATION_NAME, false)],
         ]);
 
         // Продажа по станции может быть выключена в АИС — проверяем до
@@ -42,6 +48,23 @@ class ReservationController extends Controller
         $agent = $request->attributes->get('agent');
         $gateway = $this->gateways->forStation($data['awtcod'], $agent);
 
+        $fromStation = trim((string) ($data['from'] ?? ''));
+        $fromStatcod = 0;
+
+        if ($fromStation !== '') {
+            // Тариф от остановки и разрешённая посадка — до брони: сама
+            // процедура резерва на это не смотрит и зарезервировала бы
+            // место по нулевой цене (docs/BOARDING_POINTS.md).
+            $fromStatcod = $gateway->boardingStop(
+                (int) $data['awtcod'],
+                (int) $data['napcod'],
+                (int) $data['raicecod'],
+                $data['date'],
+                (int) $data['statcod'],
+                $fromStation,
+            );
+        }
+
         $result = $gateway->reserve(
             (int) $data['awtcod'],
             (int) $data['napcod'],
@@ -50,6 +73,7 @@ class ReservationController extends Controller
             $data['date'],
             array_map('intval', $data['places'] ?? []),
             (int) ($data['seat_count'] ?? 0),
+            $fromStatcod,
         );
 
         $reservation = Reservation::create([
@@ -58,6 +82,8 @@ class ReservationController extends Controller
             'napcod' => $data['napcod'],
             'raicecod' => $data['raicecod'],
             'statcod' => $data['statcod'],
+            'start_statcod' => $fromStatcod,
+            'start_station' => $fromStation !== '' ? $fromStation : null,
             'date_start' => $data['date'],
             'places' => $result['places'],
             'id_time_places' => $result['id_time_places'],
@@ -73,6 +99,13 @@ class ReservationController extends Controller
                 'reservation_id' => $reservation->id,
                 'id_time_places' => $result['id_time_places'],
                 'places' => $result['places'],
+                'from_station' => $reservation->start_station,
+                /*
+                 * datetime_start у продажи от остановки — отправление С
+                 * ОСТАНОВКИ: процедура считает его по расписанию остановок
+                 * (от Дросково 09:15 при рейсе из Орла в 07:00). Именно это
+                 * время идёт в билет и письмо покупателю.
+                 */
                 'datetime_start' => $reservation->datetime_start,
                 'datetime_arrival' => $reservation->datetime_arrival,
                 'carrier' => $result['raw']['PRN_NAME_ATP'] ?? null,

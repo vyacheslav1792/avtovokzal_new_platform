@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\BoardingPointDestinationService;
 use App\Services\DestinationService;
 use App\Services\SalesApiClient;
 use App\Services\ScheduleService;
@@ -31,6 +32,7 @@ class AdminDataSyncController extends Controller
         private readonly ScheduleService $schedules,
         private readonly DestinationService $destinations,
         private readonly SalesApiClient $salesApi,
+        private readonly BoardingPointDestinationService $stopDestinations,
     ) {}
 
     /** Состояние обоих кэшей плюс список станций для выбора одной. */
@@ -67,7 +69,37 @@ class AdminDataSyncController extends Controller
             ? $this->destinations->syncAll()
             : [$this->destinations->sync($awtcod)];
 
-        return $this->result($rows, 'destinations');
+        /*
+         * Вместе со станциями обновляем и пункты посадки (остановки на
+         * трассе, с которых продаёт сайт): их список «Куда» собирается из
+         * тех же станционных баз, и держать для него отдельную кнопку
+         * значило бы забыть её нажать (docs/BOARDING_POINTS.md).
+         */
+        $stopRows = $this->boardingPointRows($awtcod);
+
+        return $this->result($rows, 'destinations', $stopRows);
+    }
+
+    /**
+     * Обновление пунктов посадки — отдельной строкой в итоге.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function boardingPointRows(?int $awtcod): array
+    {
+        $rows = $this->stopDestinations->syncAll();
+
+        if ($awtcod !== null) {
+            $rows = array_values(array_filter($rows, fn (array $r) => $r['awtcod'] === $awtcod));
+        }
+
+        return array_map(fn (array $r) => [
+            'slug' => $r['slug'],
+            'awtcod' => $r['awtcod'],
+            'station_name' => $r['station_name'],
+            'count' => $r['destinations'],
+            'error' => $r['error'],
+        ], $rows);
     }
 
     private function awtcod(Request $request): ?int
@@ -85,13 +117,13 @@ class AdminDataSyncController extends Controller
      *
      * @param  array<int, array<string, mixed>>  $rows
      */
-    private function result(array $rows, string $countKey): JsonResponse
+    private function result(array $rows, string $countKey, array $boardingPoints = []): JsonResponse
     {
         $failed = array_values(array_filter($rows, fn (array $r) => $r['error'] !== null));
 
         return response()->json([
             'success' => true,
-            'data' => [
+            'data' => array_filter([
                 'total' => count($rows),
                 'failed' => count($failed),
                 'rows' => array_map(fn (array $r) => [
@@ -100,9 +132,11 @@ class AdminDataSyncController extends Controller
                     'count' => $r[$countKey],
                     'error' => $r['error'],
                 ], $rows),
+                // Пункты посадки: пусто, когда их не заводили вовсе.
+                'boarding_points' => $boardingPoints ?: null,
                 'schedules' => $this->schedules->status(),
                 'destinations' => $this->destinations->status(),
-            ],
+            ], fn ($v) => $v !== null),
         ]);
     }
 

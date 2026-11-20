@@ -23,10 +23,34 @@ class Order extends Model
         'passengers' => 'array',
         'legacy' => 'array',
         'date_start' => 'date:Y-m-d',
+        'departure_at' => 'datetime',
         'arrival_at' => 'datetime',
         'paid_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    /**
+     * Время отправления, которое ждёт пассажир, — «ЧЧ:ММ».
+     *
+     * У заказа от пункта посадки (остановка на трассе) это НЕ время
+     * отправления рейса: автобус уходит из Орла в 07:00, а в Дросково
+     * подбирает пассажира в 09:15. Именно это время показывают билет,
+     * письмо, чек и кабинет; `time_start` остаётся временем рейса, на
+     * нём держатся правила станции (docs/BOARDING_POINTS.md).
+     */
+    public function displayTime(): string
+    {
+        return $this->departure_at
+            ? $this->departure_at->format('H:i')
+            : mb_substr((string) $this->time_start, 0, 5);
+    }
+
+    /** Момент отправления пассажира (посадка), а не рейса. */
+    public function departureMoment(): \DateTimeInterface
+    {
+        return $this->departure_at
+            ?: new \DateTimeImmutable($this->date_start->format('Y-m-d').' '.$this->time_start);
+    }
 
     /** Оформленные билеты (появляются при завершении заказа). */
     public function tickets(): HasMany

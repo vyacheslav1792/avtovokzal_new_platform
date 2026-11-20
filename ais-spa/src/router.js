@@ -24,6 +24,7 @@ import RolesView from './views/RolesView.vue'
 import SettingsView from './views/SettingsView.vue'
 import SpamRulesView from './views/SpamRulesView.vue'
 import StationsView from './views/StationsView.vue'
+import BoardingPointsView from './views/BoardingPointsView.vue'
 
 // Маршрутизация без # (history mode): / — список отчётов, /<slug> — отчёт.
 // Админские страницы объявляем ДО catch-all, иначе их съест ReportView:
@@ -35,7 +36,8 @@ import StationsView from './views/StationsView.vue'
 // /news — новости и объявления, /blocks — блоки сайта (legacy vidjets/*.php),
 // /settings — выключатели продажи и возврата билетов,
 // /stations — автостанции и подключения к их базам (в legacy — массив $AWT
-//   в коде, в трёх местах), /kkm — настройки фискального сервера,
+//   в коде, в трёх местах), /boarding-points — пункты посадки (остановки на
+//   трассе, с которых продаёт сайт), /kkm — настройки фискального сервера,
 // /sync — немедленное обновление расписания и пунктов назначения,
 // /logs — журналы приложений (раньше их смотрели только через ssh),
 // /feedback и /spam-rules — обращения с сайта и антиспам-словарь
@@ -75,6 +77,7 @@ const routes = [
   { path: '/blocks', component: BlocksView },
   { path: '/settings', component: SettingsView },
   { path: '/stations', component: StationsView },
+  { path: '/boarding-points', component: BoardingPointsView },
   { path: '/kkm', component: KkmView },
   // Непробитые чеки: деньги прошли, фискального документа нет.
   { path: '/receipts', component: FiscalReceiptsView },

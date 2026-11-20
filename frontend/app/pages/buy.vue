@@ -21,6 +21,12 @@ const toName = computed(() => String(route.query.to ?? ''))
 const date = computed(() => String(route.query.date ?? ''))
 const napcod = computed(() => Number(route.query.napcod ?? 0))
 const raicecod = computed(() => Number(route.query.raicecod ?? 0))
+/*
+ * Пункт посадки — остановка на трассе рейса, с которой садится покупатель
+ * (docs/BOARDING_POINTS.md). Станция (`awtcod`) при этом та, что ведёт
+ * рейс: от Дросково до Ливен это Орёл, до Орла — Ливны.
+ */
+const fromPoint = computed(() => String(route.query.from_point ?? ''))
 
 // Кэш useAsyncData отключён: данные берём из payload только при гидрации
 // (там они с этого же запроса), а на любом повторном заходе — новый запрос
@@ -35,14 +41,25 @@ const { data: tripsResp, error: tripError } = await useAsyncData(
   () => api<{ success: boolean, awtname: string, data: Trip[] }>('/trips', {
     // all=1 — рейс должен найтись, даже если продажа на него уже закрыта:
     // иначе вместо понятной причины была бы «рейс не найден».
-    query: { awtcod: awtcod.value, to: toName.value, date: date.value, all: 1 },
+    query: {
+      awtcod: awtcod.value,
+      to: toName.value,
+      date: date.value,
+      all: 1,
+      ...(fromPoint.value ? { from_point: fromPoint.value } : {}),
+    },
   }),
-  { ...noCache, watch: [awtcod, toName, date] },
+  { ...noCache, watch: [awtcod, toName, date, fromPoint] },
 )
 
 const trip = computed(() =>
   (tripsResp.value?.data ?? []).find(t => t.napcod === napcod.value && t.raicecod === raicecod.value) ?? null)
 
+/*
+ * Откуда едем, как это видит покупатель: название пункта посадки
+ * («Дросково»), а у обычной продажи — название станции. Оно же уходит в
+ * заказ и дальше в билет, письмо и чек.
+ */
 const fromName = computed(() => tripsResp.value?.awtname ?? '')
 
 /*
@@ -52,6 +69,18 @@ const fromName = computed(() => tripsResp.value?.awtname ?? '')
  * прибытия в данных рейса нет вовсе.
  */
 const arrivesAt = computed(() => (trip.value ? tripArrival(trip.value) : null))
+
+/** Отправление, которое ждёт пассажир: от его остановки, а не рейса. */
+const departureTime = computed(() => {
+  const t = trip.value
+  if (!t) return ''
+
+  const departure = tripDeparture(t)
+
+  return departure
+    ? departure.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : t.time_start.slice(0, 5)
+})
 const arrivalDate = computed(() => {
   const at = arrivesAt.value
 
@@ -88,7 +117,13 @@ const unavailableReason = computed(() => {
   if (t.max_kilom) return `Продажа ограничена: билет можно купить не дальше чем до «${t.max_kilom}».`
   if (t.free_places < 1) return 'На рейсе нет свободных мест.'
 
-  const departure = new Date(`${t.date_start}T${t.time_start}`).getTime()
+  /*
+   * У посадки на остановке число мест в выдаче — нижняя граница, и ноль
+   * там не значит «мест нет»: точную картину даёт выбор места ниже
+   * (`freePlaces`). Поэтому рейс не закрываем, а ждём ответа станции —
+   * иначе отказали бы покупателю там, где места есть.
+   */
+  const departure = (tripDeparture(t) ?? new Date(`${t.date_start}T${t.time_start}`)).getTime()
   if (departure <= Date.now() + 2000 * 1000) {
     return 'Продажа через сайт закрыта: до отправления осталось меньше получаса. Билет можно купить в кассе автовокзала.'
   }
@@ -99,7 +134,13 @@ const unavailableReason = computed(() => {
 /** Назад к рейсам этого маршрута на ту же дату. */
 const tripsLink = computed(() => ({
   path: '/trips',
-  query: { awtcod: awtcod.value, from: fromName.value, to: toName.value, date: date.value, all: 1 },
+  query: {
+    ...(fromPoint.value ? { from_point: fromPoint.value } : { awtcod: awtcod.value }),
+    from: fromName.value,
+    to: toName.value,
+    date: date.value,
+    all: 1,
+  },
 }))
 
 const { data: placesResp, refresh: refreshPlaces } = await useAsyncData(
@@ -111,6 +152,12 @@ const { data: placesResp, refresh: refreshPlaces } = await useAsyncData(
         date: trip.value.date_start,
         napcod: trip.value.napcod,
         raicecod: trip.value.raicecod,
+        /*
+         * Пункт назначения: с ним станция учитывает участок пути — место,
+         * занятое только до середины трассы, для билета до неё свободно.
+         * Так картина мест совпадает с тем, что станция даст оформить.
+         */
+        to: toName.value,
       },
     })
     : Promise.resolve(null),
@@ -122,6 +169,17 @@ const { data: citizenshipsResp } = await useAsyncData('citizenships', () =>
   api<{ success: boolean, data: { code: number, name: string }[] }>('/citizenships'))
 
 const freePlaces = computed(() => placesResp.value?.data.free ?? [])
+
+/**
+ * Станция ответила, и свободных мест НЕТ.
+ *
+ * Для посадки на остановке это штатный случай: число мест в выдаче рейсов
+ * — нижняя граница, и кнопка покупки там не скрывается (место, занятое
+ * «Орёл → Дросково», для посадки в Дросково всё равно занято — так
+ * устроена вендорная проверка). Значит отказать можно только здесь, когда
+ * известна точная картина (docs/BOARDING_POINTS.md).
+ */
+const placesSoldOut = computed(() => placesResp.value !== null && freePlaces.value.length === 0)
 const citizenshipOptions = computed(() =>
   (citizenshipsResp.value?.data ?? []).map(c => ({ label: c.name, value: c.code })))
 
@@ -586,6 +644,9 @@ async function submit() {
           statcod: trip.value!.statcode,
           date: trip.value!.date_start,
           to_name: toName.value,
+          // Пункт посадки: название остановки в базе станции сервер
+          // возьмёт из справочника сам (параметром его подменить нельзя).
+          ...(fromPoint.value ? { from_point: fromPoint.value } : {}),
           email: email.value,
           phone: phone.value,
           // `chosen` — состояние формы, backend про него не знает.
@@ -704,9 +765,17 @@ function formatTime(d: Date) {
       </template>
       <div class="flex flex-wrap items-center gap-6">
         <div>
-          <div class="text-2xl font-semibold">{{ trip.time_start.slice(0, 5) }}</div>
+          <!--
+            Время отправления — ОТ ОСТАНОВКИ покупателя: рейс уходит из
+            Орла в 07:00, а в Дросково подбирает пассажира в 09:15, и
+            именно это время попадёт в билет (docs/BOARDING_POINTS.md).
+          -->
+          <div class="text-2xl font-semibold">{{ departureTime }}</div>
           <div class="text-sm text-muted">{{ formatDate(trip.date_start) }}</div>
           <div class="font-medium">{{ fromName }}</div>
+          <div v-if="fromPoint" class="text-xs text-muted">
+            остановка в пути · рейс из {{ trip.trip_name }} в {{ trip.time_start.slice(0, 5) }}
+          </div>
         </div>
         <UIcon name="i-lucide-arrow-right" class="size-6 text-muted" />
         <div>
@@ -736,6 +805,21 @@ function formatTime(d: Date) {
         </div>
       </div>
     </UCard>
+
+    <!--
+      Мест нет именно для этой посадки: от остановки место, занятое на
+      участке до неё, станция продать не даст, хотя в списке рейсов оно
+      считалось свободным. Поэтому отказ выдаём здесь, а не вместо списка.
+    -->
+    <UAlert
+      v-if="placesSoldOut"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-ticket-x"
+      :title="fromPoint ? `От остановки «${fromName}» мест на этот рейс нет` : 'На рейсе нет свободных мест'"
+      description="Выберите другой рейс или дату — места могли занять, пока открывалась страница."
+      :actions="[{ label: 'Ко всем рейсам маршрута', to: tripsLink, color: 'neutral', variant: 'outline' }]"
+    />
 
     <!--
       Пока заказ ждёт оплаты, форма только на чтение: места уже
@@ -1047,7 +1131,8 @@ function formatTime(d: Date) {
           <div class="order-1 sm:order-2 flex flex-wrap items-center justify-between gap-4">
             <div class="whitespace-nowrap">Всего: <b class="text-2xl">{{ total.toFixed(2) }} ₽</b></div>
             <UButton
-              size="xl" color="error" :loading="submitting" class="whitespace-nowrap"
+              size="xl" color="error" :loading="submitting" :disabled="placesSoldOut"
+              class="whitespace-nowrap"
               @click="payment && holdLeft ? (paymentOpen = true) : submit()"
             >
               Перейти к оплате

@@ -24,6 +24,7 @@ class OrderService
         private readonly PaymentGateway $payments,
         private readonly SavedPassengerService $savedPassengers,
         private readonly FiscalReceiptService $receipts,
+        private readonly BoardingPointCatalog $boardingPoints,
     ) {}
 
     /**
@@ -33,6 +34,15 @@ class OrderService
      */
     public function create(array $data, string $ip, ?User $user = null): Order
     {
+        /*
+         * Пункт посадки (остановка на трассе) — если покупают не от самой
+         * станции. Остановка в базе станции называется по-своему
+         * («Дросково КП» против «Дросково» на сайте), и дальше в API
+         * продаж уходит именно её название (docs/BOARDING_POINTS.md).
+         */
+        $boarding = $this->boardingStop($data);
+        $data['from_stop'] = $boarding['station_name'];
+
         // Цены берём НЕ из запроса, а из API продаж — защита от подмены.
         $trip = $this->findTrip($data);
 
@@ -40,7 +50,13 @@ class OrderService
             throw ValidationException::withMessages(['trip' => 'Рейс не найден или продажа на него закрыта']);
         }
 
-        $departureAt = strtotime($trip['date_start'].' '.$trip['time_start']);
+        /*
+         * Отсечка «не позднее чем за 30 минут» — от времени, когда автобус
+         * уходит С ОСТАНОВКИ покупателя: у рейса из Орла в 07:00 посадка в
+         * Дросково в 09:15, и считать по отправлению рейса значило бы
+         * отказывать в покупке на весь день.
+         */
+        $departureAt = strtotime($trip['departure_at'] ?? ($trip['date_start'].' '.$trip['time_start']));
         if ($departureAt < time() + 1920) {
             throw ValidationException::withMessages([
                 'trip' => 'Покупка билетов через сайт возможна не позднее чем за 30 минут до отправления автобуса',
@@ -64,14 +80,17 @@ class OrderService
             }
         }
 
-        $reservation = $this->salesApi->reserve([
+        $reservation = $this->salesApi->reserve(array_filter([
             'awtcod' => $data['awtcod'],
             'napcod' => $data['napcod'],
             'raicecod' => $data['raicecod'],
             'statcod' => $data['statcod'],
             'date' => $data['date'],
             'places' => collect($data['passengers'])->pluck('place')->map(fn ($p) => (int) $p)->all(),
-        ])['data'];
+            // Остановка отправления: от неё станция считает цену билета и
+            // время отправления, и её же пишет в билет (START_NOMSTAT).
+            'from' => $boarding['station_name'] ?: null,
+        ], fn ($v) => $v !== null))['data'];
 
         $passengers = [];
         $total = 0.0;
@@ -106,12 +125,21 @@ class OrderService
             'napcod' => $data['napcod'],
             'raicecod' => $data['raicecod'],
             'statcod' => $data['statcod'],
-            'from_name' => $trip['awtname'] ?? (string) $data['awtcod'],
+            // Что видит покупатель: название станции либо пункта посадки.
+            // Это поле показывают письмо, билет, чек и кабинет.
+            'from_name' => $boarding['name'] ?: ($trip['awtname'] ?? (string) $data['awtcod']),
+            'boarding_point_slug' => $boarding['slug'],
+            'from_stop' => $boarding['station_name'] ?: null,
             'to_name' => $data['to_name'],
             'trip_name' => $trip['trip_name'].'–'.$trip['direction_name'],
             'carrier' => $trip['carrier'],
             'date_start' => $data['date'],
+            // time_start — отправление РЕЙСА (на нём держатся правила
+            // станции и сверки с её расписанием), departure_at — момент
+            // посадки покупателя; у продажи от станции они совпадают.
             'time_start' => $trip['time_start'],
+            'departure_at' => $this->parseArrival($reservation['datetime_start'] ?? null)
+                ?: date_create($trip['date_start'].' '.$trip['time_start']),
             'arrival_at' => $this->parseArrival($reservation['datetime_arrival'] ?? null),
             'reservation_id' => $reservation['reservation_id'],
             'id_time_places' => $reservation['id_time_places'],
@@ -347,7 +375,7 @@ class OrderService
             'to_name' => $order->to_name,
             'trip_name' => $order->trip_name,
             'date_start' => $order->date_start->format('Y-m-d'),
-            'time_start' => substr((string) $order->time_start, 0, 5),
+            'time_start' => $order->displayTime(),
             'total_price' => (float) $order->total_price,
             'places' => collect($order->passengers)->pluck('place')->values()->all(),
             // Ссылка на шлюз — только пока по ней есть смысл платить.
@@ -659,6 +687,8 @@ class OrderService
             (int) $data['awtcod'],
             $data['to_name'],
             $data['date'],
+            true,
+            (string) ($data['from_stop'] ?? ''),
         );
 
         foreach ($trips['data'] as $trip) {
@@ -669,6 +699,48 @@ class OrderService
         }
 
         return null;
+    }
+
+    /**
+     * Пункт посадки заказа: название для покупателя и название остановки
+     * в базе станции, которая оформляет билет.
+     *
+     * Одну остановку обслуживают разные станции (Дросково → Ливны ведёт
+     * база Орла, Дросково → Орёл — база Ливен), поэтому привязку ищем по
+     * ПАРЕ «пункт + станция рейса». Если такой пары нет, покупка
+     * отклоняется: иначе билет уехал бы от автостанции по цене остановки.
+     *
+     * @return array{slug: ?string, name: ?string, station_name: string}
+     */
+    private function boardingStop(array $data): array
+    {
+        $slug = trim((string) ($data['from_point'] ?? ''));
+
+        if ($slug === '') {
+            return ['slug' => null, 'name' => null, 'station_name' => ''];
+        }
+
+        $point = $this->boardingPoints->find($slug);
+
+        if ($point === null) {
+            throw ValidationException::withMessages([
+                'from_point' => 'Пункт посадки не найден или больше не обслуживается',
+            ]);
+        }
+
+        foreach ($point['stations'] as $binding) {
+            if ((int) $binding['awtcod'] === (int) $data['awtcod']) {
+                return [
+                    'slug' => $point['slug'],
+                    'name' => $point['name'],
+                    'station_name' => $binding['station_name'],
+                ];
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'from_point' => 'От этого пункта посадки выбранная автостанция билеты не оформляет',
+        ]);
     }
 
     /** Детский тариф — до 12 лет (legacy det_age). */
@@ -730,7 +802,7 @@ class OrderService
                 $order->date_start->format('d').' '
                     .self::MONTHS[(int) $order->date_start->format('n')].' '
                     .$order->date_start->format('Y'),
-                substr((string) $order->time_start, 0, 5),
+                $order->displayTime(),
                 $p['place'],
                 $bag,
             );

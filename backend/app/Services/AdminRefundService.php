@@ -1515,7 +1515,7 @@ class AdminRefundService
             'to_name' => $order->to_name,
             'trip_name' => $order->trip_name,
             'date_start' => $order->date_start->format('Y-m-d'),
-            'time_start' => substr((string) $order->time_start, 0, 5),
+            'time_start' => $order->displayTime(),
             'email' => $order->email,
             'phone' => $order->phone,
             'total_price' => (float) $order->total_price,
